@@ -21,7 +21,7 @@ export async function createQueryOptions(sessionId?: string): Promise<Options> {
     systemPrompt,
     mcpServers: {
       "message": createMessageServer(),
-    },
+    },    
   };
 
   if (sessionId) {
