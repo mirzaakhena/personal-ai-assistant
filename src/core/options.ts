@@ -15,9 +15,9 @@ WORKFLOW:
 export async function createQueryOptions(sessionId?: string): Promise<Options> {
   const options: Options = {
     model: 'haiku' as const,
-    maxTurns: 3,
+    maxTurns: 10,
     permissionMode: 'bypassPermissions' as const,
-    disallowedTools: allBuiltInTools,
+    // disallowedTools: allBuiltInTools,
     systemPrompt,
     mcpServers: {
       "message": createMessageServer(),
