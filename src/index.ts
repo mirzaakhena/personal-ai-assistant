@@ -1,22 +1,38 @@
-import { query } from "@anthropic-ai/claude-agent-sdk";
-import { buildUserPrompt } from "./utils/prompt.js";
-import { createQueryOptions } from "./core/options.js";
+import 'dotenv/config';
+import type { Message } from 'whatsapp-web.js';
+import { createWhatsAppClient } from './whatsapp/client.js';
+import { enqueue } from './whatsapp/queue.js';
+import { processMessage } from './handlers/message.js';
 
-// const userMessage = "Can you help check, is there any claude code installed in this system? if there is a claude code, you may try ask claude code to write a simple helloword with golang code, then ask it to try run it. Then tell me if it can run";
-// const userMessage = `Coba buat kode helloworld dengan golang, kemudian test jalankan di bawah directory /Users/mirza/Workspace/personal-ai-assistant6/temp. Saya ingin kamu membuat secara bertahap seperti mengajarkan via tutorial. Mulai dari pembuatan go mod, pembuatan file main.go kemudian sampai pada menjalankan kode-nya. untuk setiap tahapannya kabari saya ya.`
-const userMessage = 'Silakan lanjut'
-const prompt = buildUserPrompt(userMessage);
+const WHITELIST_NUMBERS = new Set(
+  (process.env.WHITELIST_NUMBERS ?? '')
+    .split(',')
+    .map((n) => n.trim())
+    .filter(Boolean)
+);
 
-console.log(`[user]: ${userMessage}`);
-
-const options = await createQueryOptions('1e6d66e3-9fb4-41b7-a3ed-95394765c37c');
-const responses = query({ prompt, options });
-
-for await (const message of responses) {
-  if (message.type === "system" && message.subtype === "init") {
-    // session started
-  } else if (message.type === "result") {
-    console.log(`\n💰 Cost: $${message.total_cost_usd.toFixed(6)}`);
-    console.log(`📍 Session: ${message.session_id}`);
-  }
+if (WHITELIST_NUMBERS.size === 0) {
+  console.warn('[WARN] WHITELIST_NUMBERS is empty — no messages will be processed');
 }
+
+const client = createWhatsAppClient();
+
+client.on('message', (message: Message) => {
+  // Skip group messages and status broadcast
+  if (message.from.endsWith('@g.us') || message.from === 'status@broadcast') return;
+
+  // Skip non-text messages
+  if (!message.body) return;
+
+  const phoneNumber = message.from.replace(/@.*$/, '');
+
+  // Whitelist check
+  if (!WHITELIST_NUMBERS.has(phoneNumber)) {
+    console.log(`[SKIP] Not whitelisted: ${phoneNumber}`);
+    return;
+  }
+
+  enqueue(phoneNumber, () => processMessage(client, message));
+});
+
+await client.initialize();

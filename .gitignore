@@ -3,3 +3,6 @@ dist/
 .env
 *.js.map
 docs/
+.wwebjs_auth/
+.wwebjs_cache/
+data/

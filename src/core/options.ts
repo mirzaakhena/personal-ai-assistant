@@ -1,6 +1,6 @@
 import { type Options } from "@anthropic-ai/claude-agent-sdk";
 import { allBuiltInTools } from "./constants.js";
-import { createMessageServer } from "../tools/message.js";
+import { createMessageServer, type MessageContext } from "../tools/message.js";
 
 const systemPrompt = `You are a personal AI assistant.
 
@@ -12,7 +12,7 @@ WORKFLOW:
 2. Formulate a helpful, concise response.
 3. Call \`send_message\` with your response.`;
 
-export async function createQueryOptions(sessionId?: string): Promise<Options> {
+export async function createQueryOptions(sessionId: string | undefined, ctx: MessageContext): Promise<Options> {
   const options: Options = {
     model: 'haiku' as const,
     maxTurns: 10,
@@ -20,8 +20,8 @@ export async function createQueryOptions(sessionId?: string): Promise<Options> {
     // disallowedTools: allBuiltInTools,
     systemPrompt,
     mcpServers: {
-      "message": createMessageServer(),
-    },    
+      "message": createMessageServer(ctx),
+    },
   };
 
   if (sessionId) {

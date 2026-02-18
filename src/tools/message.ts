@@ -1,7 +1,21 @@
 import { createSdkMcpServer, tool } from "@anthropic-ai/claude-agent-sdk";
 import { z } from "zod";
+import type { Client } from "whatsapp-web.js";
 
-function createMessageTools() {
+export type MessageContext = {
+  client: Client;
+  chatId: string;
+};
+
+function calcTypingDuration(content: string): number {
+  return Math.min(Math.max(content.length * 30, 1000), 8000);
+}
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+function createMessageTools(ctx: MessageContext) {
   const sendMessageTool = tool(
     "send_message",
     `Send one or multiple messages to user with realistic human-like timing.
@@ -29,8 +43,13 @@ Minimum pauseBeforeTyping is 1000ms for natural, realistic feel.`,
       })).min(1).describe("Array of messages to send sequentially"),
     },
     async (args) => {
+      const chat = await ctx.client.getChatById(ctx.chatId);
       for (const msg of args.messages) {
-        console.log(`[assistant]: ${msg.content}`);
+        await sleep(msg.pauseBeforeTyping);
+        await chat.sendStateTyping();
+        await sleep(calcTypingDuration(msg.content));
+        await chat.clearState();
+        await ctx.client.sendMessage(ctx.chatId, msg.content);
       }
       return {
         content: [{ type: "text", text: JSON.stringify({ success: true, message_count: args.messages.length }) }]
@@ -41,10 +60,10 @@ Minimum pauseBeforeTyping is 1000ms for natural, realistic feel.`,
   return [sendMessageTool];
 }
 
-export function createMessageServer() {
+export function createMessageServer(ctx: MessageContext) {
   return createSdkMcpServer({
     name: "message",
     version: "1.0.0",
-    tools: createMessageTools()
+    tools: createMessageTools(ctx)
   });
 }
