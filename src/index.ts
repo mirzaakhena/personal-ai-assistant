@@ -1,6 +1,36 @@
 import { createSdkMcpServer, tool, Options, query } from "@anthropic-ai/claude-agent-sdk";
 import { z } from "zod";
 
+const TIMEZONE = "Asia/Jakarta";
+
+function buildUserPrompt(message: string): string {
+  const now = new Date();
+
+  const dateStr = new Intl.DateTimeFormat("en-US", {
+    timeZone: TIMEZONE,
+    weekday: "long",
+    year: "numeric",
+    month: "long",
+    day: "numeric",
+  }).format(now);
+
+  const timeStr = new Intl.DateTimeFormat("en-US", {
+    timeZone: TIMEZONE,
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit",
+    hour12: false,
+    timeZoneName: "short",
+  }).format(now);
+
+  return `[USER MESSAGE]
+
+Timestamp: ${dateStr}, ${timeStr}
+
+[MESSAGE]
+${message}`;
+}
+
 /**
  * Create Message Tools
  * Simplified version that logs messages to console instead of sending via service
@@ -79,7 +109,15 @@ async function createQueryOptions(sessionId?: string) : Promise<Options> {
     maxTurns: 3,
     permissionMode: 'bypassPermissions' as const,
     disallowedTools: allBuiltInTools,
-    systemPrompt: 'answer less than 30 words',
+    systemPrompt: `You are a personal AI assistant.
+
+RESPONSE RULE:
+You must ALWAYS respond using the \`send_message\` tool. Never reply with plain text directly — every response must go through \`send_message\`.
+
+WORKFLOW:
+1. Read and analyze the user's message carefully.
+2. Formulate a helpful, concise response.
+3. Call \`send_message\` with your response.`,
     mcpServers: {
       "message": createMessageServer(),
     },
@@ -96,14 +134,15 @@ async function createQueryOptions(sessionId?: string) : Promise<Options> {
   return options
 }
 
-const prompt = "[user]: Hello, who are you?"
+const userMessage = "Hello, who are you?";
+const prompt = buildUserPrompt(userMessage);
 
-console.log(prompt);
+console.log(`[user]: ${userMessage}`);;
 
 const options = await createQueryOptions()
 
 const responses = query({ prompt, options })
 
 for await (const message of responses) {
-  console.log(message);
+  console.log(JSON.stringify(message, null, 2));
 }
