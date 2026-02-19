@@ -34,10 +34,10 @@ export async function processCronjob(
   const ctx: MessageContext = { client, chatId };
   const cronCtx: CronContext = { registry, client, phoneNumber };
   const prompt = buildCronjobPrompt(job.message);
-  const options = await createQueryOptions(sessionId, ctx, cronCtx);
-  const responses = query({ prompt, options });
 
   try {
+    const options = await createQueryOptions(sessionId, ctx, cronCtx);
+    const responses = query({ prompt, options });
     let finalSessionId: string | undefined;
     for await (const msg of responses) {
       if (msg.type === 'result') {
