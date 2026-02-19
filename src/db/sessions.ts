@@ -31,3 +31,9 @@ export function getSessionId(phoneNumber: string): string | undefined {
 export function saveSessionId(phoneNumber: string, sessionId: string): void {
   stmtUpsert.run(phoneNumber, sessionId, Date.now());
 }
+
+const stmtDelete = db.prepare('DELETE FROM sessions WHERE phone_number = ?');
+
+export function deleteSessionId(phoneNumber: string): void {
+  stmtDelete.run(phoneNumber);
+}
