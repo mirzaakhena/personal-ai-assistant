@@ -1,4 +1,6 @@
 import 'dotenv/config';
+import { execSync } from 'child_process';
+import { rmSync, existsSync } from 'fs';
 import type { Message } from 'whatsapp-web.js';
 import { createWhatsAppClient } from './whatsapp/client.js';
 import { enqueue } from './whatsapp/queue.js';
@@ -38,6 +40,17 @@ client.on('message', (message: Message) => {
 
   enqueue(phoneNumber, () => processMessage(client, message, registry));
 });
+
+// Kill orphaned Chrome processes and remove stale lock files before init
+try {
+  execSync('pkill -f "chrome.*wwebjs_auth" 2>/dev/null || true', { stdio: 'ignore' });
+} catch {}
+for (const lockFile of ['.wwebjs_auth/session/SingletonLock', '.wwebjs_auth/session/SingletonSocket']) {
+  if (existsSync(lockFile)) {
+    log.debug(`[STARTUP] removing stale lock file: ${lockFile}`);
+    rmSync(lockFile);
+  }
+}
 
 const shutdown = async (signal: string) => {
   log.debug(`[SHUTDOWN] received ${signal}, destroying client...`);
