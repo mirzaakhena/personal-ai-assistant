@@ -3,6 +3,8 @@ import type { Message } from 'whatsapp-web.js';
 import { createWhatsAppClient } from './whatsapp/client.js';
 import { enqueue } from './whatsapp/queue.js';
 import { processMessage } from './handlers/message.js';
+import { createCronRegistry } from './cron/registry.js';
+import { reconcileOnStartup } from './cron/scheduler.js';
 
 const WHITELIST_NUMBERS = new Set(
   (process.env.WHITELIST_NUMBERS ?? '')
@@ -15,7 +17,12 @@ if (WHITELIST_NUMBERS.size === 0) {
   console.warn('[WARN] WHITELIST_NUMBERS is empty — no messages will be processed');
 }
 
+const registry = createCronRegistry();
 const client = createWhatsAppClient();
+
+client.on('ready', () => {
+  reconcileOnStartup(registry, client);
+});
 
 client.on('message', (message: Message) => {
   // Skip group messages and status broadcast
@@ -32,7 +39,7 @@ client.on('message', (message: Message) => {
     return;
   }
 
-  enqueue(phoneNumber, () => processMessage(client, message));
+  enqueue(phoneNumber, () => processMessage(client, message, registry));
 });
 
 await client.initialize();

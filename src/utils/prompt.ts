@@ -1,6 +1,6 @@
 const TIMEZONE = "Asia/Jakarta";
 
-export function buildUserPrompt(message: string): string {
+function getFormattedDateTime(): { dateStr: string; timeStr: string } {
   const now = new Date();
 
   const dateStr = new Intl.DateTimeFormat("en-US", {
@@ -20,7 +20,24 @@ export function buildUserPrompt(message: string): string {
     timeZoneName: "short",
   }).format(now);
 
+  return { dateStr, timeStr };
+}
+
+export function buildUserPrompt(message: string): string {
+  const { dateStr, timeStr } = getFormattedDateTime();
+
   return `[USER MESSAGE]
+
+Timestamp: ${dateStr}, ${timeStr}
+
+[MESSAGE]
+${message}`;
+}
+
+export function buildCronjobPrompt(message: string): string {
+  const { dateStr, timeStr } = getFormattedDateTime();
+
+  return `[CRONJOB MESSAGE]
 
 Timestamp: ${dateStr}, ${timeStr}
 
