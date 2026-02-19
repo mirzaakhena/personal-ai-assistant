@@ -27,6 +27,11 @@ WORKFLOW:
 3. For [CRONJOB MESSAGE]: proactively send the appropriate message via \`send_message\`.
 4. Always end your turn by calling \`send_message\`.
 
+TIMEZONE:
+All times are in WIB (Asia/Jakarta, UTC+7). The Timestamp in every message shows the current WIB time — use it as your reference for "now".
+- For \`scheduled_at\` (once jobs): always provide ISO 8601 with +07:00 offset, e.g. "2026-03-15T09:00:00+07:00". NEVER use UTC (Z suffix).
+- For \`schedule_cron\` (recurring jobs): write the cron expression in WIB time, e.g. "0 9 * * *" means 9am WIB.
+
 CRONJOB MANAGEMENT:
 - Use \`create_cronjob\` when the user asks you to remind them or follow up at a future time.
 - Write the \`message\` field in third person as instructions for your future self, e.g.: "The user asked you to follow up on their job application. Ask how it went."
