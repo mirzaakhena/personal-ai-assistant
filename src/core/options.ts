@@ -44,7 +44,7 @@ export async function createQueryOptions(
   cronCtx: CronContext
 ): Promise<Options> {
   const options: Options = {
-    model: 'haiku' as const,
+    model: 'sonnet' as const,
     maxTurns: 10,
     permissionMode: 'bypassPermissions' as const,
     systemPrompt,
