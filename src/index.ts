@@ -39,4 +39,13 @@ client.on('message', (message: Message) => {
   enqueue(phoneNumber, () => processMessage(client, message, registry));
 });
 
+const shutdown = async (signal: string) => {
+  log.debug(`[SHUTDOWN] received ${signal}, destroying client...`);
+  await client.destroy();
+  process.exit(0);
+};
+
+process.on('SIGINT', () => shutdown('SIGINT'));
+process.on('SIGTERM', () => shutdown('SIGTERM'));
+
 await client.initialize();
