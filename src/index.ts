@@ -5,6 +5,7 @@ import { enqueue } from './whatsapp/queue.js';
 import { processMessage } from './handlers/message.js';
 import { createCronRegistry } from './cron/registry.js';
 import { reconcileOnStartup } from './cron/scheduler.js';
+import { log } from './utils/logger.js';
 
 const WHITELIST_NUMBERS = new Set(
   (process.env.WHITELIST_NUMBERS ?? '')
@@ -14,7 +15,7 @@ const WHITELIST_NUMBERS = new Set(
 );
 
 if (WHITELIST_NUMBERS.size === 0) {
-  console.warn('[WARN] WHITELIST_NUMBERS is empty — no messages will be processed');
+  log.error('[WARN] WHITELIST_NUMBERS is empty — no messages will be processed');
 }
 
 const registry = createCronRegistry();
@@ -25,17 +26,13 @@ client.on('ready', () => {
 });
 
 client.on('message', (message: Message) => {
-  // Skip group messages and status broadcast
   if (message.from.endsWith('@g.us') || message.from === 'status@broadcast') return;
-
-  // Skip non-text messages
   if (!message.body) return;
 
   const phoneNumber = message.from.replace(/@.*$/, '');
 
-  // Whitelist check
   if (!WHITELIST_NUMBERS.has(phoneNumber)) {
-    console.log(`[SKIP] Not whitelisted: ${phoneNumber}`);
+    log.debug(`[SKIP] ${phoneNumber}`);
     return;
   }
 

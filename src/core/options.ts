@@ -1,5 +1,6 @@
 import { type Options } from "@anthropic-ai/claude-agent-sdk";
 import { createMessageServer, type MessageContext, type CronContext } from "../tools/message.js";
+import { log } from "../utils/logger.js";
 
 const systemPrompt = `You are a personal AI assistant.
 
@@ -48,10 +49,10 @@ export async function createQueryOptions(
   };
 
   if (sessionId) {
-    console.log('🔄 Resuming session:', sessionId);
+    log.debug(`session: ${sessionId}`);
     options.resume = sessionId;
   } else {
-    console.log('🆕 Starting new session');
+    log.debug('new session');
   }
 
   return options;

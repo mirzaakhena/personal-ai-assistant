@@ -1,5 +1,6 @@
 import wwebjs from 'whatsapp-web.js';
 import qrcode from 'qrcode-terminal';
+import { log } from '../utils/logger.js';
 
 const { Client, LocalAuth } = wwebjs;
 
@@ -12,24 +13,24 @@ export function createWhatsAppClient() {
   });
 
   client.on('qr', (qr) => {
-    console.log('[WA] Scan the QR code below to authenticate:');
+    log.debug('[WA] scan QR code:');
     qrcode.generate(qr, { small: true });
   });
 
   client.on('authenticated', () => {
-    console.log('[WA] Authenticated successfully');
+    log.debug('[WA] authenticated');
   });
 
   client.on('auth_failure', (msg) => {
-    console.error('[WA] Authentication failure:', msg);
+    log.error('[WA] auth failed', msg);
   });
 
   client.on('ready', () => {
-    console.log('[WA] Client is ready');
+    log.debug('[WA] ready');
   });
 
   client.on('disconnected', (reason) => {
-    console.warn('[WA] Client disconnected:', reason);
+    log.error('[WA] disconnected', reason);
   });
 
   return client;

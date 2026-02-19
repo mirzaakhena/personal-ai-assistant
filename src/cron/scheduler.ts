@@ -13,6 +13,7 @@ import { registerCronTask, type CronRegistry } from './registry.js';
 import { processCronjob } from './executor.js';
 import { computeMissedExecutionTimes } from '../utils/cron-utils.js';
 import { enqueue } from '../whatsapp/queue.js';
+import { log } from '../utils/logger.js';
 
 const TIMEZONE = 'Asia/Jakarta';
 
@@ -42,7 +43,7 @@ export function scheduleOnceJob(registry: CronRegistry, client: Client, job: Cro
   if (!job.scheduled_at) return;
 
   const cronExpr = timestampToCronExpr(job.scheduled_at);
-  console.log(`[CRON] Scheduling once job ${job.id} at cron: ${cronExpr}`);
+  log.debug(`[CRON] scheduled once ${job.id} — ${job.schedule_human} (${cronExpr})`);
 
   const task = cron.schedule(
     cronExpr,
@@ -68,7 +69,7 @@ export function scheduleOnceJob(registry: CronRegistry, client: Client, job: Cro
 export function scheduleRecurringJob(registry: CronRegistry, client: Client, job: Cronjob): void {
   if (!job.schedule_cron) return;
 
-  console.log(`[CRON] Scheduling recurring job ${job.id} at cron: ${job.schedule_cron}`);
+  log.debug(`[CRON] scheduled recurring ${job.id} — ${job.schedule_human} (${job.schedule_cron})`);
 
   const task = cron.schedule(
     job.schedule_cron,
@@ -100,15 +101,17 @@ export function scheduleRecurringJob(registry: CronRegistry, client: Client, job
 
 export function reconcileOnStartup(registry: CronRegistry, client: Client): void {
   const now = Date.now();
-  console.log('[CRON] Reconciling on startup...');
 
-  // Reconcile pending once jobs
   const onceJobs = getPendingOnceCronjobs();
+  const recurringJobs = getActiveRecurringCronjobs();
+
+  log.debug(`[CRON] startup — ${onceJobs.length} once, ${recurringJobs.length} recurring`);
+
   for (const job of onceJobs) {
     if (!job.scheduled_at) continue;
 
     if (job.scheduled_at <= now) {
-      console.log(`[CRON] Once job ${job.id} was missed — marking MISSED`);
+      log.debug(`[CRON] missed once job ${job.id}`);
       updateCronjobStatus(job.id, 'MISSED');
       insertExecution({
         id: uuidv4(),
@@ -123,24 +126,24 @@ export function reconcileOnStartup(registry: CronRegistry, client: Client): void
     }
   }
 
-  // Reconcile active recurring jobs
-  const recurringJobs = getActiveRecurringCronjobs();
   for (const job of recurringJobs) {
     if (!job.schedule_cron) continue;
 
     if (job.end_date && now >= job.end_date) {
-      console.log(`[CRON] Recurring job ${job.id} past end_date — marking COMPLETED`);
+      log.debug(`[CRON] completed recurring job ${job.id} — past end_date`);
       updateCronjobStatus(job.id, 'COMPLETED');
       continue;
     }
 
-    // Detect missed executions
     const lastExecution = getLastExecutionForJob(job.id);
     const fromTime = lastExecution?.scheduled_at ?? job.created_at;
     const missedTimes = computeMissedExecutionTimes(job.schedule_cron, fromTime, now);
 
+    if (missedTimes.length > 0) {
+      log.debug(`[CRON] ${job.id} missed ${missedTimes.length} execution(s)`);
+    }
+
     for (const missedAt of missedTimes) {
-      console.log(`[CRON] Recurring job ${job.id} missed execution at ${new Date(missedAt).toISOString()}`);
       insertExecution({
         id: uuidv4(),
         cronjob_id: job.id,
@@ -153,6 +156,4 @@ export function reconcileOnStartup(registry: CronRegistry, client: Client): void
 
     scheduleRecurringJob(registry, client, job);
   }
-
-  console.log(`[CRON] Reconciliation complete — ${onceJobs.length} once, ${recurringJobs.length} recurring`);
 }

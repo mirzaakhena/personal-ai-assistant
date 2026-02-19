@@ -7,6 +7,7 @@ import { createQueryOptions } from '../core/options.js';
 import { buildCronjobPrompt } from '../utils/prompt.js';
 import type { MessageContext } from '../tools/message.js';
 import type { CronContext } from '../tools/message.js';
+import { log } from '../utils/logger.js';
 
 export async function processCronjob(
   client: Client,
@@ -16,14 +17,14 @@ export async function processCronjob(
 ): Promise<void> {
   const job = getCronjobById(jobId);
   if (!job || job.status === 'CANCELLED') {
-    console.log(`[CRON] Job ${jobId} not found or cancelled — skipping`);
+    log.debug(`[CRON] skipping ${jobId} — not found or cancelled`);
     return;
   }
 
   const chatId = `${job.phone_number}@c.us`;
   const phoneNumber = job.phone_number;
 
-  console.log(`[CRON][${phoneNumber}] Firing job ${jobId}: ${job.schedule_human}`);
+  log.debug(`[CRON] ${phoneNumber} firing: ${job.schedule_human}`);
 
   updateExecutionStatus(executionId, 'EXECUTING');
   if (job.type === 'once') {
@@ -42,7 +43,7 @@ export async function processCronjob(
     for await (const msg of responses) {
       if (msg.type === 'result') {
         finalSessionId = msg.session_id;
-        console.log(`[CRON][${phoneNumber}] Cost: $${msg.total_cost_usd.toFixed(6)} | Session: ${msg.session_id}`);
+        log.debug(`[CRON] ${phoneNumber} | $${msg.total_cost_usd.toFixed(4)} | session: ${msg.session_id}`);
       }
     }
 
@@ -62,12 +63,11 @@ export async function processCronjob(
       }
     }
   } catch (err) {
-    console.error(`[CRON][${phoneNumber}] Job ${jobId} execution failed:`, err);
+    log.error(`[CRON] ${phoneNumber} job ${jobId} failed`, err);
     updateExecutionStatus(executionId, 'FAILED', Date.now());
     if (job.type === 'once') {
       updateCronjobStatus(jobId, 'FAILED');
       unregisterCronTask(registry, jobId);
     }
-    // recurring jobs stay ACTIVE on failure
   }
 }

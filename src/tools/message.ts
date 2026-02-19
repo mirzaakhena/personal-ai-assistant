@@ -3,6 +3,7 @@ import { z } from "zod";
 import type { Client } from "whatsapp-web.js";
 import { v4 as uuidv4 } from "uuid";
 import cron from "node-cron";
+import { log } from "../utils/logger.js";
 import {
   insertCronjob,
   getCronjobById,
@@ -66,6 +67,7 @@ Minimum pauseBeforeTyping is 1000ms for natural, realistic feel.`,
       })).min(1).describe("Array of messages to send sequentially"),
     },
     async (args) => {
+      const phone = ctx.chatId.replace(/@.*$/, '');
       const chat = await ctx.client.getChatById(ctx.chatId);
       for (const msg of args.messages) {
         await sleep(msg.pauseBeforeTyping);
@@ -73,6 +75,7 @@ Minimum pauseBeforeTyping is 1000ms for natural, realistic feel.`,
         await sleep(calcTypingDuration(msg.content));
         await chat.clearState();
         await ctx.client.sendMessage(ctx.chatId, msg.content);
+        log.chat(`${phone} ← ${msg.content}`);
       }
       return {
         content: [{ type: "text", text: JSON.stringify({ success: true, message_count: args.messages.length }) }]
