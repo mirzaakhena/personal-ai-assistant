@@ -23,13 +23,17 @@ function getFormattedDateTime(): { dateStr: string; timeStr: string } {
   return { dateStr, timeStr };
 }
 
-export function buildUserPrompt(message: string): string {
+export function buildUserPrompt(message: string, quotedMessage?: string): string {
   const { dateStr, timeStr } = getFormattedDateTime();
+
+  const quotedBlock = quotedMessage
+    ? `\n[REPLYING TO]\n${quotedMessage}\n`
+    : '';
 
   return `[USER MESSAGE]
 
 Timestamp: ${dateStr}, ${timeStr}
-
+${quotedBlock}
 [MESSAGE]
 ${message}`;
 }

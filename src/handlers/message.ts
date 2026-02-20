@@ -62,10 +62,16 @@ export async function processMessage(client: Client, message: Message, registry:
     return;
   }
 
+  let quotedBody: string | undefined;
+  if (message.hasQuotedMsg) {
+    const quoted = await message.getQuotedMessage();
+    quotedBody = quoted.body;
+  }
+
   const sessionId = getSessionId(phoneNumber);
   const ctx: MessageContext = { client, chatId };
   const cronCtx: CronContext = { registry, client, phoneNumber };
-  const prompt = buildUserPrompt(body);
+  const prompt = buildUserPrompt(body, quotedBody);
   const options = await createQueryOptions(sessionId, ctx, cronCtx);
   const responses = query({ prompt, options });
 

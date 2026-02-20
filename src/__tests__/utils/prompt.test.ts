@@ -13,6 +13,19 @@ describe('buildUserPrompt', () => {
     const result = buildUserPrompt('hello');
     expect(result).not.toContain('[CRONJOB MESSAGE]');
   });
+
+  it('includes [REPLYING TO] block when quotedMessage is provided', () => {
+    const result = buildUserPrompt('my reply', 'original message');
+    expect(result).toContain('[REPLYING TO]');
+    expect(result).toContain('original message');
+    expect(result).toContain('[MESSAGE]');
+    expect(result).toContain('my reply');
+  });
+
+  it('does not include [REPLYING TO] block when quotedMessage is undefined', () => {
+    const result = buildUserPrompt('hello');
+    expect(result).not.toContain('[REPLYING TO]');
+  });
 });
 
 describe('buildCronjobPrompt', () => {
