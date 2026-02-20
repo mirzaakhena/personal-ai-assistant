@@ -72,6 +72,10 @@ export const SUPPORTED_DOCUMENT_TYPES = new Set([
 // Commands
 export const CMD_NEW = '/new';
 export const CMD_STATUS = '/status';
+export const CMD_RESTART = '/restart';
+
+// Restart flag
+export const RESTART_FLAG_FILE = `${DATA_DIR}/restart-flag.json`;
 
 export const allBuiltInTools = [
   'Task',            'Bash',

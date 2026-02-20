@@ -9,9 +9,11 @@ import { buildUserPrompt } from "../utils/prompt.js";
 import { downloadAndValidateMedia, buildMediaContentBlock } from "../utils/media.js";
 import type { MediaContentBlock } from "../utils/media.js";
 import type { CronRegistry } from "../cron/registry.js";
+import { execSync, exec } from "child_process";
+import { writeFileSync } from "fs";
 import { log } from "../utils/logger.js";
 import { updateStats, clearStats, getStats } from "../core/stats.js";
-import { JID_SUFFIX_REGEX, CMD_NEW, CMD_STATUS, FALLBACK_MODEL, COST_USD_PRECISION } from "../core/constants.js";
+import { JID_SUFFIX_REGEX, CMD_NEW, CMD_STATUS, CMD_RESTART, RESTART_FLAG_FILE, FALLBACK_MODEL, COST_USD_PRECISION } from "../core/constants.js";
 
 export async function processMessage(client: Client, message: Message, registry: CronRegistry): Promise<void> {
   const chatId = message.from;
@@ -62,6 +64,24 @@ export async function processMessage(client: Client, message: Message, registry:
     }
 
     await client.sendMessage(chatId, statusText);
+    return;
+  }
+
+  if (body === CMD_RESTART) {
+    log.debug(`${phoneNumber} | /restart`);
+    await client.sendMessage(chatId, '🔄 Restarting... pulling latest code and restarting bot.');
+
+    try {
+      const gitOutput = execSync('git pull', { encoding: 'utf-8', timeout: 30_000 });
+      log.debug(`[RESTART] git pull: ${gitOutput.trim()}`);
+    } catch (err) {
+      log.error(`[RESTART] git pull failed: ${err}`);
+      await client.sendMessage(chatId, '⚠️ git pull failed. Restart aborted.');
+      return;
+    }
+
+    writeFileSync(RESTART_FLAG_FILE, JSON.stringify({ chatId }));
+    exec('pm2 restart wa-bot');
     return;
   }
 

@@ -1,6 +1,6 @@
 import 'dotenv/config';
 import { execSync } from 'child_process';
-import { rmSync, existsSync } from 'fs';
+import { readFileSync, rmSync, existsSync } from 'fs';
 import type { Message } from 'whatsapp-web.js';
 import { createWhatsAppClient } from './whatsapp/client.js';
 import { enqueue } from './whatsapp/queue.js';
@@ -8,7 +8,7 @@ import { processMessage } from './handlers/message.js';
 import { createCronRegistry } from './cron/registry.js';
 import { reconcileOnStartup } from './cron/scheduler.js';
 import { log } from './utils/logger.js';
-import { WA_JID_GROUP, WA_STATUS_BROADCAST, JID_SUFFIX_REGEX, WA_CHROME_KILL_PATTERN, WA_LOCK_FILES } from './core/constants.js';
+import { WA_JID_GROUP, WA_STATUS_BROADCAST, JID_SUFFIX_REGEX, WA_CHROME_KILL_PATTERN, WA_LOCK_FILES, RESTART_FLAG_FILE } from './core/constants.js';
 
 const WHITELIST_NUMBERS = new Set(
   (process.env.WHITELIST_NUMBERS ?? '')
@@ -26,6 +26,19 @@ const client = createWhatsAppClient();
 
 client.on('ready', () => {
   reconcileOnStartup(registry, client);
+
+  if (existsSync(RESTART_FLAG_FILE)) {
+    try {
+      const { chatId } = JSON.parse(readFileSync(RESTART_FLAG_FILE, 'utf-8'));
+      rmSync(RESTART_FLAG_FILE);
+      if (chatId) {
+        client.sendMessage(chatId, '✅ Bot sudah aktif kembali.');
+      }
+    } catch (err) {
+      log.error(`[RESTART] failed to process restart flag: ${err}`);
+      rmSync(RESTART_FLAG_FILE, { force: true });
+    }
+  }
 });
 
 client.on('message', (message: Message) => {
