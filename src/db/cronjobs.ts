@@ -1,9 +1,10 @@
 import Database from 'better-sqlite3';
 import { mkdirSync } from 'fs';
+import { DATA_DIR, CRONJOBS_DB_PATH } from '../core/constants.js';
 
-mkdirSync('data', { recursive: true });
+mkdirSync(DATA_DIR, { recursive: true });
 
-const db = new Database('data/cronjobs.db');
+const db = new Database(CRONJOBS_DB_PATH);
 
 db.exec(`
   CREATE TABLE IF NOT EXISTS cronjobs (

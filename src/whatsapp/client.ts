@@ -1,12 +1,13 @@
 import wwebjs from 'whatsapp-web.js';
 import qrcode from 'qrcode-terminal';
 import { log } from '../utils/logger.js';
+import { WA_AUTH_PATH } from '../core/constants.js';
 
 const { Client, LocalAuth } = wwebjs;
 
 export function createWhatsAppClient() {
   const client = new Client({
-    authStrategy: new LocalAuth({ dataPath: '.wwebjs_auth' }),
+    authStrategy: new LocalAuth({ dataPath: WA_AUTH_PATH }),
     puppeteer: {
       args: ['--no-sandbox', '--disable-setuid-sandbox'],
     },

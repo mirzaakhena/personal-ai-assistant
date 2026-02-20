@@ -7,15 +7,16 @@ import { buildUserPrompt } from "../utils/prompt.js";
 import type { CronRegistry } from "../cron/registry.js";
 import { log } from "../utils/logger.js";
 import { updateStats, clearStats, getStats } from "../core/stats.js";
+import { JID_SUFFIX_REGEX, CMD_NEW, CMD_STATUS, FALLBACK_MODEL, COST_USD_PRECISION } from "../core/constants.js";
 
 export async function processMessage(client: Client, message: Message, registry: CronRegistry): Promise<void> {
   const chatId = message.from;
-  const phoneNumber = chatId.replace(/@.*$/, '');
+  const phoneNumber = chatId.replace(JID_SUFFIX_REGEX, '');
   const body = message.body.trim();
 
   log.chat(`${phoneNumber} → ${body}`);
 
-  if (body === '/new') {
+  if (body === CMD_NEW) {
     deleteSessionId(phoneNumber);
     clearStats(phoneNumber);
     log.debug(`${phoneNumber} | /new — session cleared`);
@@ -23,7 +24,7 @@ export async function processMessage(client: Client, message: Message, registry:
     return;
   }
 
-  if (body === '/status') {
+  if (body === CMD_STATUS) {
     const sessionId = getSessionId(phoneNumber);
     const stats = getStats(phoneNumber);
     log.debug(`${phoneNumber} | /status`);
@@ -32,11 +33,11 @@ export async function processMessage(client: Client, message: Message, registry:
     if (!sessionId) {
       statusText = '📊 *Session Status*\n\nNo active session.';
     } else {
-      const model = stats?.model ?? 'haiku';
-      const accCost = stats ? `$${stats.accumulated.costUsd.toFixed(4)}` : '-';
+      const model = stats?.model ?? FALLBACK_MODEL;
+      const accCost = stats ? `$${stats.accumulated.costUsd.toFixed(COST_USD_PRECISION)}` : '-';
       const accIn   = stats ? stats.accumulated.inputTokens.toLocaleString() : '-';
       const accOut  = stats ? stats.accumulated.outputTokens.toLocaleString() : '-';
-      const lastCost = stats ? `$${stats.lastQuery.costUsd.toFixed(4)}` : '-';
+      const lastCost = stats ? `$${stats.lastQuery.costUsd.toFixed(COST_USD_PRECISION)}` : '-';
       const lastIn   = stats ? stats.lastQuery.inputTokens.toLocaleString() : '-';
       const lastOut  = stats ? stats.lastQuery.outputTokens.toLocaleString() : '-';
 
@@ -68,14 +69,14 @@ export async function processMessage(client: Client, message: Message, registry:
   const responses = query({ prompt, options });
 
   let finalSessionId: string | undefined;
-  let finalModel = 'haiku';
+  let finalModel = FALLBACK_MODEL;
   for await (const msg of responses) {
     if (msg.type === 'system' && msg.subtype === 'init') {
       finalModel = msg.model;
     }
     if (msg.type === 'result') {
       finalSessionId = msg.session_id;
-      log.debug(`${phoneNumber} | $${msg.total_cost_usd.toFixed(4)} | session: ${msg.session_id}`);
+      log.debug(`${phoneNumber} | $${msg.total_cost_usd.toFixed(COST_USD_PRECISION)} | session: ${msg.session_id}`);
       updateStats(phoneNumber, msg.session_id, finalModel, msg.total_cost_usd, msg.usage.input_tokens, msg.usage.output_tokens);
     }
   }

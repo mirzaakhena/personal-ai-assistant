@@ -1,9 +1,10 @@
 import Database from 'better-sqlite3';
 import { mkdirSync } from 'fs';
+import { DATA_DIR, SESSIONS_DB_PATH } from '../core/constants.js';
 
-mkdirSync('data', { recursive: true });
+mkdirSync(DATA_DIR, { recursive: true });
 
-const db = new Database('data/sessions.db');
+const db = new Database(SESSIONS_DB_PATH);
 
 db.exec(`
   CREATE TABLE IF NOT EXISTS sessions (

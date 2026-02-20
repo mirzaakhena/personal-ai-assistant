@@ -8,6 +8,7 @@ import { buildCronjobPrompt } from '../utils/prompt.js';
 import type { MessageContext } from '../tools/message.js';
 import type { CronContext } from '../tools/message.js';
 import { log } from '../utils/logger.js';
+import { WA_JID_PERSONAL, CronjobStatuses, COST_USD_PRECISION } from '../core/constants.js';
 
 export async function processCronjob(
   client: Client,
@@ -16,19 +17,19 @@ export async function processCronjob(
   executionId: string
 ): Promise<void> {
   const job = getCronjobById(jobId);
-  if (!job || job.status === 'CANCELLED') {
+  if (!job || job.status === CronjobStatuses.CANCELLED) {
     log.debug(`[CRON] skipping ${jobId} — not found or cancelled`);
     return;
   }
 
-  const chatId = `${job.phone_number}@c.us`;
+  const chatId = `${job.phone_number}${WA_JID_PERSONAL}`;
   const phoneNumber = job.phone_number;
 
   log.debug(`[CRON] ${phoneNumber} firing: ${job.schedule_human}`);
 
-  updateExecutionStatus(executionId, 'EXECUTING');
+  updateExecutionStatus(executionId, CronjobStatuses.EXECUTING);
   if (job.type === 'once') {
-    updateCronjobStatus(jobId, 'EXECUTING');
+    updateCronjobStatus(jobId, CronjobStatuses.EXECUTING);
   }
 
   const sessionId = getSessionId(phoneNumber);
@@ -43,7 +44,7 @@ export async function processCronjob(
     for await (const msg of responses) {
       if (msg.type === 'result') {
         finalSessionId = msg.session_id;
-        log.debug(`[CRON] ${phoneNumber} | $${msg.total_cost_usd.toFixed(4)} | session: ${msg.session_id}`);
+        log.debug(`[CRON] ${phoneNumber} | $${msg.total_cost_usd.toFixed(COST_USD_PRECISION)} | session: ${msg.session_id}`);
       }
     }
 
@@ -51,22 +52,22 @@ export async function processCronjob(
       saveSessionId(phoneNumber, finalSessionId);
     }
 
-    updateExecutionStatus(executionId, 'EXECUTED', Date.now());
+    updateExecutionStatus(executionId, CronjobStatuses.EXECUTED, Date.now());
 
     if (job.type === 'once') {
-      updateCronjobStatus(jobId, 'EXECUTED');
+      updateCronjobStatus(jobId, CronjobStatuses.EXECUTED);
       unregisterCronTask(registry, jobId);
     } else if (job.type === 'recurring') {
       if (job.end_date && Date.now() >= job.end_date) {
-        updateCronjobStatus(jobId, 'COMPLETED');
+        updateCronjobStatus(jobId, CronjobStatuses.COMPLETED);
         unregisterCronTask(registry, jobId);
       }
     }
   } catch (err) {
     log.error(`[CRON] ${phoneNumber} job ${jobId} failed`, err);
-    updateExecutionStatus(executionId, 'FAILED', Date.now());
+    updateExecutionStatus(executionId, CronjobStatuses.FAILED, Date.now());
     if (job.type === 'once') {
-      updateCronjobStatus(jobId, 'FAILED');
+      updateCronjobStatus(jobId, CronjobStatuses.FAILED);
       unregisterCronTask(registry, jobId);
     }
   }

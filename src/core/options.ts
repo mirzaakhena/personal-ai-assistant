@@ -1,6 +1,7 @@
 import { type Options } from "@anthropic-ai/claude-agent-sdk";
 import { createMessageServer, type MessageContext, type CronContext } from "../tools/message.js";
 import { log } from "../utils/logger.js";
+import { DEFAULT_MODEL, MAX_TURNS } from "./constants.js";
 
 const systemPrompt = `You are a personal AI assistant.
 
@@ -44,9 +45,10 @@ export async function createQueryOptions(
   cronCtx: CronContext
 ): Promise<Options> {
   const options: Options = {
-    model: 'sonnet' as const,
-    maxTurns: 10,
+    model: DEFAULT_MODEL,
+    maxTurns: MAX_TURNS,
     permissionMode: 'bypassPermissions' as const,
+    allowDangerouslySkipPermissions: true,
     systemPrompt,
     mcpServers: {
       "message": createMessageServer(ctx, cronCtx),

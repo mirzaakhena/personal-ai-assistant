@@ -8,6 +8,7 @@ import { processMessage } from './handlers/message.js';
 import { createCronRegistry } from './cron/registry.js';
 import { reconcileOnStartup } from './cron/scheduler.js';
 import { log } from './utils/logger.js';
+import { WA_JID_GROUP, WA_STATUS_BROADCAST, JID_SUFFIX_REGEX, WA_CHROME_KILL_PATTERN, WA_LOCK_FILES } from './core/constants.js';
 
 const WHITELIST_NUMBERS = new Set(
   (process.env.WHITELIST_NUMBERS ?? '')
@@ -28,10 +29,10 @@ client.on('ready', () => {
 });
 
 client.on('message', (message: Message) => {
-  if (message.from.endsWith('@g.us') || message.from === 'status@broadcast') return;
+  if (message.from.endsWith(WA_JID_GROUP) || message.from === WA_STATUS_BROADCAST) return;
   if (!message.body) return;
 
-  const phoneNumber = message.from.replace(/@.*$/, '');
+  const phoneNumber = message.from.replace(JID_SUFFIX_REGEX, '');
 
   if (!WHITELIST_NUMBERS.has(phoneNumber)) {
     log.debug(`[SKIP] ${phoneNumber}`);
@@ -43,9 +44,9 @@ client.on('message', (message: Message) => {
 
 // Kill orphaned Chrome processes and remove stale lock files before init
 try {
-  execSync('pkill -f "chrome.*wwebjs_auth" 2>/dev/null || true', { stdio: 'ignore' });
+  execSync(`pkill -f "${WA_CHROME_KILL_PATTERN}" 2>/dev/null || true`, { stdio: 'ignore' });
 } catch {}
-for (const lockFile of ['.wwebjs_auth/session/SingletonLock', '.wwebjs_auth/session/SingletonSocket']) {
+for (const lockFile of WA_LOCK_FILES) {
   if (existsSync(lockFile)) {
     log.debug(`[STARTUP] removing stale lock file: ${lockFile}`);
     rmSync(lockFile);

@@ -1,4 +1,4 @@
-const TIMEZONE = "Asia/Jakarta";
+import { TIMEZONE } from '../core/constants.js';
 
 function getFormattedDateTime(): { dateStr: string; timeStr: string } {
   const now = new Date();

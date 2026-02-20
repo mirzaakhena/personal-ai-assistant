@@ -1,10 +1,12 @@
+import { TIMEZONE } from '../core/constants.js';
+
 const GRAY  = '\x1b[90m';
 const RED   = '\x1b[31m';
 const RESET = '\x1b[0m';
 
 function ts(): string {
   return new Date().toLocaleTimeString('id-ID', {
-    timeZone: 'Asia/Jakarta',
+    timeZone: TIMEZONE,
     hour12: false,
     hour: '2-digit',
     minute: '2-digit',

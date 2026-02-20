@@ -5,6 +5,16 @@ import { v4 as uuidv4 } from "uuid";
 import cron from "node-cron";
 import { log } from "../utils/logger.js";
 import {
+  JID_SUFFIX_REGEX,
+  TYPING_MS_PER_CHAR,
+  MIN_TYPING_DURATION_MS,
+  MAX_TYPING_DURATION_MS,
+  MIN_PAUSE_BEFORE_TYPING_MS,
+  MAX_PAUSE_BEFORE_TYPING_MS,
+  CronjobStatuses,
+  TERMINAL_CRONJOB_STATUSES,
+} from "../core/constants.js";
+import {
   insertCronjob,
   getCronjobById,
   getCronjobsByPhone,
@@ -32,7 +42,7 @@ export type CronContext = {
 };
 
 function calcTypingDuration(content: string): number {
-  return Math.min(Math.max(content.length * 30, 1000), 8000);
+  return Math.min(Math.max(content.length * TYPING_MS_PER_CHAR, MIN_TYPING_DURATION_MS), MAX_TYPING_DURATION_MS);
 }
 
 function sleep(ms: number): Promise<void> {
@@ -63,11 +73,11 @@ Minimum pauseBeforeTyping is 1000ms for natural, realistic feel.`,
     {
       messages: z.array(z.object({
         content: z.string().min(1).describe("Message content to send to user"),
-        pauseBeforeTyping: z.number().min(1000).max(10000000).describe("Delay in ms before typing indicator appears"),
+        pauseBeforeTyping: z.number().min(MIN_PAUSE_BEFORE_TYPING_MS).max(MAX_PAUSE_BEFORE_TYPING_MS).describe("Delay in ms before typing indicator appears"),
       })).min(1).describe("Array of messages to send sequentially"),
     },
     async (args) => {
-      const phone = ctx.chatId.replace(/@.*$/, '');
+      const phone = ctx.chatId.replace(JID_SUFFIX_REGEX, '');
       const chat = await ctx.client.getChatById(ctx.chatId);
       for (const msg of args.messages) {
         await sleep(msg.pauseBeforeTyping);
@@ -130,7 +140,7 @@ Both types require schedule_human: a plain-language description (e.g. "Every day
 
       const now = Date.now();
       const jobId = uuidv4();
-      const status: CronjobStatus = args.type === "once" ? "PENDING" : "ACTIVE";
+      const status: CronjobStatus = args.type === "once" ? CronjobStatuses.PENDING : CronjobStatuses.ACTIVE;
 
       const scheduledAtMs = args.scheduled_at ? new Date(args.scheduled_at).getTime() : null;
       const endDateMs = args.end_date ? new Date(args.end_date).getTime() : null;
@@ -199,12 +209,12 @@ Both types require schedule_human: a plain-language description (e.g. "Every day
         return { content: [{ type: "text", text: JSON.stringify({ success: false, error: "Job not found" }) }] };
       }
 
-      const terminalStatuses: CronjobStatus[] = ["CANCELLED", "COMPLETED", "EXECUTED", "FAILED", "MISSED"];
+      const terminalStatuses: readonly string[] = TERMINAL_CRONJOB_STATUSES;
       if (terminalStatuses.includes(job.status)) {
         return { content: [{ type: "text", text: JSON.stringify({ success: false, error: `Job is already in terminal status: ${job.status}` }) }] };
       }
 
-      updateCronjobStatus(args.job_id, "CANCELLED");
+      updateCronjobStatus(args.job_id, CronjobStatuses.CANCELLED);
       unregisterCronTask(cronCtx.registry, args.job_id);
 
       console.log(`[CRON] Cancelled job ${args.job_id}`);

@@ -14,8 +14,7 @@ import { processCronjob } from './executor.js';
 import { computeMissedExecutionTimes } from '../utils/cron-utils.js';
 import { enqueue } from '../whatsapp/queue.js';
 import { log } from '../utils/logger.js';
-
-const TIMEZONE = 'Asia/Jakarta';
+import { TIMEZONE, CronjobStatuses } from '../core/constants.js';
 
 function timestampToCronExpr(ms: number): string {
   const date = new Date(ms);
@@ -55,7 +54,7 @@ export function scheduleOnceJob(registry: CronRegistry, client: Client, job: Cro
         cronjob_id: job.id,
         scheduled_at: job.scheduled_at!,
         executed_at: null,
-        status: 'EXECUTING',
+        status: CronjobStatuses.EXECUTING,
         created_at: Date.now(),
       });
       enqueue(job.phone_number, () => processCronjob(client, registry, job.id, executionId));
@@ -75,7 +74,7 @@ export function scheduleRecurringJob(registry: CronRegistry, client: Client, job
     job.schedule_cron,
     () => {
       if (job.end_date && Date.now() >= job.end_date) {
-        updateCronjobStatus(job.id, 'COMPLETED');
+        updateCronjobStatus(job.id, CronjobStatuses.COMPLETED);
         task.stop();
         registry.delete(job.id);
         return;
@@ -88,7 +87,7 @@ export function scheduleRecurringJob(registry: CronRegistry, client: Client, job
         cronjob_id: job.id,
         scheduled_at: scheduledAt,
         executed_at: null,
-        status: 'EXECUTING',
+        status: CronjobStatuses.EXECUTING,
         created_at: Date.now(),
       });
       enqueue(job.phone_number, () => processCronjob(client, registry, job.id, executionId));
@@ -112,13 +111,13 @@ export function reconcileOnStartup(registry: CronRegistry, client: Client): void
 
     if (job.scheduled_at <= now) {
       log.debug(`[CRON] missed once job ${job.id}`);
-      updateCronjobStatus(job.id, 'MISSED');
+      updateCronjobStatus(job.id, CronjobStatuses.MISSED);
       insertExecution({
         id: uuidv4(),
         cronjob_id: job.id,
         scheduled_at: job.scheduled_at,
         executed_at: null,
-        status: 'MISSED',
+        status: CronjobStatuses.MISSED,
         created_at: now,
       });
     } else {
@@ -131,7 +130,7 @@ export function reconcileOnStartup(registry: CronRegistry, client: Client): void
 
     if (job.end_date && now >= job.end_date) {
       log.debug(`[CRON] completed recurring job ${job.id} — past end_date`);
-      updateCronjobStatus(job.id, 'COMPLETED');
+      updateCronjobStatus(job.id, CronjobStatuses.COMPLETED);
       continue;
     }
 
@@ -149,7 +148,7 @@ export function reconcileOnStartup(registry: CronRegistry, client: Client): void
         cronjob_id: job.id,
         scheduled_at: missedAt,
         executed_at: null,
-        status: 'MISSED',
+        status: CronjobStatuses.MISSED,
         created_at: now,
       });
     }

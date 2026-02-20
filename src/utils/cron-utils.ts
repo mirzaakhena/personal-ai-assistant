@@ -1,10 +1,11 @@
 import { CronExpressionParser } from 'cron-parser';
+import { TIMEZONE } from '../core/constants.js';
 
 export function computeMissedExecutionTimes(cronExpr: string, fromMs: number, toMs: number): number[] {
   const results: number[] = [];
   const interval = CronExpressionParser.parse(cronExpr, {
     currentDate: new Date(fromMs),
-    tz: 'Asia/Jakarta',
+    tz: TIMEZONE,
   });
   while (true) {
     const next = interval.next();
