@@ -2,7 +2,7 @@ import { query } from '@anthropic-ai/claude-agent-sdk';
 import type { Client } from 'whatsapp-web.js';
 import { getCronjobById, updateCronjobStatus, updateExecutionStatus } from '../db/cronjobs.js';
 import { unregisterCronTask, type CronRegistry } from './registry.js';
-import { getSessionId, saveSessionId } from '../db/sessions.js';
+import { saveSessionId } from '../db/sessions.js';
 import { createQueryOptions } from '../core/options.js';
 import { buildCronjobPrompt } from '../utils/prompt.js';
 import type { MessageContext } from '../tools/message.js';
@@ -32,7 +32,7 @@ export async function processCronjob(
     updateCronjobStatus(jobId, CronjobStatuses.EXECUTING);
   }
 
-  const sessionId = getSessionId(phoneNumber);
+  const sessionId = undefined; // always start a fresh session to avoid replaying prior tool calls
   const ctx: MessageContext = { client, chatId };
   const cronCtx: CronContext = { registry, client, phoneNumber };
   const prompt = buildCronjobPrompt(job.message);
