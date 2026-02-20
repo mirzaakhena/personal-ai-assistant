@@ -1,7 +1,8 @@
 import { query } from "@anthropic-ai/claude-agent-sdk";
 import type { Client, Message } from "whatsapp-web.js";
 import { getSessionId, saveSessionId, deleteSessionId } from "../db/sessions.js";
-import { type MessageContext, type CronContext } from "../tools/message.js";
+import type { MessageContext } from "../tools/message.js";
+import type { CronContext } from "../tools/cronjob.js";
 import { createQueryOptions } from "../core/options.js";
 import { buildUserPrompt } from "../utils/prompt.js";
 import type { CronRegistry } from "../cron/registry.js";
