@@ -30,7 +30,7 @@ client.on('ready', () => {
 
 client.on('message', (message: Message) => {
   if (message.from.endsWith(WA_JID_GROUP) || message.from === WA_STATUS_BROADCAST) return;
-  if (!message.body) return;
+  if (!message.body && !message.hasMedia) return;
 
   const phoneNumber = message.from.replace(JID_SUFFIX_REGEX, '');
 

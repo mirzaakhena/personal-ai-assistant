@@ -1,4 +1,8 @@
 import { TIMEZONE } from '../core/constants.js';
+import type { MediaContentBlock } from './media.js';
+
+export type TextBlock = { type: 'text'; text: string };
+export type ContentBlock = TextBlock | MediaContentBlock;
 
 function getFormattedDateTime(): { dateStr: string; timeStr: string } {
   const now = new Date();
@@ -23,19 +27,33 @@ function getFormattedDateTime(): { dateStr: string; timeStr: string } {
   return { dateStr, timeStr };
 }
 
-export function buildUserPrompt(message: string, quotedMessage?: string): string {
+export function buildUserPrompt(
+  message: string,
+  quotedMessage?: string,
+  mediaBlocks?: MediaContentBlock[]
+): ContentBlock[] {
   const { dateStr, timeStr } = getFormattedDateTime();
 
   const quotedBlock = quotedMessage
     ? `\n[REPLYING TO]\n${quotedMessage}\n`
     : '';
 
-  return `[USER MESSAGE]
+  const textContent = `[USER MESSAGE]
 
 Timestamp: ${dateStr}, ${timeStr}
 ${quotedBlock}
 [MESSAGE]
-${message}`;
+${message || '(no caption)'}`;
+
+  const blocks: ContentBlock[] = [];
+
+  if (mediaBlocks && mediaBlocks.length > 0) {
+    blocks.push(...mediaBlocks);
+  }
+
+  blocks.push({ type: 'text', text: textContent });
+
+  return blocks;
 }
 
 export function buildCronjobPrompt(message: string): string {

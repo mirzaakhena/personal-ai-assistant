@@ -1,10 +1,13 @@
 import { query } from "@anthropic-ai/claude-agent-sdk";
+import type { SDKUserMessage } from "@anthropic-ai/claude-agent-sdk";
 import type { Client, Message } from "whatsapp-web.js";
 import { getSessionId, saveSessionId, deleteSessionId } from "../db/sessions.js";
 import type { MessageContext } from "../tools/message.js";
 import type { CronContext } from "../tools/cronjob.js";
 import { createQueryOptions } from "../core/options.js";
 import { buildUserPrompt } from "../utils/prompt.js";
+import { downloadAndValidateMedia, buildMediaContentBlock } from "../utils/media.js";
+import type { MediaContentBlock } from "../utils/media.js";
 import type { CronRegistry } from "../cron/registry.js";
 import { log } from "../utils/logger.js";
 import { updateStats, clearStats, getStats } from "../core/stats.js";
@@ -68,12 +71,35 @@ export async function processMessage(client: Client, message: Message, registry:
     quotedBody = quoted.body;
   }
 
+  // Download and validate media if present
+  let mediaBlocks: MediaContentBlock[] | undefined;
+  if (message.hasMedia) {
+    const result = await downloadAndValidateMedia(message);
+    if ('error' in result) {
+      await client.sendMessage(chatId, `⚠️ ${result.error}`);
+      return;
+    }
+    mediaBlocks = [buildMediaContentBlock(result)];
+    log.debug(`${phoneNumber} | media: ${result.mimetype}${result.filename ? ` (${result.filename})` : ''}`);
+  }
+
   const sessionId = getSessionId(phoneNumber);
   const ctx: MessageContext = { client, chatId };
   const cronCtx: CronContext = { registry, client, phoneNumber };
-  const prompt = buildUserPrompt(body, quotedBody);
+  const contentBlocks = buildUserPrompt(body, quotedBody, mediaBlocks);
   const options = await createQueryOptions(sessionId, ctx, cronCtx);
-  const responses = query({ prompt, options });
+
+  // Build async iterable prompt with content blocks
+  async function* buildPrompt(): AsyncGenerator<SDKUserMessage> {
+    yield {
+      type: 'user' as const,
+      message: { role: 'user' as const, content: contentBlocks },
+      parent_tool_use_id: null,
+      session_id: sessionId ?? '',
+    };
+  }
+
+  const responses = query({ prompt: buildPrompt(), options });
 
   let finalSessionId: string | undefined;
   let finalModel = FALLBACK_MODEL;

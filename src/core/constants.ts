@@ -57,6 +57,18 @@ export const TERMINAL_CRONJOB_STATUSES = [
   CronjobStatuses.MISSED,
 ] as const;
 
+// Media
+export const MAX_MEDIA_SIZE_BYTES = 20 * 1024 * 1024; // 20MB
+export const SUPPORTED_IMAGE_TYPES = new Set([
+  'image/jpeg',
+  'image/png',
+  'image/gif',
+  'image/webp',
+]);
+export const SUPPORTED_DOCUMENT_TYPES = new Set([
+  'application/pdf',
+]);
+
 // Commands
 export const CMD_NEW = '/new';
 export const CMD_STATUS = '/status';
