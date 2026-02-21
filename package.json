@@ -26,6 +26,9 @@
     "typescript": "^5.9.3",
     "vitest": "^4.0.18"
   },
+  "pnpm": {
+    "onlyBuiltDependencies": ["esbuild", "better-sqlite3", "puppeteer"]
+  },
   "dependencies": {
     "@anthropic-ai/claude-agent-sdk": "^0.2.45",
     "better-sqlite3": "^12.6.2",
