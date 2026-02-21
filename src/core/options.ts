@@ -59,6 +59,7 @@ export async function createQueryOptions(
     permissionMode: 'bypassPermissions' as const,
     allowDangerouslySkipPermissions: true,
     systemPrompt,
+    cwd: '/home/botuser',
     mcpServers: {
       "message": createMessageServer(ctx, cronCtx),
     },
