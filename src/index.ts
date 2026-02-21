@@ -1,6 +1,7 @@
-import 'dotenv/config';
+import dotenv from 'dotenv';
 import { execSync } from 'child_process';
 import { readFileSync, rmSync, existsSync } from 'fs';
+import { join } from 'path';
 import type { Message } from 'whatsapp-web.js';
 import { createWhatsAppClient } from './whatsapp/client.js';
 import { enqueue } from './whatsapp/queue.js';
@@ -8,7 +9,9 @@ import { processMessage } from './handlers/message.js';
 import { createCronRegistry } from './cron/registry.js';
 import { reconcileOnStartup } from './cron/scheduler.js';
 import { log } from './utils/logger.js';
-import { WA_JID_GROUP, WA_STATUS_BROADCAST, JID_SUFFIX_REGEX, WA_CHROME_KILL_PATTERN, WA_LOCK_FILES, RESTART_FLAG_FILE } from './core/constants.js';
+import { PROJECT_DIR, WA_JID_GROUP, WA_STATUS_BROADCAST, JID_SUFFIX_REGEX, WA_CHROME_KILL_PATTERN, WA_LOCK_FILES, RESTART_FLAG_FILE } from './core/constants.js';
+
+dotenv.config({ path: join(PROJECT_DIR, '.env') });
 
 const WHITELIST_NUMBERS = new Set(
   (process.env.WHITELIST_NUMBERS ?? '')

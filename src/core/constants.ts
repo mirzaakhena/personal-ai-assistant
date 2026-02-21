@@ -1,3 +1,11 @@
+import { fileURLToPath } from 'url';
+import { dirname, join } from 'path';
+
+// Project root directory (absolute, independent of cwd)
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = dirname(__filename);
+export const PROJECT_DIR = join(__dirname, '..', '..');
+
 // Timezone
 export const TIMEZONE = 'Asia/Jakarta';
 
@@ -5,10 +13,10 @@ export const TIMEZONE = 'Asia/Jakarta';
 export const WA_JID_PERSONAL = '@c.us';
 export const WA_JID_GROUP = '@g.us';
 export const WA_STATUS_BROADCAST = 'status@broadcast';
-export const WA_AUTH_PATH = '.wwebjs_auth';
+export const WA_AUTH_PATH = join(PROJECT_DIR, '.wwebjs_auth');
 export const WA_LOCK_FILES = [
-  `${WA_AUTH_PATH}/session/SingletonLock`,
-  `${WA_AUTH_PATH}/session/SingletonSocket`,
+  join(WA_AUTH_PATH, 'session', 'SingletonLock'),
+  join(WA_AUTH_PATH, 'session', 'SingletonSocket'),
 ] as const;
 export const WA_CHROME_KILL_PATTERN = `chrome.*${WA_AUTH_PATH}`;
 
@@ -16,9 +24,9 @@ export const WA_CHROME_KILL_PATTERN = `chrome.*${WA_AUTH_PATH}`;
 export const JID_SUFFIX_REGEX = /@.*$/;
 
 // Database
-export const DATA_DIR = 'data';
-export const CRONJOBS_DB_PATH = `${DATA_DIR}/cronjobs.db`;
-export const SESSIONS_DB_PATH = `${DATA_DIR}/sessions.db`;
+export const DATA_DIR = join(PROJECT_DIR, 'data');
+export const CRONJOBS_DB_PATH = join(DATA_DIR, 'cronjobs.db');
+export const SESSIONS_DB_PATH = join(DATA_DIR, 'sessions.db');
 
 // Model
 export const DEFAULT_MODEL = 'sonnet' as const;
@@ -75,7 +83,7 @@ export const CMD_STATUS = '/status';
 export const CMD_RESTART = '/restart';
 
 // Restart flag
-export const RESTART_FLAG_FILE = `${DATA_DIR}/restart-flag.json`;
+export const RESTART_FLAG_FILE = join(DATA_DIR, 'restart-flag.json');
 
 export const allBuiltInTools = [
   'Task',            'Bash',

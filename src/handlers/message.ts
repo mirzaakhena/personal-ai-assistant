@@ -13,7 +13,7 @@ import { execSync, exec } from "child_process";
 import { writeFileSync } from "fs";
 import { log } from "../utils/logger.js";
 import { updateStats, clearStats, getStats } from "../core/stats.js";
-import { JID_SUFFIX_REGEX, CMD_NEW, CMD_STATUS, CMD_RESTART, RESTART_FLAG_FILE, FALLBACK_MODEL, COST_USD_PRECISION } from "../core/constants.js";
+import { PROJECT_DIR, JID_SUFFIX_REGEX, CMD_NEW, CMD_STATUS, CMD_RESTART, RESTART_FLAG_FILE, FALLBACK_MODEL, COST_USD_PRECISION } from "../core/constants.js";
 
 export async function processMessage(client: Client, message: Message, registry: CronRegistry): Promise<void> {
   const chatId = message.from;
@@ -72,7 +72,7 @@ export async function processMessage(client: Client, message: Message, registry:
     await client.sendMessage(chatId, '🔄 Restarting... pulling latest code and restarting bot.');
 
     try {
-      const gitOutput = execSync('git pull', { encoding: 'utf-8', timeout: 30_000 });
+      const gitOutput = execSync('git pull', { encoding: 'utf-8', timeout: 30_000, cwd: PROJECT_DIR });
       log.debug(`[RESTART] git pull: ${gitOutput.trim()}`);
     } catch (err) {
       log.error(`[RESTART] git pull failed: ${err}`);
