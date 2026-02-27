@@ -10,7 +10,7 @@ export function formatFundamentalMemory(memories: FundamentalMemories): string {
 
   // No self person means new user
   if (!profile) {
-    return `${MEMORY_HEADER}\n\nNo memories stored yet. This appears to be a new user — consider introducing yourself.`;
+    return `${MEMORY_HEADER}\n\nNo memories stored yet. This is a NEW USER — you MUST run the onboarding flow: introduce yourself, ask their name, and start building a relationship. Do NOT send a generic greeting.`;
   }
 
   const sections: string[] = [MEMORY_HEADER];

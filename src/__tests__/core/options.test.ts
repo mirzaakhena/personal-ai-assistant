@@ -29,7 +29,7 @@ describe('buildSystemPrompt', () => {
       facts: [],
       routines: [],
     });
-    mockFormat.mockReturnValue('[MEMORY CONTEXT]\n\nNo memories stored yet. This appears to be a new user — consider introducing yourself.');
+    mockFormat.mockReturnValue('[MEMORY CONTEXT]\n\nNo memories stored yet. This is a NEW USER — you MUST run the onboarding flow: introduce yourself, ask their name, and start building a relationship. Do NOT send a generic greeting.');
 
     const result = await buildSystemPrompt('+628123');
 
@@ -109,7 +109,7 @@ describe('buildSystemPrompt', () => {
   });
 
   it('includes new user memory context for unknown phone numbers', async () => {
-    const newUserBlock = '[MEMORY CONTEXT]\n\nNo memories stored yet. This appears to be a new user — consider introducing yourself.';
+    const newUserBlock = '[MEMORY CONTEXT]\n\nNo memories stored yet. This is a NEW USER — you MUST run the onboarding flow: introduce yourself, ask their name, and start building a relationship. Do NOT send a generic greeting.';
     mockGetFundamental.mockResolvedValue({
       profile: null,
       persona: null,
@@ -122,7 +122,7 @@ describe('buildSystemPrompt', () => {
     const result = await buildSystemPrompt('+620000');
 
     expect(result).toContain('No memories stored yet');
-    expect(result).toContain('new user');
+    expect(result).toContain('NEW USER');
   });
 });
 

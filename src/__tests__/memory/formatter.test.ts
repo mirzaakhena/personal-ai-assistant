@@ -19,7 +19,7 @@ describe('formatFundamentalMemory', () => {
     const result = formatFundamentalMemory(memories);
     expect(result).toContain('[MEMORY CONTEXT]');
     expect(result).toContain('No memories stored yet');
-    expect(result).toContain('new user');
+    expect(result).toContain('NEW USER');
   });
 
   it('formats a fully populated memory set', () => {
