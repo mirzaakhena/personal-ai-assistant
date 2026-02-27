@@ -102,3 +102,24 @@
   - `formatAllMemories` — Detailed format with all memory types including record IDs, importance levels, superseded markers, and contacts. Used for `list_memories` tool to give users full transparency.
   - Internal `describeMemory` helper renders table-specific human-readable descriptions
 - **Verification**: 124 tests pass (12 test files), `pnpm run type-check` passes
+
+## Phase 3: MCP Tools — Memory Tools for AI
+
+### 3.1 Create `src/tools/memory.ts` — Memory MCP tools ✅
+- **Date**: 2026-02-28
+- **Files created**:
+  - `src/tools/memory.ts` — 5 MCP tools for memory operations
+  - `src/__tests__/tools/memory.test.ts` — 13 unit tests with real in-memory SurrealDB
+- **Exports**: `createMemoryTools(ctx: MemoryContext)`, `MemoryContext` type
+- **Tools implemented**:
+  - `save_memory` — Save new memory (preference, fact, routine, persona, contact). Validates contact requires name+relationship. Routes contacts through `upsertContact`, others through `saveMemory`.
+  - `update_memory` — Update or supersede existing memory. Validates table prefix for supersede operations.
+  - `recall_memory` — Search memories by keyword with optional `type_filter` to narrow results by memory type.
+  - `list_memories` — List all stored memories with record IDs for transparency.
+  - `forget_memory` — Delete memory by record ID (removes node and edges).
+- **Key details**:
+  - Follows `createCronjobTools` pattern — exports a function that takes context and returns tool array
+  - All tools return JSON `{ success, ... }` or formatted text for read operations
+  - Error handling wraps all operations in try/catch, returns `{ success: false, error }` on failure
+  - Uses Zod v4 `z.record(z.string(), z.unknown())` for flexible data objects (v4 requires two args)
+- **Verification**: 137 tests pass (13 test files), `pnpm run type-check` passes

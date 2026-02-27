@@ -205,7 +205,7 @@ EDGES (relation tables):
 
 ### Phase 3: MCP Tools — Memory Tools for AI
 
-- [ ] **3.1 Create `src/tools/memory.ts` — Memory MCP tools**
+- [x] **3.1 Create `src/tools/memory.ts` — Memory MCP tools**
   Create memory tools following the pattern of `src/tools/cronjob.ts`. Define `MemoryContext` type: `{ phoneNumber: string }`. Export `createMemoryTools(ctx: MemoryContext)` returning tool array.
 
   **Tool 1: `save_memory`** — Save new memory (preference, fact, routine, persona, contact). Parameters: `memory_type` (enum), `data` (z.record for flexibility, validate per type in handler). Returns `{ success, record_id }`.
