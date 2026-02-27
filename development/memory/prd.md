@@ -376,7 +376,7 @@ EDGES (relation tables):
 
   Write unit tests covering: keyword-only mode, hybrid mode, and score merging logic.
 
-- [ ] **8.4 Auto-promotion/demotion of importance level**
+- [x] **8.4 Auto-promotion/demotion of importance level**
   Leverage `access_count` data collected since Phase 1 to suggest importance changes:
   - If an `extended` memory has `access_count >= 5` → suggest promotion to `fundamental`
   - If a `fundamental` memory has not been accessed in 30+ days → suggest demotion to `extended`

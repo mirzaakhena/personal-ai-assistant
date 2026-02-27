@@ -12,6 +12,7 @@ import {
   getAllMemories,
   getRelationships,
   calculateRecencyScore,
+  getImportanceSuggestions,
 } from '../../memory/operations.js';
 
 const PHONE_A = '+6281234567890';
@@ -736,6 +737,115 @@ describe('saveMemory with embeddings', () => {
       `SELECT embedding FROM ${recordId}`,
     );
     expect(result[0]![0]!.embedding).toBeUndefined();
+  });
+});
+
+describe('getImportanceSuggestions', () => {
+  it('suggests promotion for extended memories with access_count >= 5', async () => {
+    await getOrCreateSelfPerson(PHONE_A);
+    const id = await saveMemory(PHONE_A, 'preference', {
+      category: 'drink',
+      value: 'Kopi hitam',
+      importance: 'extended',
+    });
+
+    // Manually set access_count to 5
+    const db = getMemoryDb();
+    const { StringRecordId } = await import('surrealdb');
+    await db.query(`UPDATE $id SET access_count = 5`, {
+      id: new StringRecordId(id),
+    });
+
+    const suggestions = await getImportanceSuggestions(PHONE_A);
+    expect(suggestions).toHaveLength(1);
+    expect(suggestions[0]!.record_id).toBe(id);
+    expect(suggestions[0]!.current_importance).toBe('extended');
+    expect(suggestions[0]!.suggested_importance).toBe('fundamental');
+    expect(suggestions[0]!.reason).toContain('Accessed 5 times');
+  });
+
+  it('suggests demotion for fundamental memories not accessed in 30+ days', async () => {
+    await getOrCreateSelfPerson(PHONE_A);
+    const id = await saveMemory(PHONE_A, 'fact', {
+      content: 'Old fact',
+      importance: 'fundamental',
+    });
+
+    // Set last_accessed to 45 days ago
+    const db = getMemoryDb();
+    const { StringRecordId } = await import('surrealdb');
+    const fortyFiveDaysAgo = new Date(Date.now() - 45 * 24 * 60 * 60 * 1000).toISOString();
+    await db.query(
+      `UPDATE $id SET last_accessed = <datetime>$date`,
+      { id: new StringRecordId(id), date: fortyFiveDaysAgo },
+    );
+
+    const suggestions = await getImportanceSuggestions(PHONE_A);
+    expect(suggestions).toHaveLength(1);
+    expect(suggestions[0]!.record_id).toBe(id);
+    expect(suggestions[0]!.current_importance).toBe('fundamental');
+    expect(suggestions[0]!.suggested_importance).toBe('extended');
+    expect(suggestions[0]!.reason).toContain('Not accessed for');
+  });
+
+  it('does not suggest demotion for recently accessed fundamental memories', async () => {
+    await getOrCreateSelfPerson(PHONE_A);
+    const id = await saveMemory(PHONE_A, 'fact', {
+      content: 'Active fact',
+      importance: 'fundamental',
+    });
+
+    // Access it so last_accessed is recent
+    await recallMemories(PHONE_A, 'active');
+
+    const suggestions = await getImportanceSuggestions(PHONE_A);
+    // No demotion suggestion since last_accessed is now (just accessed)
+    const demotions = suggestions.filter(s => s.suggested_importance === 'extended');
+    expect(demotions).toHaveLength(0);
+  });
+
+  it('does not suggest promotion for extended memories with low access count', async () => {
+    await getOrCreateSelfPerson(PHONE_A);
+    await saveMemory(PHONE_A, 'preference', {
+      category: 'food',
+      value: 'Nasi goreng',
+      importance: 'extended',
+    });
+
+    // access_count is 0 by default
+    const suggestions = await getImportanceSuggestions(PHONE_A);
+    expect(suggestions).toHaveLength(0);
+  });
+
+  it('returns empty for user with no memories', async () => {
+    const suggestions = await getImportanceSuggestions('+unknown');
+    expect(suggestions).toHaveLength(0);
+  });
+
+  it('skips superseded facts', async () => {
+    await getOrCreateSelfPerson(PHONE_A);
+    const oldId = await saveMemory(PHONE_A, 'fact', {
+      content: 'Old address',
+      importance: 'extended',
+    });
+
+    // Manually set high access count on old record
+    const db = getMemoryDb();
+    const { StringRecordId } = await import('surrealdb');
+    await db.query(`UPDATE $id SET access_count = 10`, {
+      id: new StringRecordId(oldId),
+    });
+
+    // Supersede it
+    await supersedeMemory(oldId, PHONE_A, 'fact', {
+      content: 'New address',
+      importance: 'extended',
+    });
+
+    const suggestions = await getImportanceSuggestions(PHONE_A);
+    // The superseded record should not appear
+    const oldSuggestions = suggestions.filter(s => s.record_id === oldId);
+    expect(oldSuggestions).toHaveLength(0);
   });
 });
 

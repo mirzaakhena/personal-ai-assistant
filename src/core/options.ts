@@ -103,7 +103,14 @@ NEW USER ONBOARDING:
 CONTEXT PRESERVATION:
 - If a conversation has been long and contains important new information that hasn't been saved yet, proactively save it using \`save_memory\` before the conversation ends.
 - When you notice the user sharing multiple pieces of personal info in one conversation, save them incrementally — don't wait until the end.
-- Prioritize saving: corrections to existing memories, new contacts/relationships, explicit "remember this" requests.`;
+- Prioritize saving: corrections to existing memories, new contacts/relationships, explicit "remember this" requests.
+
+IMPORTANCE RE-CLASSIFICATION:
+- Periodically review memory access patterns and suggest re-classification.
+- If an "extended" memory has been accessed frequently (5+ times), suggest promoting it to "fundamental" so it loads automatically.
+- If a "fundamental" memory has not been accessed in 30+ days, suggest demoting it to "extended" to keep the auto-loaded context lean.
+- When suggesting changes, explain why: "I notice I look up your coffee preference often — want me to make it load automatically?"
+- Only apply changes with user confirmation.`;
 
 export async function buildSystemPrompt(phoneNumber: string): Promise<string> {
   try {

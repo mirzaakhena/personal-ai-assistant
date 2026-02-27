@@ -36,6 +36,10 @@ export const MEMORY_FUNDAMENTAL_LIMIT = 5;
 export const MEMORY_DECAY_HALF_LIFE_DAYS = 30;
 export const MEMORY_EMBEDDING_ENABLED = false;
 
+// Importance auto-promotion/demotion thresholds (Phase 8.4)
+export const MEMORY_PROMOTION_ACCESS_THRESHOLD = 5; // extended → fundamental when access_count >= this
+export const MEMORY_DEMOTION_INACTIVE_DAYS = 30; // fundamental → extended when not accessed for this many days
+
 // Hybrid search weights (Phase 8.3)
 // When embeddings enabled: vector 0.5 + keyword 0.3 + recency 0.2
 // When embeddings disabled: keyword 0.7 + recency 0.3 (existing behavior)

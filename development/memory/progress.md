@@ -285,3 +285,26 @@
   - Vector-only matches (no keyword match) included in hybrid mode
   - Keyword+vector matches rank higher than keyword-only matches
 - **Verification**: 185 tests pass (16 test files), `pnpm run type-check` passes, no regressions
+
+### 8.4 Auto-promotion/demotion of importance level ✅
+- **Date**: 2026-02-28
+- **Files modified**:
+  - `src/core/constants.ts` — Added `MEMORY_PROMOTION_ACCESS_THRESHOLD` (5) and `MEMORY_DEMOTION_INACTIVE_DAYS` (30) constants
+  - `src/memory/operations.ts` — Added `getImportanceSuggestions()` function and `ImportanceSuggestion` interface
+  - `src/core/options.ts` — Added IMPORTANCE RE-CLASSIFICATION section to system prompt
+  - `src/__tests__/memory/operations.test.ts` — Added 6 unit tests for promotion/demotion logic
+- **Exports**: `getImportanceSuggestions(phoneNumber): Promise<ImportanceSuggestion[]>`, `ImportanceSuggestion` interface
+- **Key details**:
+  - Promotion: extended memories with `access_count >= 5` are suggested for promotion to fundamental
+  - Demotion: fundamental memories with `last_accessed` older than 30 days are suggested for demotion to extended
+  - Skips superseded facts and persona table (personas don't have importance levels)
+  - System prompt instructs AI to periodically review access patterns and suggest re-classification with user confirmation
+  - Handles SurrealDB Datetime objects, JS Date, and string dates robustly (same pattern as `calculateRecencyScore`)
+- **Test coverage**:
+  - Suggests promotion for extended memories with access_count >= 5
+  - Suggests demotion for fundamental memories not accessed in 30+ days
+  - Does not suggest demotion for recently accessed fundamental memories
+  - Does not suggest promotion for low access count extended memories
+  - Returns empty for unknown users
+  - Skips superseded facts
+- **Verification**: 191 tests pass (16 test files), `pnpm run type-check` passes, no regressions
