@@ -328,3 +328,20 @@
   - Turn count cleared on `/new` alongside session and stats
   - Lightweight implementation — no SDK changes required, pure application-layer heuristic
 - **Verification**: 203 tests pass (17 test files), `pnpm run type-check` passes, no regressions
+
+## Phase 10: Conversation Summary Indexing
+
+### 10.1 Add `conversation_summary` node type to graph schema ✅
+- **Date**: 2026-02-28
+- **Files modified**:
+  - `src/db/memory.ts` — Added `conversation_summary` SCHEMAFULL table and `had_conversation` TYPE RELATION edge table to schema
+  - `src/__tests__/db/memory.test.ts` — Added 4 new tests for conversation_summary schema; updated existing table enumeration test
+- **Schema additions**:
+  - `conversation_summary` node: `date` (datetime, DEFAULT time::now()), `summary` (string), `topics` (array\<string\>), `key_decisions` (array\<string\>), `created_at`, `last_accessed`, `access_count`, `embedding` (option\<array\<float\>\>)
+  - `had_conversation` edge: person → conversation_summary, with `created_at` field
+- **Test coverage**:
+  - Table presence in schema (conversation_summary + had_conversation)
+  - All fields stored and retrieved correctly with DEFAULT date
+  - Relation edge traversal (person→had_conversation→conversation_summary)
+  - Nullable embedding field support
+- **Verification**: 207 tests pass (17 test files), `pnpm run type-check` passes, no regressions

@@ -66,6 +66,16 @@ const SCHEMA_STATEMENTS = `
   DEFINE FIELD access_count ON persona TYPE int DEFAULT 0;
   DEFINE FIELD embedding ON persona TYPE option<array<float>>;
 
+  DEFINE TABLE conversation_summary SCHEMAFULL;
+  DEFINE FIELD date ON conversation_summary TYPE option<datetime> DEFAULT time::now();
+  DEFINE FIELD summary ON conversation_summary TYPE option<string>;
+  DEFINE FIELD topics ON conversation_summary TYPE option<array<string>>;
+  DEFINE FIELD key_decisions ON conversation_summary TYPE option<array<string>>;
+  DEFINE FIELD created_at ON conversation_summary TYPE option<datetime> DEFAULT time::now();
+  DEFINE FIELD last_accessed ON conversation_summary TYPE option<datetime>;
+  DEFINE FIELD access_count ON conversation_summary TYPE int DEFAULT 0;
+  DEFINE FIELD embedding ON conversation_summary TYPE option<array<float>>;
+
   -- Edge (relation) tables
   DEFINE TABLE has_preference TYPE RELATION FROM person TO preference SCHEMAFULL;
   DEFINE FIELD created_at ON has_preference TYPE option<datetime> DEFAULT time::now();
@@ -78,6 +88,9 @@ const SCHEMA_STATEMENTS = `
 
   DEFINE TABLE prefers_persona TYPE RELATION FROM person TO persona SCHEMAFULL;
   DEFINE FIELD created_at ON prefers_persona TYPE option<datetime> DEFAULT time::now();
+
+  DEFINE TABLE had_conversation TYPE RELATION FROM person TO conversation_summary SCHEMAFULL;
+  DEFINE FIELD created_at ON had_conversation TYPE option<datetime> DEFAULT time::now();
 
   DEFINE TABLE knows TYPE RELATION FROM person TO person SCHEMAFULL;
   DEFINE FIELD relationship_type ON knows TYPE option<string>;

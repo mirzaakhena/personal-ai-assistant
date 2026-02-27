@@ -396,7 +396,7 @@ EDGES (relation tables):
 
 ### Phase 10: Conversation Summary Indexing
 
-- [ ] **10.1 Add `conversation_summary` node type to graph schema**
+- [x] **10.1 Add `conversation_summary` node type to graph schema**
   Inspired by OpenClaw's session memory indexing. Store conversation summaries so AI can recall past interactions.
 
   Update schema:

@@ -45,12 +45,16 @@ describe('initMemoryDb', () => {
     expect(tableNames).toContain('routine');
     expect(tableNames).toContain('persona');
 
+    // Conversation summary
+    expect(tableNames).toContain('conversation_summary');
+
     // Edge tables
     expect(tableNames).toContain('has_preference');
     expect(tableNames).toContain('has_fact');
     expect(tableNames).toContain('has_routine');
     expect(tableNames).toContain('prefers_persona');
     expect(tableNames).toContain('knows');
+    expect(tableNames).toContain('had_conversation');
   });
 });
 
@@ -170,6 +174,83 @@ describe('schema validation', () => {
     // SurrealDB returns undefined for NONE values
     expect(embeddings).toContainEqual(undefined);
     expect(embeddings).toContainEqual([0.1, 0.2, 0.3]);
+  });
+
+  it('creates conversation_summary table in schema', async () => {
+    const db = await initMemoryDb('mem://');
+    const info = await db.query<[Record<string, unknown>]>('INFO FOR DB');
+    const raw = info[0] as Record<string, unknown>;
+    const tables =
+      raw && typeof raw === 'object' && 'tables' in raw
+        ? raw.tables as Record<string, unknown>
+        : raw;
+    const tableNames = Object.keys(tables!);
+    expect(tableNames).toContain('conversation_summary');
+    expect(tableNames).toContain('had_conversation');
+  });
+
+  it('stores conversation_summary with all fields', async () => {
+    const db = await initMemoryDb('mem://');
+
+    await db.query(
+      `CREATE conversation_summary:cs1 SET
+        summary = 'Discussed vacation plans',
+        topics = ['vacation', 'bali'],
+        key_decisions = ['book hotel next week'],
+        embedding = NONE`
+    );
+
+    const result = await db.query<[Array<{
+      summary: string;
+      topics: string[];
+      key_decisions: string[];
+      date: unknown;
+      embedding: unknown;
+    }>]>(`SELECT * FROM conversation_summary:cs1`);
+
+    const record = result[0]?.[0];
+    expect(record?.summary).toBe('Discussed vacation plans');
+    expect(record?.topics).toEqual(['vacation', 'bali']);
+    expect(record?.key_decisions).toEqual(['book hotel next week']);
+    expect(record?.date).toBeDefined(); // DEFAULT time::now()
+  });
+
+  it('supports had_conversation relation edge', async () => {
+    const db = await initMemoryDb('mem://');
+
+    await db.query(`CREATE person:user1 SET name = 'User', type = 'self', phone = '+1'`);
+    await db.query(
+      `CREATE conversation_summary:cs2 SET
+        summary = 'Talked about work',
+        topics = ['work'],
+        key_decisions = []`
+    );
+    await db.query(`RELATE person:user1->had_conversation->conversation_summary:cs2`);
+
+    const traversal = await db.query<[unknown[]]>(
+      `SELECT ->had_conversation->conversation_summary.* AS conversations FROM person:user1`
+    );
+    const conversations = (traversal[0]?.[0] as { conversations?: unknown[] })?.conversations;
+    expect(conversations).toBeDefined();
+    expect(conversations).toHaveLength(1);
+  });
+
+  it('supports nullable embedding on conversation_summary', async () => {
+    const db = await initMemoryDb('mem://');
+
+    await db.query(
+      `CREATE conversation_summary:emb_none SET summary = 'no vector', topics = [], key_decisions = [], embedding = NONE`
+    );
+    await db.query(
+      `CREATE conversation_summary:emb_vec SET summary = 'with vector', topics = [], key_decisions = [], embedding = [0.1, 0.2]`
+    );
+
+    const result = await db.query<[Array<{ embedding: number[] | null }>]>(
+      `SELECT embedding FROM conversation_summary`
+    );
+    const embeddings = result[0]!.map((r) => r.embedding);
+    expect(embeddings).toContainEqual(undefined);
+    expect(embeddings).toContainEqual([0.1, 0.2]);
   });
 
   it('supports relation edges (knows, has_fact)', async () => {
