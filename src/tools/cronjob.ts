@@ -39,7 +39,9 @@ The "message" field is instructions written to your future self (third person), 
 
 For "once" jobs: provide scheduled_at as an ISO 8601 datetime string (must be in the future).
 For "recurring" jobs: provide schedule_cron as a standard 5-field cron expression (e.g. "0 9 * * *" for daily at 9am).
-Both types require schedule_human: a plain-language description (e.g. "Every day at 9am", "Tomorrow at 3pm").`,
+Both types require schedule_human: a plain-language description (e.g. "Every day at 9am", "Tomorrow at 3pm").
+
+You can also create memory-triggered reminders, e.g., birthday reminders for contacts. Include relevant memory context in the message field so your future self knows the context.`,
     {
       type: z.enum(["once", "recurring"]).describe("Job type: 'once' fires one time, 'recurring' fires repeatedly"),
       message: z.string().min(1).describe("Instructions for your future self (third-person) about what to tell/ask the user"),
