@@ -15,6 +15,7 @@ import { writeFileSync } from "fs";
 import { log } from "../utils/logger.js";
 import { updateStats, clearStats, getStats } from "../core/stats.js";
 import { incrementTurnCount, clearTurnCount, shouldInjectFlushReminder } from "../core/turns.js";
+import { trackMessage, clearTrackedMessages, summarizeAndSave } from "../memory/summarizer.js";
 import { PROJECT_DIR, JID_SUFFIX_REGEX, CMD_NEW, CMD_STATUS, CMD_RESTART, RESTART_FLAG_FILE, FALLBACK_MODEL, COST_USD_PRECISION } from "../core/constants.js";
 
 export async function processMessage(client: Client, message: Message, registry: CronRegistry): Promise<void> {
@@ -25,6 +26,13 @@ export async function processMessage(client: Client, message: Message, registry:
   log.chat(`${phoneNumber} → ${body}`);
 
   if (body === CMD_NEW) {
+    // Generate conversation summary before clearing session
+    try {
+      await summarizeAndSave(phoneNumber);
+    } catch (err) {
+      log.error(`${phoneNumber} | /new — summary generation failed`, err);
+    }
+    clearTrackedMessages(phoneNumber);
     deleteSessionId(phoneNumber);
     clearStats(phoneNumber);
     clearTurnCount(phoneNumber);
@@ -105,6 +113,9 @@ export async function processMessage(client: Client, message: Message, registry:
     mediaBlocks = [buildMediaContentBlock(result)];
     log.debug(`${phoneNumber} | media: ${result.mimetype}${result.filename ? ` (${result.filename})` : ''}`);
   }
+
+  // Track user message for conversation summary generation
+  trackMessage(phoneNumber, 'user', body);
 
   const sessionId = getSessionId(phoneNumber);
   const ctx: MessageContext = { client, chatId };
