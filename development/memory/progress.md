@@ -225,3 +225,22 @@
   - User transparency and memory management
   - New user onboarding flow
 - **No tests needed**: Documentation-only task
+
+## Phase 8: Semantic Search & Temporal Relevance
+
+### 8.1 Add recency-weighted scoring to `recallMemories()` ✅
+- **Date**: 2026-02-28
+- **Files modified**:
+  - `src/memory/operations.ts` — Added `calculateRecencyScore()` function and recency-weighted scoring to `recallMemories()`
+  - `src/__tests__/memory/operations.test.ts` — Added 8 new tests (6 for `calculateRecencyScore` unit tests, 2 for recency-weighted recall integration)
+- **Key details**:
+  - Exponential decay formula: `score = e^(-λ * days_since_creation)` where `λ = ln(2) / 30` (30-day half-life)
+  - Combined scoring: `final_score = 0.7 * keyword_match + 0.3 * recency_score`
+  - Fundamental memories always get recency score of 1.0 (skip decay — equivalent to OpenClaw's "evergreen files")
+  - Missing timestamps default to 0.5 recency score
+  - Handles SurrealDB Datetime objects, JS Date, and string dates robustly
+  - `calculateRecencyScore` exported for direct unit testing
+- **Test coverage**:
+  - `calculateRecencyScore`: fundamental always 1.0, just-created ~1.0, 30-day half-life ~0.5, 60-day ~0.25, missing timestamps, string dates
+  - Recall integration: recent memories rank higher than old with same keyword match; fundamental memories not penalized by age
+- **Verification**: 165 tests pass (15 test files), `pnpm run type-check` passes, no regressions

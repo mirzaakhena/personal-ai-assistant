@@ -349,7 +349,7 @@ EDGES (relation tables):
 
 > **Note:** Schema fields (`created_at`, `last_accessed`, `access_count`, `embedding`) and temporal data collection are already implemented in Phase 1–2. This phase activates the scoring and vector search on top of that foundation.
 
-- [ ] **8.1 Add recency-weighted scoring to `recallMemories()`**
+- [x] **8.1 Add recency-weighted scoring to `recallMemories()`**
   Implement temporal decay scoring inspired by OpenClaw's approach. `created_at`, `last_accessed`, and `access_count` are already being collected since Phase 1–2. `MEMORY_DECAY_HALF_LIFE_DAYS` constant already defined in Phase 1.2.
   - Calculate a recency score: `score = e^(-λ * days_since_creation)` where λ = `ln(2) / MEMORY_DECAY_HALF_LIFE_DAYS`
   - Combine keyword match with recency: `final_score = match_score * 0.7 + recency_score * 0.3`
