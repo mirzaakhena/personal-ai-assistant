@@ -132,7 +132,7 @@ EDGES (relation tables):
 
   > **If spike test (Phase 0) revealed issues:** Apply the fallback decisions here — e.g., use SCHEMALESS instead of SCHEMAFULL, or use regular tables instead of TYPE RELATION.
 
-- [ ] **1.4 Initialize memory DB in `src/index.ts`**
+- [x] **1.4 Initialize memory DB in `src/index.ts`**
   In the main entry point:
   1. Import `initMemoryDb` and `closeMemoryDb` from `src/db/memory.ts`.
   2. Call `await initMemoryDb()` before `await client.initialize()`.
@@ -141,7 +141,7 @@ EDGES (relation tables):
 
 ### Phase 2: Core Memory Operations — Database Layer
 
-- [ ] **2.1 Create `src/memory/operations.ts` — CRUD operations for memory graph**
+- [x] **2.1 Create `src/memory/operations.ts` — CRUD operations for memory graph**
   Create a module with high-level async functions for memory operations. All functions take `phoneNumber` as the first argument to scope memory per user. Import `getMemoryDb` from `src/db/memory.ts`.
 
   > **Multi-user isolation:** All queries MUST use parameterized `$phone` — never hardcode phone numbers. This is the primary isolation mechanism. DB-level permissions (SurrealDB `PERMISSIONS` or namespace-per-user) are over-engineered for a single-process embedded app. Isolation is verified via unit tests in Phase 5.1.

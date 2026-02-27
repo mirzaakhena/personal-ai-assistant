@@ -56,3 +56,36 @@
   - `superseded_by` field on fact table for memory conflict resolution
 - **Testing note**: SurrealDB returns `undefined` (not `null`) for NONE values in query results
 - **Verification**: 89 tests pass (all 10 test files), `pnpm run type-check` passes
+
+### 1.4 Initialize memory DB in `src/index.ts` ✅
+- **Date**: 2026-02-28
+- **File modified**: `src/index.ts`
+- **Changes**:
+  - Imported `initMemoryDb` and `closeMemoryDb` from `src/db/memory.ts`
+  - Added `await initMemoryDb()` before `await client.initialize()` — ensures memory DB is ready before any messages are processed
+  - Added `await closeMemoryDb()` in `shutdown()` before `client.destroy()` — ensures clean DB shutdown on SIGINT/SIGTERM
+- **No new tests needed**: Pure wiring task with no logic; existing 89 tests all pass
+- **Verification**: `pnpm run type-check` passes, `pnpm test` passes (89 tests, 10 files)
+
+## Phase 2: Core Memory Operations — Database Layer
+
+### 2.1 Create `src/memory/operations.ts` — CRUD operations ✅
+- **Date**: 2026-02-28
+- **Files created**:
+  - `src/memory/operations.ts` — All CRUD operations for memory graph
+  - `src/__tests__/memory/operations.test.ts` — 27 unit tests
+- **Exports**: `getOrCreateSelfPerson`, `upsertContact`, `saveMemory`, `updateMemory`, `deleteMemory`, `supersedeMemory`, `getFundamentalMemories`, `recallMemories`, `getAllMemories`, `getRelationships`
+- **Key details**:
+  - All functions take `phoneNumber` as first arg for multi-user isolation
+  - Uses `StringRecordId` from surrealdb SDK to pass record IDs as proper record references (not plain strings) in parameterized queries — required for RELATE and graph traversal
+  - `recallMemories` implements multi-keyword tokenized matching: splits query into words, scores by `matched_tokens / total_tokens`, sorts descending
+  - `getFundamentalMemories` returns profile, persona, preferences, facts, routines — filters by `importance = 'fundamental'`, respects `MEMORY_FUNDAMENTAL_LIMIT`
+  - `bumpAccess` increments `access_count` and sets `last_accessed` on all returned memory nodes (temporal data for Phase 8)
+  - `deleteMemory` cleans up edges before deleting node to prevent orphaned edges
+  - `supersedeMemory` creates new memory and sets `superseded_by` on old record
+  - Multi-user isolation verified with dedicated tests (memories for phone A not visible to phone B)
+- **SurrealDB learnings**:
+  - `StringRecordId` is required when passing record IDs as query parameters (plain strings cause "Cannot execute RELATE" errors)
+  - Graph traversal with `.* AS items` returns flattened arrays of objects
+  - SurrealDB `option<string>` fields reject JavaScript `null` — use `'NONE'` string or omit the field
+- **Verification**: 116 tests pass (11 test files), `pnpm run type-check` passes
