@@ -74,4 +74,21 @@ describe('buildCronjobPrompt', () => {
     const result = buildCronjobPrompt('remind');
     expect(result).not.toContain('[USER MESSAGE]');
   });
+
+  it('prepends memory context before [CRONJOB MESSAGE] when provided', () => {
+    const memoryContext = '[MEMORY CONTEXT]\n\nAbout the user:\n- Name: Mirza';
+    const result = buildCronjobPrompt('remind user about meeting', memoryContext);
+    expect(result).toContain('[MEMORY CONTEXT]');
+    expect(result).toContain('Name: Mirza');
+    expect(result).toContain('[CRONJOB MESSAGE]');
+    // Memory context should appear before cronjob message
+    const memoryIdx = result.indexOf('[MEMORY CONTEXT]');
+    const cronjobIdx = result.indexOf('[CRONJOB MESSAGE]');
+    expect(memoryIdx).toBeLessThan(cronjobIdx);
+  });
+
+  it('does not include memory block when memoryContext is undefined', () => {
+    const result = buildCronjobPrompt('remind');
+    expect(result).toMatch(/^\[CRONJOB MESSAGE\]/);
+  });
 });

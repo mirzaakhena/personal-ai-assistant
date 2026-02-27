@@ -56,10 +56,12 @@ ${message || '(no caption)'}`;
   return blocks;
 }
 
-export function buildCronjobPrompt(message: string): string {
+export function buildCronjobPrompt(message: string, memoryContext?: string): string {
   const { dateStr, timeStr } = getFormattedDateTime();
 
-  return `[CRONJOB MESSAGE]
+  const memoryBlock = memoryContext ? `${memoryContext}\n\n` : '';
+
+  return `${memoryBlock}[CRONJOB MESSAGE]
 
 Timestamp: ${dateStr}, ${timeStr}
 

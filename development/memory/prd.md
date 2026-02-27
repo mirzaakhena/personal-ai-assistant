@@ -287,18 +287,18 @@ EDGES (relation tables):
 
 ### Phase 4: Message Handler Integration
 
-- [ ] **4.1 Update `src/handlers/message.ts` — Wire memory into message processing**
+- [x] **4.1 Update `src/handlers/message.ts` — Wire memory into message processing**
   1. Import `MemoryContext` from `src/tools/memory.ts`.
   2. After creating `cronCtx`, create `memCtx: MemoryContext = { phoneNumber }`.
   3. Update `createQueryOptions` call to pass `phoneNumber` and `memCtx`.
 
-- [ ] **4.2 Update `src/cron/executor.ts` — Wire memory into cronjob execution**
+- [x] **4.2 Update `src/cron/executor.ts` — Wire memory into cronjob execution**
   1. Import `MemoryContext` from `src/tools/memory.ts`.
   2. Create `memCtx: MemoryContext = { phoneNumber }`.
   3. Update `createQueryOptions` call to pass `phoneNumber` and `memCtx`.
   This ensures AI has user context when executing scheduled messages.
 
-- [ ] **4.3 Update `src/utils/prompt.ts` — Add memory context to cronjob prompts**
+- [x] **4.3 Update `src/utils/prompt.ts` — Add memory context to cronjob prompts**
   Update `buildCronjobPrompt` to accept optional `memoryContext?: string`. If provided, prepend it before `[CRONJOB MESSAGE]`. Update caller in `src/cron/executor.ts` to load and format fundamental memory, then pass it to `buildCronjobPrompt`. This gives AI user context in fresh cronjob sessions.
 
 ### Phase 5: Testing & Verification

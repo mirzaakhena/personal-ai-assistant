@@ -151,3 +151,27 @@
   - `createQueryOptions` now calls `buildSystemPrompt(memCtx.phoneNumber)` to build a memory-aware system prompt per request
   - Error handling: if memory loading fails, falls back to base prompt without memory block (logged as error)
 - **Verification**: 143 tests pass (14 test files), `pnpm run type-check` passes
+
+## Phase 4: Message Handler Integration
+
+### 4.1 Update `src/handlers/message.ts` — Wire memory into message processing ✅
+- **Date**: 2026-02-28
+- **Result**: Already completed as part of Phase 3.2 wiring — `MemoryContext` import, `memCtx` creation, and `createQueryOptions` call were all wired in that phase
+- **No additional changes needed**
+
+### 4.2 Update `src/cron/executor.ts` — Wire memory into cronjob execution ✅
+- **Date**: 2026-02-28
+- **Result**: Already completed as part of Phase 3.2 wiring — `MemoryContext` import, `memCtx` creation, and `createQueryOptions` call were all wired in that phase
+- **No additional changes needed**
+
+### 4.3 Update `src/utils/prompt.ts` — Add memory context to cronjob prompts ✅
+- **Date**: 2026-02-28
+- **Files modified**:
+  - `src/utils/prompt.ts` — Updated `buildCronjobPrompt` to accept optional `memoryContext?: string`, prepends it before `[CRONJOB MESSAGE]` when provided
+  - `src/cron/executor.ts` — Added `getFundamentalMemories` and `formatFundamentalMemory` imports, loads and formats memory context before building cronjob prompt, with error handling (logs and continues without memory on failure)
+  - `src/__tests__/utils/prompt.test.ts` — Added 2 tests: verifies memory context is prepended before `[CRONJOB MESSAGE]`, and verifies no memory block when `memoryContext` is undefined
+- **Key details**:
+  - Cronjob prompts now include user's fundamental memory context, giving AI user awareness in fresh cronjob sessions
+  - Error handling: if memory loading fails, cronjob still fires without memory context (graceful degradation)
+  - Memory context is also available via system prompt (Phase 3.3), but including it in the user prompt provides redundancy for fresh sessions
+- **Verification**: 145 tests pass (14 test files), `pnpm run type-check` passes

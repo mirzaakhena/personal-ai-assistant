@@ -8,6 +8,8 @@ import { buildCronjobPrompt } from '../utils/prompt.js';
 import type { MessageContext } from '../tools/message.js';
 import type { CronContext } from '../tools/cronjob.js';
 import type { MemoryContext } from '../tools/memory.js';
+import { getFundamentalMemories } from '../memory/operations.js';
+import { formatFundamentalMemory } from '../memory/formatter.js';
 import { log } from '../utils/logger.js';
 import { WA_JID_PERSONAL, CronjobStatuses, COST_USD_PRECISION } from '../core/constants.js';
 
@@ -37,7 +39,16 @@ export async function processCronjob(
   const ctx: MessageContext = { client, chatId };
   const cronCtx: CronContext = { registry, client, phoneNumber };
   const memCtx: MemoryContext = { phoneNumber };
-  const prompt = buildCronjobPrompt(job.message);
+
+  let memoryContext: string | undefined;
+  try {
+    const memories = await getFundamentalMemories(phoneNumber);
+    memoryContext = formatFundamentalMemory(memories);
+  } catch (err) {
+    log.error(`[CRON] Failed to load memory for ${phoneNumber}`, err);
+  }
+
+  const prompt = buildCronjobPrompt(job.message, memoryContext);
 
   try {
     const options = await createQueryOptions(sessionId, ctx, cronCtx, memCtx);
