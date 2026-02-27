@@ -4,6 +4,7 @@ import {
   MEMORY_FUNDAMENTAL_LIMIT,
   MEMORY_DECAY_HALF_LIFE_DAYS,
 } from '../core/constants.js';
+import { generateEmbedding } from './embeddings.js';
 
 // Maps memory table to its edge table
 const EDGE_TABLE_MAP: Record<string, string> = {
@@ -175,6 +176,21 @@ export async function upsertContact(
 
 // --- Memory save/update/delete ---
 
+/**
+ * Build a text string from memory data for embedding generation.
+ * Concatenates all string values from the data record.
+ */
+function buildEmbeddingText(
+  table: MemoryTable,
+  data: Record<string, unknown>,
+): string {
+  const fields = SEARCHABLE_FIELDS[table] ?? [];
+  return fields
+    .map((f) => String(data[f] ?? ''))
+    .filter((s) => s.length > 0)
+    .join(' ');
+}
+
 export async function saveMemory(
   phoneNumber: string,
   table: MemoryTable,
@@ -184,14 +200,27 @@ export async function saveMemory(
   const selfId = await getOrCreateSelfPerson(phoneNumber);
   const edgeTable = EDGE_TABLE_MAP[table];
 
+  // Generate embedding if enabled (check env var at runtime for togglability)
+  let embedding: number[] | null = null;
+  if (process.env.MEMORY_EMBEDDING_ENABLED === 'true') {
+    const text = buildEmbeddingText(table, data);
+    if (text.length > 0) {
+      embedding = await generateEmbedding(text);
+    }
+  }
+
   // Build SET clause from data
   const fields = Object.entries(data)
     .map(([key]) => `${key} = $${key}`)
     .join(', ');
 
+  const embeddingClause = embedding
+    ? `, embedding = $embedding`
+    : `, embedding = NONE`;
+
   const created = await db.query<[Array<{ id: unknown }>]>(
-    `CREATE ${table} SET ${fields}, access_count = 0, embedding = NONE`,
-    data,
+    `CREATE ${table} SET ${fields}, access_count = 0${embeddingClause}`,
+    embedding ? { ...data, embedding } : data,
   );
   const recordId = toRecordIdStr(created[0]![0]);
 

@@ -356,7 +356,7 @@ EDGES (relation tables):
   - Memories with `importance = 'fundamental'` skip decay (always score 1.0 for recency) — equivalent to OpenClaw's "evergreen files"
   - Sort results by `final_score` descending
 
-- [ ] **8.2 Add vector embedding generation**
+- [x] **8.2 Add vector embedding generation**
   The `embedding` field already exists in the schema (nullable, added in Phase 1.3). This task activates it:
   1. Create `src/memory/embeddings.ts` module:
      - `generateEmbedding(text: string): Promise<number[]>` — Generate embedding using a provider. Start with OpenAI `text-embedding-3-small` (1536 dims). Accept provider config via environment variable `MEMORY_EMBEDDING_PROVIDER` (default: none/disabled).

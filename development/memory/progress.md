@@ -244,3 +244,23 @@
   - `calculateRecencyScore`: fundamental always 1.0, just-created ~1.0, 30-day half-life ~0.5, 60-day ~0.25, missing timestamps, string dates
   - Recall integration: recent memories rank higher than old with same keyword match; fundamental memories not penalized by age
 - **Verification**: 165 tests pass (15 test files), `pnpm run type-check` passes, no regressions
+
+### 8.2 Add vector embedding generation ✅
+- **Date**: 2026-02-28
+- **Files created**:
+  - `src/memory/embeddings.ts` — Vector embedding generation module with OpenAI provider support
+  - `src/__tests__/memory/embeddings.test.ts` — 12 unit tests for cosineSimilarity and generateEmbedding
+  - `src/memory/backfill-embeddings.ts` — Standalone backfill script for populating embeddings on existing records
+- **Files modified**:
+  - `src/memory/operations.ts` — Updated `saveMemory()` to generate and store embeddings when `MEMORY_EMBEDDING_ENABLED` env var is `true`
+  - `src/__tests__/memory/operations.test.ts` — Added 3 tests for saveMemory embedding integration
+- **Exports**: `generateEmbedding(text): Promise<number[] | null>`, `cosineSimilarity(a, b): number`
+- **Key details**:
+  - `cosineSimilarity` — Pure function computing cosine similarity between two vectors, returns value in [-1, 1]
+  - `generateEmbedding` — Async function that calls embedding provider API. Returns null when no provider configured, API key missing, or on error. Currently supports OpenAI `text-embedding-3-small` (1536 dims)
+  - Provider configured via `MEMORY_EMBEDDING_PROVIDER` env var (supports: `openai`). API key via `OPENAI_API_KEY` env var
+  - `saveMemory()` checks `MEMORY_EMBEDDING_ENABLED` env var at runtime (not module-level constant) for runtime togglability without restart
+  - Embedding text is built from searchable fields per table (same fields used by keyword search)
+  - Backfill script: `MEMORY_EMBEDDING_PROVIDER=openai OPENAI_API_KEY=sk-... npx tsx src/memory/backfill-embeddings.ts` — iterates all records with `embedding = NONE` and generates embeddings
+  - `MEMORY_EMBEDDING_ENABLED` constant in `constants.ts` kept as `false` for documentation; actual feature check is via env var in `saveMemory`
+- **Verification**: 180 tests pass (16 test files), `pnpm run type-check` passes, no regressions

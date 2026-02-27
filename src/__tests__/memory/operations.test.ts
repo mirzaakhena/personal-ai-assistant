@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { initMemoryDb, closeMemoryDb, getMemoryDb } from '../../db/memory.js';
 import {
   getOrCreateSelfPerson,
@@ -508,6 +508,82 @@ describe('recallMemories recency-weighted scoring', () => {
     expect(results.length).toBe(2);
     // Fundamental should rank higher because its recency score is always 1.0
     expect(String((results[0] as Record<string, unknown>).id)).toBe(fundamentalId);
+  });
+});
+
+describe('saveMemory with embeddings', () => {
+  const originalEnv = process.env;
+
+  beforeEach(() => {
+    process.env = { ...originalEnv };
+  });
+
+  afterEach(() => {
+    process.env = originalEnv;
+    vi.restoreAllMocks();
+  });
+
+  it('stores embedding when MEMORY_EMBEDDING_ENABLED=true and generateEmbedding returns a vector', async () => {
+    const mockEmbedding = [0.1, 0.2, 0.3];
+
+    // Enable embeddings via env var
+    process.env.MEMORY_EMBEDDING_ENABLED = 'true';
+    process.env.MEMORY_EMBEDDING_PROVIDER = 'openai';
+    process.env.OPENAI_API_KEY = 'test-key';
+
+    // Mock fetch to return embedding from OpenAI
+    const mockFetch = vi.fn().mockResolvedValue({
+      ok: true,
+      json: () => Promise.resolve({ data: [{ embedding: mockEmbedding }] }),
+    });
+    vi.stubGlobal('fetch', mockFetch);
+
+    await getOrCreateSelfPerson(PHONE_A);
+    const recordId = await saveMemory(PHONE_A, 'fact', {
+      content: 'Tinggal di Jakarta',
+      importance: 'fundamental',
+    });
+
+    const db = getMemoryDb();
+    const result = await db.query<[Array<{ embedding: number[] }>]>(
+      `SELECT embedding FROM ${recordId}`,
+    );
+    expect(result[0]![0]!.embedding).toEqual(mockEmbedding);
+  });
+
+  it('stores NONE embedding when MEMORY_EMBEDDING_ENABLED is not set', async () => {
+    delete process.env.MEMORY_EMBEDDING_ENABLED;
+
+    await getOrCreateSelfPerson(PHONE_A);
+    const recordId = await saveMemory(PHONE_A, 'fact', {
+      content: 'Tinggal di Jakarta',
+      importance: 'fundamental',
+    });
+
+    const db = getMemoryDb();
+    const result = await db.query<[Array<{ embedding: unknown }>]>(
+      `SELECT embedding FROM ${recordId}`,
+    );
+    // When disabled, embedding should be NONE (undefined in JS)
+    expect(result[0]![0]!.embedding).toBeUndefined();
+  });
+
+  it('stores NONE embedding when generateEmbedding returns null', async () => {
+    process.env.MEMORY_EMBEDDING_ENABLED = 'true';
+    // No provider configured, so generateEmbedding returns null
+    delete process.env.MEMORY_EMBEDDING_PROVIDER;
+
+    await getOrCreateSelfPerson(PHONE_A);
+    const recordId = await saveMemory(PHONE_A, 'fact', {
+      content: 'Tinggal di Jakarta',
+      importance: 'fundamental',
+    });
+
+    const db = getMemoryDb();
+    const result = await db.query<[Array<{ embedding: unknown }>]>(
+      `SELECT embedding FROM ${recordId}`,
+    );
+    expect(result[0]![0]!.embedding).toBeUndefined();
   });
 });
 
