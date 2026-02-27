@@ -175,3 +175,23 @@
   - Error handling: if memory loading fails, cronjob still fires without memory context (graceful degradation)
   - Memory context is also available via system prompt (Phase 3.3), but including it in the user prompt provides redundancy for fresh sessions
 - **Verification**: 145 tests pass (14 test files), `pnpm run type-check` passes
+
+## Phase 5: Testing & Verification
+
+### 5.1 Write integration test for full memory flow ✅
+- **Date**: 2026-02-28
+- **File created**: `src/__tests__/memory/integration.test.ts` — 12 integration tests
+- **Test coverage**:
+  1. Save fundamental fact (user name) → verify saved and retrieved
+  2. Save preference → verify saved and retrieved
+  3. Save contact with relationship → verify saved and retrieved via getRelationships
+  4. getFundamentalMemories returns correct data structure (profile, persona, preferences, facts, routines)
+  5. recallMemories multi-keyword tokenized search ("pagi hari" matches record with "pagi hari")
+  6. supersedeMemory marks old record, creates new with correct content
+  7. deleteMemory removes node AND edges (no orphaned edges)
+  8. getAllMemories returns grouped output by type
+  9. formatFundamentalMemory formats empty state (new user message)
+  10. formatFundamentalMemory formats populated state with correct sections
+  11. Multi-user isolation: memories for phone A not visible to phone B (getFundamentalMemories, recallMemories, getAllMemories, getRelationships all return empty)
+  12. Multi-user isolation: creating memories for phone B does not affect phone A's memories
+- **Verification**: 157 tests pass (15 test files), no regressions

@@ -303,7 +303,7 @@ EDGES (relation tables):
 
 ### Phase 5: Testing & Verification
 
-- [ ] **5.1 Write integration test for full memory flow**
+- [x] **5.1 Write integration test for full memory flow**
   Create `src/__tests__/memory/integration.test.ts`:
   1. Init memory DB with `mem://`
   2. Save fundamental fact (user name) → verify saved
