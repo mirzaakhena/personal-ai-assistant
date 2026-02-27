@@ -8,6 +8,7 @@ import { enqueue } from './whatsapp/queue.js';
 import { processMessage } from './handlers/message.js';
 import { createCronRegistry } from './cron/registry.js';
 import { reconcileOnStartup } from './cron/scheduler.js';
+import { initMemoryDb, closeMemoryDb } from './db/memory.js';
 import { log } from './utils/logger.js';
 import { PROJECT_DIR, WA_JID_GROUP, WA_STATUS_BROADCAST, JID_SUFFIX_REGEX, WA_CHROME_KILL_PATTERN, WA_LOCK_FILES, RESTART_FLAG_FILE } from './core/constants.js';
 
@@ -71,6 +72,7 @@ for (const lockFile of WA_LOCK_FILES) {
 
 const shutdown = async (signal: string) => {
   log.debug(`[SHUTDOWN] received ${signal}, destroying client...`);
+  await closeMemoryDb();
   await client.destroy();
   process.exit(0);
 };
@@ -78,4 +80,5 @@ const shutdown = async (signal: string) => {
 process.on('SIGINT', () => shutdown('SIGINT'));
 process.on('SIGTERM', () => shutdown('SIGTERM'));
 
+await initMemoryDb();
 await client.initialize();
