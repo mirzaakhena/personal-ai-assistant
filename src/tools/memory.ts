@@ -9,6 +9,7 @@ import {
   recallConversations,
   getAllMemories,
   upsertContact,
+  queryRelationships,
 } from "../memory/operations.js";
 import {
   formatRecalledMemories,
@@ -221,5 +222,72 @@ For each memory_type, provide the relevant fields in "data":
     }
   );
 
-  return [saveMemoryTool, updateMemoryTool, recallMemoryTool, listMemoriesTool, forgetMemoryTool, recallConversationsTool];
+  const queryRelationshipsTool = tool(
+    "query_relationships",
+    `Query relationships and connections between people and memories using graph traversal. Supports these query types:
+
+- "contacts_by_attribute": Find contacts matching specific attributes. Filters: { occupation: "engineer", location: "Jakarta", relationship_type: "colleague", ... }
+- "upcoming_birthdays": Find contacts with birthdays in the next N days. Filters: { days_ahead: 30 }
+- "related_memories": Find all memories related to a specific person. Filters: { person_name: "Budi" }
+- "mutual_connections": List all known contacts with their relationship info.
+
+Use this for relational queries like "siapa aja teman kerja aku?", "ada yang ulang tahun bulan ini?", "apa yang aku tahu tentang Budi?"`,
+    {
+      query_type: z.enum(["contacts_by_attribute", "mutual_connections", "upcoming_birthdays", "related_memories"]).describe("Type of relationship query"),
+      filters: z.record(z.string(), z.unknown()).optional().describe("Query-specific filters (varies by query_type)"),
+    },
+    async (args) => {
+      try {
+        const results = await queryRelationships(
+          memCtx.phoneNumber,
+          args.query_type,
+          args.filters ?? {},
+        );
+
+        if (results.length === 0) {
+          return {
+            content: [{ type: "text", text: "No matching results found." }],
+          };
+        }
+
+        const formatted = results
+          .map((r, i) => {
+            const lines: string[] = [`[${i + 1}]`];
+            if (r.type === 'contact_info') {
+              lines.push(`Contact: ${r.name ?? 'Unknown'}`);
+              if (r.relationship_type) lines.push(`Relationship: ${r.relationship_type}`);
+              if (r.occupation) lines.push(`Occupation: ${r.occupation}`);
+              if (r.location) lines.push(`Location: ${r.location}`);
+              if (r.birthday) lines.push(`Birthday: ${r.birthday}`);
+              if (r.relationship_notes && r.relationship_notes !== 'NONE') lines.push(`Notes: ${r.relationship_notes}`);
+            } else if (r.type === 'related_memory') {
+              const table = String(r.id).split(':')[0];
+              lines.push(`Memory (${table}): ${r.content ?? r.value ?? r.activity ?? r.name ?? 'Unknown'}`);
+              if (r.id) lines.push(`ID: ${r.id}`);
+            } else {
+              // Generic contact or relationship result
+              if (r.name) lines.push(`Name: ${r.name}`);
+              if (r.relationship_type) lines.push(`Relationship: ${r.relationship_type}`);
+              if (r.occupation) lines.push(`Occupation: ${r.occupation}`);
+              if (r.location) lines.push(`Location: ${r.location}`);
+              if (r.birthday) lines.push(`Birthday: ${r.birthday}`);
+              if (r.days_until_birthday !== undefined) lines.push(`Days until birthday: ${r.days_until_birthday}`);
+              if (r.notes && r.notes !== 'NONE') lines.push(`Notes: ${r.notes}`);
+            }
+            return lines.join('\n');
+          })
+          .join('\n\n');
+
+        return {
+          content: [{ type: "text", text: formatted }],
+        };
+      } catch (err) {
+        return {
+          content: [{ type: "text", text: JSON.stringify({ success: false, error: String(err) }) }],
+        };
+      }
+    }
+  );
+
+  return [saveMemoryTool, updateMemoryTool, recallMemoryTool, listMemoriesTool, forgetMemoryTool, recallConversationsTool, queryRelationshipsTool];
 }

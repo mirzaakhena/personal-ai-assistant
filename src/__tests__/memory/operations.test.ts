@@ -960,6 +960,150 @@ describe('recallConversations', () => {
   });
 });
 
+describe('queryRelationships', () => {
+  it('returns empty for unknown user', async () => {
+    const { queryRelationships } = await import('../../memory/operations.js');
+    const results = await queryRelationships('+unknown', 'contacts_by_attribute');
+    expect(results).toHaveLength(0);
+  });
+
+  it('finds contacts by attribute (occupation)', async () => {
+    const { queryRelationships } = await import('../../memory/operations.js');
+    await getOrCreateSelfPerson(PHONE_A);
+    await upsertContact(PHONE_A, 'Budi', 'colleague', 'Works at tech company');
+
+    // Set occupation on Budi's person record
+    const db = getMemoryDb();
+    const rels = await getRelationships(PHONE_A);
+    const budiId = String(rels[0]!.contact_id);
+    const { StringRecordId } = await import('surrealdb');
+    await db.query(`UPDATE $id SET occupation = 'engineer'`, {
+      id: new StringRecordId(budiId),
+    });
+
+    const results = await queryRelationships(PHONE_A, 'contacts_by_attribute', { occupation: 'engineer' });
+    expect(results).toHaveLength(1);
+    expect(results[0]!.name).toBe('Budi');
+  });
+
+  it('finds contacts by relationship_type filter', async () => {
+    const { queryRelationships } = await import('../../memory/operations.js');
+    await getOrCreateSelfPerson(PHONE_A);
+    await upsertContact(PHONE_A, 'Budi', 'colleague');
+    await upsertContact(PHONE_A, 'Ani', 'friend');
+
+    const results = await queryRelationships(PHONE_A, 'contacts_by_attribute', { relationship_type: 'friend' });
+    expect(results).toHaveLength(1);
+    expect(results[0]!.name).toBe('Ani');
+  });
+
+  it('finds upcoming birthdays within days_ahead window', async () => {
+    const { queryRelationships } = await import('../../memory/operations.js');
+    await getOrCreateSelfPerson(PHONE_A);
+    await upsertContact(PHONE_A, 'Budi', 'friend');
+
+    // Set Budi's birthday to 5 days from now this year
+    const db = getMemoryDb();
+    const rels = await getRelationships(PHONE_A);
+    const budiId = String(rels[0]!.contact_id);
+    const { StringRecordId } = await import('surrealdb');
+
+    const upcoming = new Date();
+    upcoming.setDate(upcoming.getDate() + 5);
+    const birthdayStr = `${upcoming.getFullYear()}-${String(upcoming.getMonth() + 1).padStart(2, '0')}-${String(upcoming.getDate()).padStart(2, '0')}`;
+    await db.query(`UPDATE $id SET birthday = $bday`, {
+      id: new StringRecordId(budiId),
+      bday: birthdayStr,
+    });
+
+    const results = await queryRelationships(PHONE_A, 'upcoming_birthdays', { days_ahead: 10 });
+    expect(results).toHaveLength(1);
+    expect(results[0]!.name).toBe('Budi');
+    expect(results[0]!.days_until_birthday).toBeLessThanOrEqual(10);
+  });
+
+  it('excludes birthdays outside the days_ahead window', async () => {
+    const { queryRelationships } = await import('../../memory/operations.js');
+    await getOrCreateSelfPerson(PHONE_A);
+    await upsertContact(PHONE_A, 'Budi', 'friend');
+
+    const db = getMemoryDb();
+    const rels = await getRelationships(PHONE_A);
+    const budiId = String(rels[0]!.contact_id);
+    const { StringRecordId } = await import('surrealdb');
+
+    // Set birthday to 60 days from now
+    const farAway = new Date();
+    farAway.setDate(farAway.getDate() + 60);
+    const birthdayStr = `${farAway.getFullYear()}-${String(farAway.getMonth() + 1).padStart(2, '0')}-${String(farAway.getDate()).padStart(2, '0')}`;
+    await db.query(`UPDATE $id SET birthday = $bday`, {
+      id: new StringRecordId(budiId),
+      bday: birthdayStr,
+    });
+
+    const results = await queryRelationships(PHONE_A, 'upcoming_birthdays', { days_ahead: 30 });
+    expect(results).toHaveLength(0);
+  });
+
+  it('finds related memories for a specific person', async () => {
+    const { queryRelationships } = await import('../../memory/operations.js');
+    await getOrCreateSelfPerson(PHONE_A);
+    await upsertContact(PHONE_A, 'Budi', 'colleague');
+
+    // Save a fact mentioning Budi
+    await saveMemory(PHONE_A, 'fact', {
+      content: 'Budi suka main badminton',
+      category: 'hobbies',
+      importance: 'extended',
+    });
+    // Save unrelated fact
+    await saveMemory(PHONE_A, 'fact', {
+      content: 'Cuaca hari ini cerah',
+      category: 'misc',
+      importance: 'extended',
+    });
+
+    const results = await queryRelationships(PHONE_A, 'related_memories', { person_name: 'Budi' });
+    // Should return contact info + related memory
+    expect(results.length).toBeGreaterThanOrEqual(2);
+    expect(results[0]!.type).toBe('contact_info');
+    expect(results[0]!.name).toBe('Budi');
+    const memories = results.filter((r) => r.type === 'related_memory');
+    expect(memories).toHaveLength(1);
+    expect(memories[0]!.content).toBe('Budi suka main badminton');
+  });
+
+  it('returns empty for related_memories with missing person_name', async () => {
+    const { queryRelationships } = await import('../../memory/operations.js');
+    await getOrCreateSelfPerson(PHONE_A);
+    const results = await queryRelationships(PHONE_A, 'related_memories', {});
+    expect(results).toHaveLength(0);
+  });
+
+  it('lists all contacts via mutual_connections', async () => {
+    const { queryRelationships } = await import('../../memory/operations.js');
+    await getOrCreateSelfPerson(PHONE_A);
+    await upsertContact(PHONE_A, 'Budi', 'colleague');
+    await upsertContact(PHONE_A, 'Ani', 'friend');
+
+    const results = await queryRelationships(PHONE_A, 'mutual_connections');
+    expect(results).toHaveLength(2);
+  });
+
+  it('does not leak contacts between users', async () => {
+    const { queryRelationships } = await import('../../memory/operations.js');
+    await getOrCreateSelfPerson(PHONE_A);
+    await getOrCreateSelfPerson(PHONE_B);
+    await upsertContact(PHONE_A, 'Budi', 'friend');
+
+    const resultsA = await queryRelationships(PHONE_A, 'mutual_connections');
+    const resultsB = await queryRelationships(PHONE_B, 'mutual_connections');
+
+    expect(resultsA).toHaveLength(1);
+    expect(resultsB).toHaveLength(0);
+  });
+});
+
 describe('multi-user isolation', () => {
   it('does not leak memories between phone numbers', async () => {
     await getOrCreateSelfPerson(PHONE_A);

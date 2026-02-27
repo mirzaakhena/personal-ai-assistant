@@ -282,3 +282,51 @@ describe('recall_conversations tool', () => {
     expect(text).toContain('Deadline is March 15');
   });
 });
+
+describe('query_relationships tool', () => {
+  it('returns matching contacts by attribute', async () => {
+    // First create a contact
+    const saveHandler = getToolHandler('save_memory');
+    await saveHandler({
+      memory_type: 'contact',
+      data: { name: 'Budi', relationship: 'colleague', notes: 'Java dev' },
+    });
+
+    const handler = getToolHandler('query_relationships');
+    const result = await handler({
+      query_type: 'mutual_connections',
+    });
+    const text = result.content[0]!.text;
+    expect(text).toContain('Budi');
+    expect(text).toContain('colleague');
+  });
+
+  it('returns no-match message when no contacts exist', async () => {
+    const handler = getToolHandler('query_relationships');
+    const result = await handler({
+      query_type: 'mutual_connections',
+    });
+    expect(result.content[0]!.text).toContain('No matching results found');
+  });
+
+  it('finds related memories for a person', async () => {
+    const saveHandler = getToolHandler('save_memory');
+    await saveHandler({
+      memory_type: 'contact',
+      data: { name: 'Budi', relationship: 'colleague' },
+    });
+    await saveHandler({
+      memory_type: 'fact',
+      data: { content: 'Budi is a great engineer', category: 'people', importance: 'extended' },
+    });
+
+    const handler = getToolHandler('query_relationships');
+    const result = await handler({
+      query_type: 'related_memories',
+      filters: { person_name: 'Budi' },
+    });
+    const text = result.content[0]!.text;
+    expect(text).toContain('Budi');
+    expect(text).toContain('great engineer');
+  });
+});

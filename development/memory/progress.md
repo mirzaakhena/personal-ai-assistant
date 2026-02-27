@@ -393,3 +393,42 @@
   - Access count bumped on returned results
   - Tool: matching conversations returned with formatted output, no-match message, decisions included
 - **Verification**: 231 tests pass (18 test files), `pnpm run type-check` passes, no regressions
+
+### 10.4 Update system prompt for conversation recall ✅
+- **Date**: 2026-02-28
+- **Files modified**:
+  - `src/core/options.ts` — Added CONVERSATION HISTORY section to `BASE_SYSTEM_PROMPT` with instructions for using `recall_conversations` tool
+  - `src/__tests__/core/options.test.ts` — Added assertions for CONVERSATION HISTORY section and `recall_conversations` reference in existing prompt test
+- **Key details**:
+  - Added CONVERSATION HISTORY section between CONTEXT PRESERVATION and IMPORTANCE RE-CLASSIFICATION in the system prompt
+  - Instructs AI to use `recall_conversations` when: user asks about past discussions ("kapan kita bahas..."), needs context from previous sessions, or references past decisions
+  - Lightweight change — prompt text only, no logic changes
+- **Verification**: 231 tests pass (18 test files), `pnpm run type-check` passes, no regressions
+
+## Phase 11: Graph-Powered Relational Queries
+
+### 11.1 Add `query_relationships` tool ✅
+- **Date**: 2026-02-28
+- **Files modified**:
+  - `src/memory/operations.ts` — Added `queryRelationships()` function with `RelationshipQueryType` type supporting 4 query types
+  - `src/tools/memory.ts` — Added `query_relationships` MCP tool with formatted output
+  - `src/__tests__/memory/operations.test.ts` — Added 9 unit tests for `queryRelationships`
+  - `src/__tests__/tools/memory.test.ts` — Added 3 tool-level tests for `query_relationships`
+- **Exports**: `queryRelationships(phoneNumber, queryType, filters): Promise<Record<string, unknown>[]>`, `RelationshipQueryType` type
+- **Key details**:
+  - `contacts_by_attribute` — Filters contacts by any person attribute (occupation, location, etc.) or edge attribute (relationship_type). Uses graph traversal `->knows->person` with in-memory filtering.
+  - `upcoming_birthdays` — Finds contacts with birthdays within N days (default 30). Handles year rollover. Sorted by nearest birthday first.
+  - `related_memories` — Finds all memories mentioning a specific person by name. Returns contact info + matching memories from all memory tables (preference, fact, routine, persona). Skips superseded records.
+  - `mutual_connections` — Lists all known contacts with relationship info via `knows` edges.
+  - Multi-user isolation: all queries scoped to the querying user's person node via graph traversal
+  - Tool output formatted with numbered entries showing relevant fields per result type
+- **Test coverage**:
+  - Empty results for unknown user
+  - Filter by occupation attribute
+  - Filter by relationship_type (edge attribute)
+  - Upcoming birthdays within window, excluded outside window
+  - Related memories returns contact info + matching memories, empty for missing person_name
+  - Mutual connections lists all contacts
+  - Multi-user isolation (user A contacts not visible to user B)
+  - Tool: matching contacts, no-match message, related memories formatted output
+- **Verification**: 243 tests pass (18 test files), `pnpm run type-check` passes, no regressions

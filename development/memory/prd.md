@@ -421,7 +421,7 @@ EDGES (relation tables):
   - Returns: list of matching conversation summaries with dates
   - Enables queries like "kapan terakhir kita bahas soal liburan?" or "apa yang kita obrolin kemarin?"
 
-- [ ] **10.4 Update system prompt for conversation recall**
+- [x] **10.4 Update system prompt for conversation recall**
   Add to MEMORY SYSTEM instructions:
   ```
   CONVERSATION HISTORY:
@@ -433,7 +433,7 @@ EDGES (relation tables):
 
 ### Phase 11: Graph-Powered Relational Queries
 
-- [ ] **11.1 Add `query_relationships` tool**
+- [x] **11.1 Add `query_relationships` tool**
   Leverage the graph database advantage over flat-file systems. New MCP tool:
   - Parameters: `query_type` (enum: "contacts_by_attribute", "mutual_connections", "upcoming_birthdays", "related_memories"), `filters` (record)
   - Example queries the tool should support:
