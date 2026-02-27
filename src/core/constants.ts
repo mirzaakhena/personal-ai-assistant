@@ -28,6 +28,14 @@ export const DATA_DIR = join(PROJECT_DIR, 'data');
 export const CRONJOBS_DB_PATH = join(DATA_DIR, 'cronjobs.db');
 export const SESSIONS_DB_PATH = join(DATA_DIR, 'sessions.db');
 
+// Memory Database (SurrealDB)
+export const MEMORY_DB_PATH = join(DATA_DIR, 'memory.db');
+export const MEMORY_DB_NAMESPACE = 'assistant';
+export const MEMORY_DB_DATABASE = 'memory';
+export const MEMORY_FUNDAMENTAL_LIMIT = 5;
+export const MEMORY_DECAY_HALF_LIFE_DAYS = 30;
+export const MEMORY_EMBEDDING_ENABLED = false;
+
 // Model
 export const DEFAULT_MODEL = 'sonnet' as const;
 export const FALLBACK_MODEL = 'haiku';
