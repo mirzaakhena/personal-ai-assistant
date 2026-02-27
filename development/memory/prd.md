@@ -322,7 +322,7 @@ EDGES (relation tables):
 
 ### Phase 6: Cron-Memory Integration
 
-- [ ] **6.1 Enhance cronjob tool description for memory-aware scheduling**
+- [x] **6.1 Enhance cronjob tool description for memory-aware scheduling**
   Update `create_cronjob` tool description in `src/tools/cronjob.ts` to add:
   `"You can also create memory-triggered reminders, e.g., birthday reminders for contacts. Include relevant memory context in the message field so your future self knows the context."`
   This is description-only — the cron system already works, we just teach AI it can use crons for memory-related reminders.

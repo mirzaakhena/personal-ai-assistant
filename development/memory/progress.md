@@ -201,3 +201,12 @@
 - **Result**: All 157 tests pass across 15 test files, no failures or regressions
 - **Type-check**: `pnpm run type-check` (tsc --noEmit) passes with no errors
 - **No fixes needed**: All tests green, no TypeScript errors
+
+## Phase 6: Cron-Memory Integration
+
+### 6.1 Enhance cronjob tool description for memory-aware scheduling ✅
+- **Date**: 2026-02-28
+- **File modified**: `src/tools/cronjob.ts`
+- **Changes**: Added memory-triggered reminder guidance to `create_cronjob` tool description: "You can also create memory-triggered reminders, e.g., birthday reminders for contacts. Include relevant memory context in the message field so your future self knows the context."
+- **Key details**: Description-only change — no logic, no new tests needed. Teaches the AI it can use the existing cron system for memory-related reminders (e.g., birthday reminders for contacts stored in memory).
+- **Verification**: All 157 tests pass (15 test files), no regressions
