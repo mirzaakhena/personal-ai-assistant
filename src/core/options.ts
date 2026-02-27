@@ -123,13 +123,19 @@ export async function buildSystemPrompt(phoneNumber: string): Promise<string> {
   }
 }
 
+export const MEMORY_FLUSH_REMINDER = `\n\n[MEMORY FLUSH REMINDER]\nYou are nearing the session turn limit. If the user shared important information in this conversation that hasn't been saved to memory yet, save it now using \`save_memory\`.`;
+
 export async function createQueryOptions(
   sessionId: string | undefined,
   ctx: MessageContext,
   cronCtx: CronContext,
-  memCtx: MemoryContext
+  memCtx: MemoryContext,
+  injectFlushReminder = false
 ): Promise<Options> {
-  const systemPrompt = await buildSystemPrompt(memCtx.phoneNumber);
+  let systemPrompt = await buildSystemPrompt(memCtx.phoneNumber);
+  if (injectFlushReminder) {
+    systemPrompt += MEMORY_FLUSH_REMINDER;
+  }
 
   const options: Options = {
     model: DEFAULT_MODEL,

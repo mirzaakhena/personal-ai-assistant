@@ -54,6 +54,10 @@ export const FALLBACK_MODEL = 'haiku';
 // Query
 export const MAX_TURNS = 10;
 
+// Memory flush heuristic (Phase 9)
+// Inject a save-reminder when user message count in session reaches this threshold
+export const MEMORY_FLUSH_TURN_THRESHOLD = 7; // ~70% of MAX_TURNS
+
 // Typing simulation
 export const TYPING_MS_PER_CHAR = 30;
 export const MIN_TYPING_DURATION_MS = 1000;

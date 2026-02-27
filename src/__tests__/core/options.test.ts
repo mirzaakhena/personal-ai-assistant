@@ -1,5 +1,5 @@
 import { describe, expect, it, vi, beforeEach } from 'vitest';
-import { buildSystemPrompt } from '../../core/options.js';
+import { buildSystemPrompt, MEMORY_FLUSH_REMINDER } from '../../core/options.js';
 
 // Mock memory operations and formatter
 vi.mock('../../memory/operations.js', () => ({
@@ -119,5 +119,13 @@ describe('buildSystemPrompt', () => {
 
     expect(result).toContain('No memories stored yet');
     expect(result).toContain('new user');
+  });
+});
+
+describe('MEMORY_FLUSH_REMINDER', () => {
+  it('contains the flush reminder text', () => {
+    expect(MEMORY_FLUSH_REMINDER).toContain('[MEMORY FLUSH REMINDER]');
+    expect(MEMORY_FLUSH_REMINDER).toContain('save_memory');
+    expect(MEMORY_FLUSH_REMINDER).toContain('session turn limit');
   });
 });

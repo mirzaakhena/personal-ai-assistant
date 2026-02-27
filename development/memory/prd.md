@@ -386,7 +386,7 @@ EDGES (relation tables):
 
 > **Note:** The prompt-based CONTEXT PRESERVATION instructions are already included in Phase 3.3 system prompt. This phase adds a **heuristic** trigger that works without SDK support.
 
-- [ ] **9.1 Implement turn-based memory flush heuristic**
+- [x] **9.1 Implement turn-based memory flush heuristic**
   Since Claude Agent SDK does not currently expose token count or pre-compaction hooks, use a turn-count heuristic as a practical alternative:
   1. Track turn count per session in the message handler
   2. When `session.turns >= MAX_TURNS * 0.7` (e.g., 7 of 10 turns), inject a system-level reminder into the next query: "You are nearing the session turn limit. If the user shared important information in this conversation that hasn't been saved to memory yet, save it now using `save_memory`."

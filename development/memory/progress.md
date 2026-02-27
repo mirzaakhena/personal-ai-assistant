@@ -308,3 +308,23 @@
   - Returns empty for unknown users
   - Skips superseded facts
 - **Verification**: 191 tests pass (16 test files), `pnpm run type-check` passes, no regressions
+
+## Phase 9: Heuristic Auto Memory Flush
+
+### 9.1 Implement turn-based memory flush heuristic ✅
+- **Date**: 2026-02-28
+- **Files created**:
+  - `src/core/turns.ts` — In-memory turn counter per phone number with flush reminder logic
+  - `src/__tests__/core/turns.test.ts` — 11 unit tests covering increment, clear, isolation, and threshold detection
+- **Files modified**:
+  - `src/core/constants.ts` — Added `MEMORY_FLUSH_TURN_THRESHOLD = 7` (~70% of MAX_TURNS)
+  - `src/handlers/message.ts` — Imported turn tracker; increments turn count per message, clears on `/new`, passes `flushReminder` flag to `createQueryOptions`
+  - `src/core/options.ts` — Added `MEMORY_FLUSH_REMINDER` constant with save-reminder text; `createQueryOptions` accepts optional `injectFlushReminder` param and appends reminder to system prompt when true
+  - `src/__tests__/core/options.test.ts` — Added 1 test verifying `MEMORY_FLUSH_REMINDER` content
+- **Key details**:
+  - Turn-count heuristic: tracks user messages per session in-memory map, triggers at turn 7+ (of 10 max)
+  - When threshold reached, appends `[MEMORY FLUSH REMINDER]` to system prompt instructing AI to save any unsaved important information
+  - Cron executor unaffected — defaults to `injectFlushReminder = false` (single-turn jobs don't need flush)
+  - Turn count cleared on `/new` alongside session and stats
+  - Lightweight implementation — no SDK changes required, pure application-layer heuristic
+- **Verification**: 203 tests pass (17 test files), `pnpm run type-check` passes, no regressions

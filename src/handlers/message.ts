@@ -14,6 +14,7 @@ import { execSync, exec } from "child_process";
 import { writeFileSync } from "fs";
 import { log } from "../utils/logger.js";
 import { updateStats, clearStats, getStats } from "../core/stats.js";
+import { incrementTurnCount, clearTurnCount, shouldInjectFlushReminder } from "../core/turns.js";
 import { PROJECT_DIR, JID_SUFFIX_REGEX, CMD_NEW, CMD_STATUS, CMD_RESTART, RESTART_FLAG_FILE, FALLBACK_MODEL, COST_USD_PRECISION } from "../core/constants.js";
 
 export async function processMessage(client: Client, message: Message, registry: CronRegistry): Promise<void> {
@@ -26,6 +27,7 @@ export async function processMessage(client: Client, message: Message, registry:
   if (body === CMD_NEW) {
     deleteSessionId(phoneNumber);
     clearStats(phoneNumber);
+    clearTurnCount(phoneNumber);
     log.debug(`${phoneNumber} | /new — session cleared`);
     await client.sendMessage(chatId, '✅ New conversation session started. Previous context has been cleared.');
     return;
@@ -109,7 +111,10 @@ export async function processMessage(client: Client, message: Message, registry:
   const cronCtx: CronContext = { registry, client, phoneNumber };
   const memCtx: MemoryContext = { phoneNumber };
   const contentBlocks = buildUserPrompt(body, quotedBody, mediaBlocks);
-  const options = await createQueryOptions(sessionId, ctx, cronCtx, memCtx);
+
+  incrementTurnCount(phoneNumber);
+  const flushReminder = shouldInjectFlushReminder(phoneNumber);
+  const options = await createQueryOptions(sessionId, ctx, cronCtx, memCtx, flushReminder);
 
   // Build async iterable prompt with content blocks
   async function* buildPrompt(): AsyncGenerator<SDKUserMessage> {
