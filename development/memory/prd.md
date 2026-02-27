@@ -93,7 +93,7 @@ EDGES (relation tables):
   - TYPE RELATION fails → use regular tables with `in`/`out` fields to simulate edges
   - Embedded mode fundamentally broken → switch to remote SurrealDB via Docker (change connection string only)
 
-- [ ] **0.2 Verify native addon on production server**
+- [x] **0.2 Verify native addon on production server**
   SSH into the Ubuntu server, install `@surrealdb/node` in a temp directory, run: `node -e "import('@surrealdb/node').then(m => console.log('OK', Object.keys(m)))"`. If it fails, investigate build dependencies or switch to fallback (remote SurrealDB via Docker).
 
 ### Phase 1: Infrastructure — SurrealDB Setup
