@@ -11,6 +11,7 @@ import {
   recallMemories,
   getAllMemories,
   getRelationships,
+  calculateRecencyScore,
 } from '../../memory/operations.js';
 
 const PHONE_A = '+6281234567890';
@@ -409,6 +410,104 @@ describe('getRelationships', () => {
   it('returns empty for user with no contacts', async () => {
     const relationships = await getRelationships('+unknown');
     expect(relationships).toHaveLength(0);
+  });
+});
+
+describe('calculateRecencyScore', () => {
+  it('returns 1.0 for fundamental importance regardless of age', () => {
+    const oldDate = new Date('2020-01-01');
+    expect(calculateRecencyScore(oldDate, 'fundamental')).toBe(1.0);
+  });
+
+  it('returns 1.0 for a memory just created', () => {
+    const now = new Date();
+    const score = calculateRecencyScore(now, 'extended');
+    expect(score).toBeCloseTo(1.0, 1);
+  });
+
+  it('returns ~0.5 for a memory created 30 days ago (half-life)', () => {
+    const thirtyDaysAgo = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
+    const score = calculateRecencyScore(thirtyDaysAgo, 'extended');
+    expect(score).toBeCloseTo(0.5, 1);
+  });
+
+  it('returns ~0.25 for a memory created 60 days ago (two half-lives)', () => {
+    const sixtyDaysAgo = new Date(Date.now() - 60 * 24 * 60 * 60 * 1000);
+    const score = calculateRecencyScore(sixtyDaysAgo, 'extended');
+    expect(score).toBeCloseTo(0.25, 1);
+  });
+
+  it('returns 0.5 for missing created_at', () => {
+    expect(calculateRecencyScore(undefined, 'extended')).toBe(0.5);
+  });
+
+  it('handles string dates', () => {
+    const now = new Date().toISOString();
+    const score = calculateRecencyScore(now, 'extended');
+    expect(score).toBeCloseTo(1.0, 1);
+  });
+});
+
+describe('recallMemories recency-weighted scoring', () => {
+  it('ranks recent memories higher than old ones with same keyword match', async () => {
+    await getOrCreateSelfPerson(PHONE_A);
+    const db = getMemoryDb();
+
+    // Save two facts with the same keyword match potential
+    const oldId = await saveMemory(PHONE_A, 'fact', {
+      content: 'Suka makan soto',
+      importance: 'extended',
+    });
+    const newId = await saveMemory(PHONE_A, 'fact', {
+      content: 'Suka makan bakso',
+      importance: 'extended',
+    });
+
+    // Manually backdate the old memory's created_at to 90 days ago
+    const ninetyDaysAgo = new Date(Date.now() - 90 * 24 * 60 * 60 * 1000).toISOString();
+    await db.query(
+      `UPDATE $id SET created_at = <datetime>$date`,
+      { id: new (await import('surrealdb')).StringRecordId(oldId), date: ninetyDaysAgo },
+    );
+
+    // Both match "suka makan" equally (2/2 tokens), but newId should rank higher due to recency
+    const results = await recallMemories(PHONE_A, 'suka makan');
+    expect(results.length).toBe(2);
+    // The more recent memory should come first
+    expect(String((results[0] as Record<string, unknown>).id)).toBe(newId);
+  });
+
+  it('fundamental memories are not penalized by age in scoring', async () => {
+    await getOrCreateSelfPerson(PHONE_A);
+    const db = getMemoryDb();
+
+    // Save a fundamental fact and an extended fact
+    const fundamentalId = await saveMemory(PHONE_A, 'fact', {
+      content: 'Alergi kacang penting',
+      importance: 'fundamental',
+    });
+    const extendedId = await saveMemory(PHONE_A, 'fact', {
+      content: 'Suka kacang goreng',
+      importance: 'extended',
+    });
+
+    // Backdate BOTH memories to 90 days ago
+    const ninetyDaysAgo = new Date(Date.now() - 90 * 24 * 60 * 60 * 1000).toISOString();
+    const { StringRecordId } = await import('surrealdb');
+    await db.query(
+      `UPDATE $id SET created_at = <datetime>$date`,
+      { id: new StringRecordId(fundamentalId), date: ninetyDaysAgo },
+    );
+    await db.query(
+      `UPDATE $id SET created_at = <datetime>$date`,
+      { id: new StringRecordId(extendedId), date: ninetyDaysAgo },
+    );
+
+    // Search for "kacang" — both match 1/1 token
+    const results = await recallMemories(PHONE_A, 'kacang');
+    expect(results.length).toBe(2);
+    // Fundamental should rank higher because its recency score is always 1.0
+    expect(String((results[0] as Record<string, unknown>).id)).toBe(fundamentalId);
   });
 });
 

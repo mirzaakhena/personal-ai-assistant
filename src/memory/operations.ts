@@ -1,6 +1,9 @@
 import { StringRecordId } from 'surrealdb';
 import { getMemoryDb } from '../db/memory.js';
-import { MEMORY_FUNDAMENTAL_LIMIT } from '../core/constants.js';
+import {
+  MEMORY_FUNDAMENTAL_LIMIT,
+  MEMORY_DECAY_HALF_LIFE_DAYS,
+} from '../core/constants.js';
 
 // Maps memory table to its edge table
 const EDGE_TABLE_MAP: Record<string, string> = {
@@ -27,6 +30,46 @@ const SEARCHABLE_FIELDS: Record<string, string[]> = {
 };
 
 type MemoryTable = 'preference' | 'fact' | 'routine' | 'persona';
+
+// Recency scoring constants
+const DECAY_LAMBDA = Math.log(2) / MEMORY_DECAY_HALF_LIFE_DAYS;
+const KEYWORD_WEIGHT = 0.7;
+const RECENCY_WEIGHT = 0.3;
+
+/**
+ * Calculate recency score using exponential decay.
+ * Returns a value between 0 and 1, where 1 means "just created".
+ * Fundamental memories always return 1.0 (skip decay).
+ */
+export function calculateRecencyScore(
+  createdAt: unknown,
+  importance?: string,
+): number {
+  if (importance === 'fundamental') return 1.0;
+  if (!createdAt) return 0.5; // default for missing timestamps
+  // SurrealDB may return a Datetime object, a JS Date, or a string
+  let ms: number;
+  if (createdAt instanceof Date) {
+    ms = createdAt.getTime();
+  } else if (
+    typeof createdAt === 'object' &&
+    createdAt !== null &&
+    'getTime' in createdAt &&
+    typeof (createdAt as { getTime: unknown }).getTime === 'function'
+  ) {
+    ms = (createdAt as { getTime(): number }).getTime();
+  } else {
+    // Convert string or SurrealDB Datetime (which has .toISOString()) to Date
+    const str =
+      typeof createdAt === 'string'
+        ? createdAt
+        : String(createdAt);
+    ms = new Date(str).getTime();
+  }
+  if (isNaN(ms)) return 0.5; // fallback for unparseable dates
+  const daysSinceCreation = (Date.now() - ms) / (1000 * 60 * 60 * 24);
+  return Math.exp(-DECAY_LAMBDA * Math.max(0, daysSinceCreation));
+}
 
 /**
  * Convert a record result to a string record ID.
@@ -374,9 +417,16 @@ export async function recallMemories(
       }
 
       if (matchedTokens > 0) {
+        const matchScore = matchedTokens / totalTokens;
+        const recencyScore = calculateRecencyScore(
+          item.created_at as Date | string | undefined,
+          item.importance as string | undefined,
+        );
+        const finalScore =
+          KEYWORD_WEIGHT * matchScore + RECENCY_WEIGHT * recencyScore;
         results.push({
           ...item,
-          _score: matchedTokens / totalTokens,
+          _score: finalScore,
         });
       }
     }
