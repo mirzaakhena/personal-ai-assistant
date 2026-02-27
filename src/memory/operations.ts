@@ -3,8 +3,11 @@ import { getMemoryDb } from '../db/memory.js';
 import {
   MEMORY_FUNDAMENTAL_LIMIT,
   MEMORY_DECAY_HALF_LIFE_DAYS,
+  MEMORY_VECTOR_WEIGHT,
+  MEMORY_KEYWORD_WEIGHT,
+  MEMORY_RECENCY_WEIGHT,
 } from '../core/constants.js';
-import { generateEmbedding } from './embeddings.js';
+import { generateEmbedding, cosineSimilarity } from './embeddings.js';
 
 // Maps memory table to its edge table
 const EDGE_TABLE_MAP: Record<string, string> = {
@@ -34,8 +37,9 @@ type MemoryTable = 'preference' | 'fact' | 'routine' | 'persona';
 
 // Recency scoring constants
 const DECAY_LAMBDA = Math.log(2) / MEMORY_DECAY_HALF_LIFE_DAYS;
-const KEYWORD_WEIGHT = 0.7;
-const RECENCY_WEIGHT = 0.3;
+// Keyword-only mode weights (when embeddings disabled)
+const KEYWORD_ONLY_KEYWORD_WEIGHT = 0.7;
+const KEYWORD_ONLY_RECENCY_WEIGHT = 0.3;
 
 /**
  * Calculate recency score using exponential decay.
@@ -412,6 +416,24 @@ export async function recallMemories(
 
   const totalTokens = tokens.length;
 
+  // Check if embeddings are enabled and generate query embedding
+  const embeddingsEnabled =
+    process.env.MEMORY_EMBEDDING_ENABLED === 'true';
+  let queryEmbedding: number[] | null = null;
+  if (embeddingsEnabled) {
+    queryEmbedding = await generateEmbedding(query);
+  }
+  const useHybrid = queryEmbedding !== null;
+
+  // Determine weights based on whether hybrid mode is active
+  const keywordWeight = useHybrid
+    ? MEMORY_KEYWORD_WEIGHT
+    : KEYWORD_ONLY_KEYWORD_WEIGHT;
+  const recencyWeight = useHybrid
+    ? MEMORY_RECENCY_WEIGHT
+    : KEYWORD_ONLY_RECENCY_WEIGHT;
+  const vectorWeight = useHybrid ? MEMORY_VECTOR_WEIGHT : 0;
+
   // Search across all memory tables
   const results: Array<Record<string, unknown> & { _score: number }> = [];
 
@@ -445,14 +467,30 @@ export async function recallMemories(
         }
       }
 
-      if (matchedTokens > 0) {
-        const matchScore = matchedTokens / totalTokens;
+      // Calculate vector similarity score if hybrid mode
+      let vectorScore = 0;
+      if (useHybrid && queryEmbedding) {
+        const itemEmbedding = item.embedding as number[] | undefined;
+        if (itemEmbedding && Array.isArray(itemEmbedding) && itemEmbedding.length > 0) {
+          // Cosine similarity is in [-1, 1], normalize to [0, 1]
+          vectorScore = (cosineSimilarity(queryEmbedding, itemEmbedding) + 1) / 2;
+        }
+      }
+
+      // In hybrid mode, include results that match via keyword OR vector similarity
+      const hasKeywordMatch = matchedTokens > 0;
+      const hasVectorMatch = vectorScore > 0.5; // Normalized threshold (cosine > 0 in original space)
+
+      if (hasKeywordMatch || (useHybrid && hasVectorMatch)) {
+        const keywordScore = matchedTokens / totalTokens;
         const recencyScore = calculateRecencyScore(
           item.created_at as Date | string | undefined,
           item.importance as string | undefined,
         );
         const finalScore =
-          KEYWORD_WEIGHT * matchScore + RECENCY_WEIGHT * recencyScore;
+          vectorWeight * vectorScore +
+          keywordWeight * keywordScore +
+          recencyWeight * recencyScore;
         results.push({
           ...item,
           _score: finalScore,

@@ -511,6 +511,158 @@ describe('recallMemories recency-weighted scoring', () => {
   });
 });
 
+describe('recallMemories hybrid search', () => {
+  const originalEnv = process.env;
+
+  beforeEach(() => {
+    process.env = { ...originalEnv };
+  });
+
+  afterEach(() => {
+    process.env = originalEnv;
+    vi.restoreAllMocks();
+  });
+
+  it('uses keyword-only weights (0.7/0.3) when embeddings are disabled', async () => {
+    delete process.env.MEMORY_EMBEDDING_ENABLED;
+
+    await getOrCreateSelfPerson(PHONE_A);
+    await saveMemory(PHONE_A, 'fact', {
+      content: 'Tinggal di Jakarta',
+      importance: 'extended',
+    });
+
+    const results = await recallMemories(PHONE_A, 'jakarta');
+    expect(results.length).toBe(1);
+    // Should work same as before — keyword + recency only
+    expect((results[0] as Record<string, unknown>).content).toBe('Tinggal di Jakarta');
+  });
+
+  it('uses hybrid weights (0.5/0.3/0.2) when embeddings are enabled and query embedding succeeds', async () => {
+    process.env.MEMORY_EMBEDDING_ENABLED = 'true';
+    process.env.MEMORY_EMBEDDING_PROVIDER = 'openai';
+    process.env.OPENAI_API_KEY = 'test-key';
+
+    // Mock fetch for both saveMemory embedding and query embedding
+    const mockEmbedding = Array(10).fill(0).map((_, i) => i * 0.1);
+    const mockFetch = vi.fn().mockResolvedValue({
+      ok: true,
+      json: () => Promise.resolve({ data: [{ embedding: mockEmbedding }] }),
+    });
+    vi.stubGlobal('fetch', mockFetch);
+
+    await getOrCreateSelfPerson(PHONE_A);
+    await saveMemory(PHONE_A, 'fact', {
+      content: 'Tinggal di Jakarta Selatan',
+      importance: 'extended',
+    });
+
+    const results = await recallMemories(PHONE_A, 'jakarta');
+    expect(results.length).toBe(1);
+    // With hybrid mode, vector similarity of identical embeddings should boost score
+    expect((results[0] as Record<string, unknown>).content).toBe('Tinggal di Jakarta Selatan');
+  });
+
+  it('falls back to keyword-only when embeddings enabled but query embedding fails', async () => {
+    process.env.MEMORY_EMBEDDING_ENABLED = 'true';
+    // No provider configured — generateEmbedding returns null
+    delete process.env.MEMORY_EMBEDDING_PROVIDER;
+
+    await getOrCreateSelfPerson(PHONE_A);
+    await saveMemory(PHONE_A, 'fact', {
+      content: 'Tinggal di Jakarta',
+      importance: 'extended',
+    });
+
+    const results = await recallMemories(PHONE_A, 'jakarta');
+    expect(results.length).toBe(1);
+    // Should gracefully fall back to keyword-only mode
+    expect((results[0] as Record<string, unknown>).content).toBe('Tinggal di Jakarta');
+  });
+
+  it('includes vector-only matches (no keyword match) in hybrid mode', async () => {
+    process.env.MEMORY_EMBEDDING_ENABLED = 'true';
+    process.env.MEMORY_EMBEDDING_PROVIDER = 'openai';
+    process.env.OPENAI_API_KEY = 'test-key';
+
+    // Create a strong embedding for "coffee" concept
+    const coffeeEmbedding = [0.9, 0.1, 0.0, 0.0, 0.0];
+    const queryEmbedding = [0.85, 0.15, 0.0, 0.0, 0.0]; // Very similar to coffee
+
+    let fetchCallCount = 0;
+    const mockFetch = vi.fn().mockImplementation(() => {
+      fetchCallCount++;
+      // First call: saveMemory embedding
+      // Second call: query embedding
+      const emb = fetchCallCount === 1 ? coffeeEmbedding : queryEmbedding;
+      return Promise.resolve({
+        ok: true,
+        json: () => Promise.resolve({ data: [{ embedding: emb }] }),
+      });
+    });
+    vi.stubGlobal('fetch', mockFetch);
+
+    await getOrCreateSelfPerson(PHONE_A);
+    await saveMemory(PHONE_A, 'preference', {
+      category: 'minuman',
+      value: 'Suka kopi hitam',
+      importance: 'extended',
+    });
+
+    // Search with a term that doesn't match keywords but has similar embedding
+    const results = await recallMemories(PHONE_A, 'coffee morning');
+    // "coffee" and "morning" don't match "suka kopi hitam" keywords,
+    // but high vector similarity should include it
+    expect(results.length).toBe(1);
+    expect((results[0] as Record<string, unknown>).value).toBe('Suka kopi hitam');
+  });
+
+  it('ranks keyword+vector matches higher than keyword-only matches in hybrid mode', async () => {
+    process.env.MEMORY_EMBEDDING_ENABLED = 'true';
+    process.env.MEMORY_EMBEDDING_PROVIDER = 'openai';
+    process.env.OPENAI_API_KEY = 'test-key';
+
+    // Memory A: has embedding (vector+keyword)
+    const embeddingA = [0.9, 0.1, 0.0];
+    // Memory B: no embedding stored (keyword only)
+    // Query embedding: similar to A
+    const queryEmb = [0.85, 0.15, 0.0];
+
+    let fetchCallCount = 0;
+    const mockFetch = vi.fn().mockImplementation(() => {
+      fetchCallCount++;
+      // Call 1: saveMemory for A
+      // Call 2: saveMemory for B
+      // Call 3: query embedding
+      let emb;
+      if (fetchCallCount === 1) emb = embeddingA;
+      else if (fetchCallCount === 2) emb = [0.0, 0.0, 0.9]; // dissimilar embedding for B
+      else emb = queryEmb;
+      return Promise.resolve({
+        ok: true,
+        json: () => Promise.resolve({ data: [{ embedding: emb }] }),
+      });
+    });
+    vi.stubGlobal('fetch', mockFetch);
+
+    await getOrCreateSelfPerson(PHONE_A);
+    // Both have the same keyword "kopi"
+    await saveMemory(PHONE_A, 'fact', {
+      content: 'Suka kopi setiap pagi',
+      importance: 'extended',
+    });
+    await saveMemory(PHONE_A, 'fact', {
+      content: 'Kopi susu juga enak',
+      importance: 'extended',
+    });
+
+    const results = await recallMemories(PHONE_A, 'kopi');
+    expect(results.length).toBe(2);
+    // First result should be the one with higher vector similarity (memory A)
+    expect(String((results[0] as Record<string, unknown>).content)).toBe('Suka kopi setiap pagi');
+  });
+});
+
 describe('saveMemory with embeddings', () => {
   const originalEnv = process.env;
 

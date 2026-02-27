@@ -264,3 +264,24 @@
   - Backfill script: `MEMORY_EMBEDDING_PROVIDER=openai OPENAI_API_KEY=sk-... npx tsx src/memory/backfill-embeddings.ts` — iterates all records with `embedding = NONE` and generates embeddings
   - `MEMORY_EMBEDDING_ENABLED` constant in `constants.ts` kept as `false` for documentation; actual feature check is via env var in `saveMemory`
 - **Verification**: 180 tests pass (16 test files), `pnpm run type-check` passes, no regressions
+
+### 8.3 Implement hybrid search in `recallMemories()` ✅
+- **Date**: 2026-02-28
+- **Files modified**:
+  - `src/core/constants.ts` — Added `MEMORY_VECTOR_WEIGHT` (0.5), `MEMORY_KEYWORD_WEIGHT` (0.3), `MEMORY_RECENCY_WEIGHT` (0.2) constants for hybrid search
+  - `src/memory/operations.ts` — Updated `recallMemories()` to support hybrid keyword+vector+recency search
+  - `src/__tests__/memory/operations.test.ts` — Added 5 unit tests for hybrid search modes
+- **Key details**:
+  - When embeddings enabled (`MEMORY_EMBEDDING_ENABLED=true` env var) and query embedding succeeds: uses hybrid weights `vector(0.5) + keyword(0.3) + recency(0.2)`
+  - When embeddings disabled or query embedding fails: gracefully falls back to keyword-only weights `keyword(0.7) + recency(0.3)` (existing behavior preserved)
+  - Vector similarity uses cosine similarity normalized from [-1,1] to [0,1]: `(cosine + 1) / 2`
+  - Results with no keyword match but high vector similarity (>0.5 normalized, i.e., cosine>0 original) are included in hybrid mode — enables semantic-only matches
+  - Results with keyword+vector match rank higher than keyword-only matches
+  - Items without stored embeddings get `vectorScore = 0` (graceful degradation for old records)
+- **Test coverage**:
+  - Keyword-only mode when embeddings disabled
+  - Hybrid mode with embeddings enabled and query embedding succeeds
+  - Graceful fallback when embeddings enabled but query embedding fails
+  - Vector-only matches (no keyword match) included in hybrid mode
+  - Keyword+vector matches rank higher than keyword-only matches
+- **Verification**: 185 tests pass (16 test files), `pnpm run type-check` passes, no regressions

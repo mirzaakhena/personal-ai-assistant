@@ -36,6 +36,13 @@ export const MEMORY_FUNDAMENTAL_LIMIT = 5;
 export const MEMORY_DECAY_HALF_LIFE_DAYS = 30;
 export const MEMORY_EMBEDDING_ENABLED = false;
 
+// Hybrid search weights (Phase 8.3)
+// When embeddings enabled: vector 0.5 + keyword 0.3 + recency 0.2
+// When embeddings disabled: keyword 0.7 + recency 0.3 (existing behavior)
+export const MEMORY_VECTOR_WEIGHT = 0.5;
+export const MEMORY_KEYWORD_WEIGHT = 0.3;
+export const MEMORY_RECENCY_WEIGHT = 0.2;
+
 // Model
 export const DEFAULT_MODEL = 'sonnet' as const;
 export const FALLBACK_MODEL = 'haiku';

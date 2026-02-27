@@ -366,7 +366,7 @@ EDGES (relation tables):
 
   > **Vector search performance note:** 1000 memories × 1536 dims × 4 bytes = ~6MB — trivially small. Full table scan with `vector::similarity::cosine()` is fast at this scale without a dedicated index. If memory count exceeds 10K records (unlikely for personal assistant), add `DEFINE INDEX ... MTREE DIMENSION 1536` — test availability in embedded mode during spike (Phase 0.1 step 10).
 
-- [ ] **8.3 Implement hybrid search in `recallMemories()`**
+- [x] **8.3 Implement hybrid search in `recallMemories()`**
   When embeddings are enabled, combine keyword + semantic search (inspired by OpenClaw's 70/30 hybrid):
   1. Run existing keyword search → normalize scores to [0, 1]
   2. Generate embedding for query → run vector similarity against stored embeddings using SurrealQL `vector::similarity::cosine()`
