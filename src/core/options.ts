@@ -2,6 +2,7 @@ import { type Options } from "@anthropic-ai/claude-agent-sdk";
 import { createMessageServer } from "../tools/server.js";
 import type { MessageContext } from "../tools/message.js";
 import type { CronContext } from "../tools/cronjob.js";
+import type { MemoryContext } from "../tools/memory.js";
 import { log } from "../utils/logger.js";
 import { DEFAULT_MODEL, MAX_TURNS } from "./constants.js";
 
@@ -51,7 +52,8 @@ CRONJOB MANAGEMENT:
 export async function createQueryOptions(
   sessionId: string | undefined,
   ctx: MessageContext,
-  cronCtx: CronContext
+  cronCtx: CronContext,
+  memCtx: MemoryContext
 ): Promise<Options> {
   const options: Options = {
     model: DEFAULT_MODEL,
@@ -61,7 +63,7 @@ export async function createQueryOptions(
     systemPrompt,
     cwd: '/home/botuser',
     mcpServers: {
-      "message": createMessageServer(ctx, cronCtx),
+      "message": createMessageServer(ctx, cronCtx, memCtx),
     },
   };
 

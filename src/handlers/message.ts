@@ -4,6 +4,7 @@ import type { Client, Message } from "whatsapp-web.js";
 import { getSessionId, saveSessionId, deleteSessionId } from "../db/sessions.js";
 import type { MessageContext } from "../tools/message.js";
 import type { CronContext } from "../tools/cronjob.js";
+import type { MemoryContext } from "../tools/memory.js";
 import { createQueryOptions } from "../core/options.js";
 import { buildUserPrompt } from "../utils/prompt.js";
 import { downloadAndValidateMedia, buildMediaContentBlock } from "../utils/media.js";
@@ -106,8 +107,9 @@ export async function processMessage(client: Client, message: Message, registry:
   const sessionId = getSessionId(phoneNumber);
   const ctx: MessageContext = { client, chatId };
   const cronCtx: CronContext = { registry, client, phoneNumber };
+  const memCtx: MemoryContext = { phoneNumber };
   const contentBlocks = buildUserPrompt(body, quotedBody, mediaBlocks);
-  const options = await createQueryOptions(sessionId, ctx, cronCtx);
+  const options = await createQueryOptions(sessionId, ctx, cronCtx, memCtx);
 
   // Build async iterable prompt with content blocks
   async function* buildPrompt(): AsyncGenerator<SDKUserMessage> {
