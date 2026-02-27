@@ -59,6 +59,8 @@ describe('buildSystemPrompt', () => {
     expect(result).toContain('TRANSPARENCY:');
     expect(result).toContain('NEW USER ONBOARDING:');
     expect(result).toContain('CONTEXT PRESERVATION:');
+    expect(result).toContain('CONVERSATION HISTORY:');
+    expect(result).toContain('recall_conversations');
   });
 
   it('appends formatted memory block at the end', async () => {

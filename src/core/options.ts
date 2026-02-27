@@ -105,6 +105,12 @@ CONTEXT PRESERVATION:
 - When you notice the user sharing multiple pieces of personal info in one conversation, save them incrementally — don't wait until the end.
 - Prioritize saving: corrections to existing memories, new contacts/relationships, explicit "remember this" requests.
 
+CONVERSATION HISTORY:
+- Use \`recall_conversations\` to search past conversation summaries when:
+  - User asks "kapan kita bahas..." or "kemarin kita ngomong apa?"
+  - You need context from a previous session to answer coherently
+  - User references a past discussion or decision
+
 IMPORTANCE RE-CLASSIFICATION:
 - Periodically review memory access patterns and suggest re-classification.
 - If an "extended" memory has been accessed frequently (5+ times), suggest promoting it to "fundamental" so it loads automatically.
