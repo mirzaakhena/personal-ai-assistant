@@ -155,6 +155,8 @@ export async function createQueryOptions(
     allowDangerouslySkipPermissions: true,
     systemPrompt,
     cwd: '/home/botuser',
+    settingSources: ['user', 'project'],
+    allowedTools: ['Skill'],
     mcpServers: {
       "message": createMessageServer(ctx, cronCtx, memCtx),
     },
