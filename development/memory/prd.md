@@ -317,7 +317,7 @@ EDGES (relation tables):
   10. `formatFundamentalMemory()` → verify both empty and populated states
   11. **Multi-user isolation test:** Create memories for phone number A, query with phone number B → assert empty result. Create memories for B → verify A's memories unchanged. This guards against missing `WHERE phone = $phone` in queries.
 
-- [ ] **5.2 Run full test suite and fix any issues**
+- [x] **5.2 Run full test suite and fix any issues**
   Run `pnpm test` to execute all tests. Fix any failures. Run `pnpm run type-check` to verify no TypeScript errors. Ensure no regressions in existing tests.
 
 ### Phase 6: Cron-Memory Integration
