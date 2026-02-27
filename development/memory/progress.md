@@ -210,3 +210,18 @@
 - **Changes**: Added memory-triggered reminder guidance to `create_cronjob` tool description: "You can also create memory-triggered reminders, e.g., birthday reminders for contacts. Include relevant memory context in the message field so your future self knows the context."
 - **Key details**: Description-only change — no logic, no new tests needed. Teaches the AI it can use the existing cron system for memory-related reminders (e.g., birthday reminders for contacts stored in memory).
 - **Verification**: All 157 tests pass (15 test files), no regressions
+
+## Phase 7: Documentation
+
+### 7.1 Add memory section to project documentation ✅
+- **Date**: 2026-02-28
+- **File created**: `docs/memory.md`
+- **Sections documented**:
+  - Architecture overview (SurrealDB embedded, key files)
+  - Graph schema (nodes and edges with field descriptions)
+  - Fundamental vs extended memory classification
+  - All 5 MCP tools with parameters and behavior
+  - Scheduler integration (memory-aware cronjob prompts)
+  - User transparency and memory management
+  - New user onboarding flow
+- **No tests needed**: Documentation-only task

@@ -329,7 +329,7 @@ EDGES (relation tables):
 
 ### Phase 7: Documentation
 
-- [ ] **7.1 Add memory section to project documentation**
+- [x] **7.1 Add memory section to project documentation**
   Create `docs/memory.md` documenting:
   - What the memory system does
   - Graph schema (nodes and edges)
