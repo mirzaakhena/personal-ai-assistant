@@ -103,7 +103,7 @@ EDGES (relation tables):
 
   > **Cross-platform note:** `@surrealdb/node` compiles per platform (macOS vs Linux). The existing deploy flow (`/restart` → `git pull && pnpm install && pm2 restart`) already reinstalls on the server. No additional action needed — the `onlyBuiltDependencies` config ensures pnpm rebuilds native addons.
 
-- [ ] **1.2 Add memory constants to `src/core/constants.ts`**
+- [x] **1.2 Add memory constants to `src/core/constants.ts`**
   Add these constants:
   - `MEMORY_DB_PATH = join(DATA_DIR, 'memory.db')` — SurrealKV storage path
   - `MEMORY_DB_NAMESPACE = 'assistant'` — SurrealDB namespace
@@ -112,7 +112,7 @@ EDGES (relation tables):
   - `MEMORY_DECAY_HALF_LIFE_DAYS = 30` — temporal decay half-life for recency scoring (Phase 8, but constant defined now)
   - `MEMORY_EMBEDDING_ENABLED = false` — feature flag for vector embeddings (Phase 8, disabled by default)
 
-- [ ] **1.3 Create `src/db/memory.ts` — SurrealDB connection and schema initialization**
+- [x] **1.3 Create `src/db/memory.ts` — SurrealDB connection and schema initialization**
   Create the memory database module following the pattern of `src/db/sessions.ts`. This module must:
   1. Import `Surreal` from `surrealdb` and `createNodeEngines` from `@surrealdb/node` and `createRemoteEngines` from `surrealdb`.
   2. Export an `initMemoryDb()` async function that:
