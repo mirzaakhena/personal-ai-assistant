@@ -174,7 +174,7 @@ EDGES (relation tables):
 
   Write unit tests in `src/__tests__/memory/operations.test.ts` for each function using in-memory SurrealDB (`mem://`).
 
-- [ ] **2.2 Create `src/memory/formatter.ts` — Format memories for prompt injection**
+- [x] **2.2 Create `src/memory/formatter.ts` — Format memories for prompt injection**
   Create a module that formats memory data into readable text for prompts.
   - `formatFundamentalMemory(memories: object): string` — Format output of `getFundamentalMemories()` as:
     ```

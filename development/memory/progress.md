@@ -89,3 +89,16 @@
   - Graph traversal with `.* AS items` returns flattened arrays of objects
   - SurrealDB `option<string>` fields reject JavaScript `null` — use `'NONE'` string or omit the field
 - **Verification**: 116 tests pass (11 test files), `pnpm run type-check` passes
+
+### 2.2 Create `src/memory/formatter.ts` — Format memories for prompt injection ✅
+- **Date**: 2026-02-28
+- **Files created**:
+  - `src/memory/formatter.ts` — Formats memory data into readable text for prompt injection
+  - `src/__tests__/memory/formatter.test.ts` — 8 unit tests covering all formatters
+- **Exports**: `formatFundamentalMemory`, `formatRecalledMemories`, `formatAllMemories`
+- **Key details**:
+  - `formatFundamentalMemory` — Takes `FundamentalMemories` and produces `[MEMORY CONTEXT]` block with sections: About the user, AI Persona, Key preferences, Key routines, Key facts. Returns new-user message when profile is null. Omits empty sections.
+  - `formatRecalledMemories` — Takes array of recalled memory records, formats with record IDs and table-specific descriptions (e.g., preference shows value+context, routine shows activity+schedule). Returns "No matching memories found." for empty results.
+  - `formatAllMemories` — Detailed format with all memory types including record IDs, importance levels, superseded markers, and contacts. Used for `list_memories` tool to give users full transparency.
+  - Internal `describeMemory` helper renders table-specific human-readable descriptions
+- **Verification**: 124 tests pass (12 test files), `pnpm run type-check` passes
