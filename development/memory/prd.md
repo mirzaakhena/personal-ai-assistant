@@ -98,7 +98,7 @@ EDGES (relation tables):
 
 ### Phase 1: Infrastructure — SurrealDB Setup
 
-- [ ] **1.1 Install SurrealDB dependencies**
+- [x] **1.1 Install SurrealDB dependencies**
   Add `surrealdb` and `@surrealdb/node` packages via pnpm. Add `@surrealdb/node` to the `pnpm.onlyBuiltDependencies` array in package.json (since it's a native addon like better-sqlite3). Run `pnpm install` to verify successful installation.
 
   > **Cross-platform note:** `@surrealdb/node` compiles per platform (macOS vs Linux). The existing deploy flow (`/restart` → `git pull && pnpm install && pm2 restart`) already reinstalls on the server. No additional action needed — the `onlyBuiltDependencies` config ensures pnpm rebuilds native addons.

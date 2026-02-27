@@ -30,7 +30,8 @@
     "onlyBuiltDependencies": [
       "esbuild",
       "better-sqlite3",
-      "puppeteer"
+      "puppeteer",
+      "@surrealdb/node"
     ]
   },
   "dependencies": {

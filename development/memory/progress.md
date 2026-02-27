@@ -20,3 +20,11 @@
 - **Decision gate**: Proceed with Phase 1 as-is — no fallbacks needed
 - **Note**: SurrealDB v3 uses `FULLTEXT ANALYZER` instead of `SEARCH ANALYZER` (v2 syntax)
 - **Packages installed**: `surrealdb@2.0.0`, `@surrealdb/node@3.0.1`
+
+## Phase 1: Infrastructure — SurrealDB Setup
+
+### 1.1 Install SurrealDB dependencies ✅
+- **Date**: 2026-02-28
+- **Result**: Packages `surrealdb@2.0.0` and `@surrealdb/node@3.0.1` were already in `dependencies` from Phase 0 spike test
+- **Changes**: Added `@surrealdb/node` to `pnpm.onlyBuiltDependencies` array in `package.json` (alongside `esbuild`, `better-sqlite3`, `puppeteer`) to ensure native addon is rebuilt on deploy
+- **Verification**: `pnpm install` succeeded, both imports verified working via Node.js
