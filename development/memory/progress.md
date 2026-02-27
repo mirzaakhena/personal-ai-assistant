@@ -123,3 +123,31 @@
   - Error handling wraps all operations in try/catch, returns `{ success: false, error }` on failure
   - Uses Zod v4 `z.record(z.string(), z.unknown())` for flexible data objects (v4 requires two args)
 - **Verification**: 137 tests pass (13 test files), `pnpm run type-check` passes
+
+### 3.2 Register memory tools in `src/tools/server.ts` ✅
+- **Date**: 2026-02-28
+- **Files modified**:
+  - `src/tools/server.ts` — Added `MemoryContext` import and spread `createMemoryTools(memCtx)` into tools array
+  - `src/core/options.ts` — Added `MemoryContext` import and `memCtx` parameter to `createQueryOptions`
+  - `src/handlers/message.ts` — Added `MemoryContext` import, created `memCtx` from `phoneNumber`, passed to `createQueryOptions`
+  - `src/cron/executor.ts` — Added `MemoryContext` import, created `memCtx` from `phoneNumber`, passed to `createQueryOptions`
+- **Key details**:
+  - Pure wiring task — no new logic, just passing `MemoryContext` through the call chain
+  - Memory tools (save_memory, update_memory, recall_memory, list_memories, forget_memory) now available alongside message and cronjob tools in the MCP server
+  - Both message handler and cron executor create `memCtx` from the user's phone number for proper multi-user isolation
+- **No new tests needed**: Pure wiring with no logic; all 137 existing tests pass
+- **Verification**: `pnpm run type-check` passes, `pnpm test` passes (137 tests, 13 files)
+
+### 3.3 Update `src/core/options.ts` — Memory-aware system prompt and query options ✅
+- **Date**: 2026-02-28
+- **Files modified**:
+  - `src/core/options.ts` — Added memory-aware system prompt with MEMORY SYSTEM instructions, exported `buildSystemPrompt`
+- **Files created**:
+  - `src/__tests__/core/options.test.ts` — 6 unit tests covering prompt building, memory injection, and error handling
+- **Key changes**:
+  - Renamed `systemPrompt` const to `BASE_SYSTEM_PROMPT` (no longer exported directly)
+  - Added full MEMORY SYSTEM instructions to the base prompt: MEMORY LOADING, WHEN TO SAVE MEMORIES, IMPORTANCE CLASSIFICATION, WHEN TO UPDATE/RECALL, TRANSPARENCY, NEW USER ONBOARDING, CONTEXT PRESERVATION
+  - Exported `buildSystemPrompt(phoneNumber)` that loads `getFundamentalMemories()`, formats via `formatFundamentalMemory()`, and appends the memory block to the end of the system prompt
+  - `createQueryOptions` now calls `buildSystemPrompt(memCtx.phoneNumber)` to build a memory-aware system prompt per request
+  - Error handling: if memory loading fails, falls back to base prompt without memory block (logged as error)
+- **Verification**: 143 tests pass (14 test files), `pnpm run type-check` passes

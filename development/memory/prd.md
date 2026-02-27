@@ -220,10 +220,10 @@ EDGES (relation tables):
 
   Write unit tests in `src/__tests__/tools/memory.test.ts` that mock memory operations and verify tool behavior.
 
-- [ ] **3.2 Register memory tools in `src/tools/server.ts`**
+- [x] **3.2 Register memory tools in `src/tools/server.ts`**
   Update `createMessageServer` to accept `MemoryContext` parameter. Import and spread `createMemoryTools(memCtx)` into the tools array alongside existing message and cronjob tools. Update the function signature and all callers: `src/core/options.ts`, `src/handlers/message.ts`, `src/cron/executor.ts`.
 
-- [ ] **3.3 Update `src/core/options.ts` — Memory-aware system prompt and query options**
+- [x] **3.3 Update `src/core/options.ts` — Memory-aware system prompt and query options**
   1. Update `createQueryOptions` signature to accept `phoneNumber: string` and `memCtx: MemoryContext`.
   2. Load fundamental memory: `await getFundamentalMemories(phoneNumber)`, format with `formatFundamentalMemory()`.
   3. Append formatted memory block to the end of the system prompt.

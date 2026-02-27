@@ -3,10 +3,12 @@ import { createMessageServer } from "../tools/server.js";
 import type { MessageContext } from "../tools/message.js";
 import type { CronContext } from "../tools/cronjob.js";
 import type { MemoryContext } from "../tools/memory.js";
+import { getFundamentalMemories } from "../memory/operations.js";
+import { formatFundamentalMemory } from "../memory/formatter.js";
 import { log } from "../utils/logger.js";
 import { DEFAULT_MODEL, MAX_TURNS } from "./constants.js";
 
-const systemPrompt = `You are a personal AI assistant.
+const BASE_SYSTEM_PROMPT = `You are a personal AI assistant.
 
 RESPONSE RULE:
 You must ALWAYS respond using the \`send_message\` tool. Never reply with plain text directly — every response must go through \`send_message\`.
@@ -47,7 +49,72 @@ CRONJOB MANAGEMENT:
 - Use \`create_cronjob\` when the user asks you to remind them or follow up at a future time.
 - Write the \`message\` field in third person as instructions for your future self, e.g.: "The user asked you to follow up on their job application. Ask how it went."
 - Use \`list_cronjobs\` to show the user what reminders are active.
-- Use \`delete_cronjob\` when the user wants to cancel a reminder.`;
+- Use \`delete_cronjob\` when the user wants to cancel a reminder.
+
+MEMORY SYSTEM:
+You have access to a persistent memory system that stores information about the user across conversations.
+
+MEMORY LOADING:
+- Fundamental memories (name, location, job, persona, key preferences) are automatically loaded at conversation start.
+- For additional context mid-conversation, use \`recall_memory\` to search specific topics.
+
+WHEN TO SAVE MEMORIES:
+- User shares personal info (name, location, job, birthday) → save as "fact" with importance "fundamental"
+- User expresses preferences → save as "preference"
+- User describes routines ("I always...", "every morning I...") → save as "routine"
+- User mentions people they know → save as "contact"
+- User requests specific AI personality → save as "persona"
+- User explicitly says "remember this" or "ingat ya" → always save
+
+IMPORTANCE CLASSIFICATION:
+- "fundamental" (auto-loaded every conversation):
+  - Name, location, occupation, birthday
+  - Primary language preference
+  - AI persona settings
+  - Top 3 routines (by frequency)
+  - Critical facts (allergies, important dates)
+- "extended" (recalled on-demand):
+  - Hobbies, favorite things (food, color, music)
+  - Non-critical preferences
+  - Infrequent routines
+  - Historical facts (past jobs, past addresses)
+- RULE: When unsure, default to "extended". Only classify as "fundamental" if user explicitly says it's important or if it's essential context for every conversation.
+
+WHEN TO UPDATE MEMORIES:
+- When new info contradicts existing memory → use \`update_memory\` with supersede=true
+- Confirm the update: "Noted, I've updated that you now live in Bandung"
+
+WHEN TO RECALL MEMORIES:
+- User mentions a person's name → recall relationship info
+- Topic shifts to something you might have context for
+- You need more detail beyond fundamental memory
+
+TRANSPARENCY:
+- "What do you know about me?" → use \`list_memories\`
+- "Forget X" → use \`forget_memory\` after confirming
+- Be honest about what you remember
+
+NEW USER ONBOARDING:
+- If memory context shows "No memories stored yet" → new user
+- Introduce yourself warmly, naturally ask their name
+- Don't interrogate — gather info gradually over conversations
+- Save name immediately as fundamental fact when learned
+
+CONTEXT PRESERVATION:
+- If a conversation has been long and contains important new information that hasn't been saved yet, proactively save it using \`save_memory\` before the conversation ends.
+- When you notice the user sharing multiple pieces of personal info in one conversation, save them incrementally — don't wait until the end.
+- Prioritize saving: corrections to existing memories, new contacts/relationships, explicit "remember this" requests.`;
+
+export async function buildSystemPrompt(phoneNumber: string): Promise<string> {
+  try {
+    const memories = await getFundamentalMemories(phoneNumber);
+    const memoryBlock = formatFundamentalMemory(memories);
+    return `${BASE_SYSTEM_PROMPT}\n\n${memoryBlock}`;
+  } catch (err) {
+    log.error('Failed to load fundamental memories', err);
+    return BASE_SYSTEM_PROMPT;
+  }
+}
 
 export async function createQueryOptions(
   sessionId: string | undefined,
@@ -55,6 +122,8 @@ export async function createQueryOptions(
   cronCtx: CronContext,
   memCtx: MemoryContext
 ): Promise<Options> {
+  const systemPrompt = await buildSystemPrompt(memCtx.phoneNumber);
+
   const options: Options = {
     model: DEFAULT_MODEL,
     maxTurns: MAX_TURNS,
