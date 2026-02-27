@@ -432,3 +432,16 @@
   - Multi-user isolation (user A contacts not visible to user B)
   - Tool: matching contacts, no-match message, related memories formatted output
 - **Verification**: 243 tests pass (18 test files), `pnpm run type-check` passes, no regressions
+
+### 11.2 Update system prompt for relational queries ✅
+- **Date**: 2026-02-28
+- **Files modified**:
+  - `src/core/options.ts` — Added RELATIONAL QUERIES section to `BASE_SYSTEM_PROMPT` with instructions for using `query_relationships` tool
+  - `src/__tests__/core/options.test.ts` — Added assertions for RELATIONAL QUERIES section and `query_relationships` reference in existing prompt test
+- **Key details**:
+  - Added RELATIONAL QUERIES section between CONVERSATION HISTORY and IMPORTANCE RE-CLASSIFICATION in the system prompt
+  - Instructs AI to use `query_relationships` for questions about connections between people and memories
+  - Includes example queries in Indonesian: "siapa aja teman kerja aku?", "ada yang ulang tahun bulan ini?", "apa yang aku tahu tentang Budi?"
+  - Explains graph database can traverse relationships that keyword search cannot
+  - Lightweight change — prompt text only, no logic changes
+- **Verification**: 243 tests pass (18 test files), `pnpm run type-check` passes, no regressions

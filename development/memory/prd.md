@@ -442,7 +442,7 @@ EDGES (relation tables):
     - "related_memories" + `{ person_name: "Budi" }` → all memories connected to a specific person
   - Uses SurrealQL graph traversal: `SELECT ->knows->person WHERE ...` and multi-hop queries
 
-- [ ] **11.2 Update system prompt for relational queries**
+- [x] **11.2 Update system prompt for relational queries**
   Add to MEMORY SYSTEM instructions:
   ```
   RELATIONAL QUERIES:

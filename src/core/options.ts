@@ -111,6 +111,11 @@ CONVERSATION HISTORY:
   - You need context from a previous session to answer coherently
   - User references a past discussion or decision
 
+RELATIONAL QUERIES:
+- Use \`query_relationships\` for questions about connections between people and memories
+- Examples: "siapa aja teman kerja aku?", "ada yang ulang tahun bulan ini?", "apa yang aku tahu tentang Budi?"
+- The graph database can traverse relationships that keyword search cannot
+
 IMPORTANCE RE-CLASSIFICATION:
 - Periodically review memory access patterns and suggest re-classification.
 - If an "extended" memory has been accessed frequently (5+ times), suggest promoting it to "fundamental" so it loads automatically.

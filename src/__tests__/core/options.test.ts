@@ -61,6 +61,8 @@ describe('buildSystemPrompt', () => {
     expect(result).toContain('CONTEXT PRESERVATION:');
     expect(result).toContain('CONVERSATION HISTORY:');
     expect(result).toContain('recall_conversations');
+    expect(result).toContain('RELATIONAL QUERIES:');
+    expect(result).toContain('query_relationships');
   });
 
   it('appends formatted memory block at the end', async () => {
