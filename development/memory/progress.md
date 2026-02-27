@@ -345,3 +345,51 @@
   - Relation edge traversal (person→had_conversation→conversation_summary)
   - Nullable embedding field support
 - **Verification**: 207 tests pass (17 test files), `pnpm run type-check` passes, no regressions
+
+### 10.2 Create conversation summary generation ✅
+- **Date**: 2026-02-28
+- **Files created**:
+  - `src/memory/summarizer.ts` — Conversation summary generation module with message tracking, Anthropic API summarization, and SurrealDB persistence
+  - `src/__tests__/memory/summarizer.test.ts` — 13 unit tests covering message tracking, API calls, DB persistence, and integration
+- **Files modified**:
+  - `src/handlers/message.ts` — Added message tracking for user messages and summary generation trigger before `/new` clears session
+- **Exports**: `trackMessage`, `getTrackedMessages`, `clearTrackedMessages`, `generateConversationSummary`, `saveConversationSummary`, `summarizeAndSave`, `ConversationMessage`, `ConversationSummaryResult`
+- **Key details**:
+  - In-memory message tracker per phone number (similar to `turns.ts` pattern) stores conversation messages for summary generation
+  - `generateConversationSummary` calls Anthropic Messages API with Claude Haiku 4.5 to generate structured JSON summaries (summary, topics, key_decisions)
+  - `saveConversationSummary` creates `conversation_summary` node in SurrealDB and links it to the user's person node via `had_conversation` edge
+  - `summarizeAndSave` is the high-level function that orchestrates tracking → generation → persistence
+  - Trigger mechanism: summary generated before session clearing on `/new` command (as specified in PRD)
+  - Optional embedding generation for semantic search when `MEMORY_EMBEDDING_ENABLED=true`
+  - Graceful degradation: returns null on missing API key, API errors, invalid responses, or empty message history
+  - Multi-user isolation: summaries scoped to phone number via `getOrCreateSelfPerson`
+- **Test coverage**:
+  - Message tracking: per-phone isolation, empty returns, clear without affecting others
+  - generateConversationSummary: empty messages, missing API key, successful API call, API error, invalid JSON response
+  - saveConversationSummary: DB persistence, edge traversal, multi-user isolation
+  - summarizeAndSave: no messages returns null, end-to-end with mocked API
+- **Verification**: 220 tests pass (18 test files), `pnpm run type-check` passes, no regressions
+
+### 10.3 Add `recall_conversations` tool ✅
+- **Date**: 2026-02-28
+- **Files modified**:
+  - `src/memory/operations.ts` — Added `recallConversations()` function with hybrid keyword+vector+recency search over conversation summaries
+  - `src/tools/memory.ts` — Added `recall_conversations` MCP tool with query and limit parameters, formatted output with dates, summaries, topics, and decisions
+  - `src/__tests__/memory/operations.test.ts` — Added 8 unit tests for `recallConversations`
+  - `src/__tests__/tools/memory.test.ts` — Added 3 tool-level tests for `recall_conversations`
+- **Exports**: `recallConversations(phoneNumber, query, limit?): Promise<Record<string, unknown>[]>`
+- **Key details**:
+  - Searches conversation summaries by tokenized keyword matching across `summary`, `topics`, and `key_decisions` fields
+  - Supports hybrid search (keyword+vector+recency) when embeddings enabled, falls back to keyword+recency when disabled
+  - Multi-user isolation: only returns summaries linked to the querying user's person node via `had_conversation` edges
+  - Bumps `access_count` and `last_accessed` on returned summaries
+  - Tool output formatted with numbered entries showing date, summary, topics, and decisions
+  - Enables queries like "kapan terakhir kita bahas soal liburan?" or "apa yang kita obrolin kemarin?"
+- **Test coverage**:
+  - Empty results for unknown user, empty query tokens
+  - Keyword match in summary, topics, and key_decisions fields
+  - Limit parameter respected
+  - Multi-user isolation (user A summaries not visible to user B)
+  - Access count bumped on returned results
+  - Tool: matching conversations returned with formatted output, no-match message, decisions included
+- **Verification**: 231 tests pass (18 test files), `pnpm run type-check` passes, no regressions

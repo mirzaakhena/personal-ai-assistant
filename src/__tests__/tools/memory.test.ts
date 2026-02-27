@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { initMemoryDb, closeMemoryDb } from '../../db/memory.js';
 import { createMemoryTools, type MemoryContext } from '../../tools/memory.js';
+import { saveConversationSummary } from '../../memory/summarizer.js';
 
 const PHONE = '+6281234567890';
 
@@ -243,5 +244,41 @@ describe('forget_memory tool', () => {
     const listHandler = getToolHandler('list_memories');
     const listResult = await listHandler({});
     expect(listResult.content[0]!.text).not.toContain('Temporary info');
+  });
+});
+
+describe('recall_conversations tool', () => {
+  it('returns matching conversations by topic keyword', async () => {
+    await saveConversationSummary(PHONE, {
+      summary: 'Discussed holiday plans to Japan',
+      topics: ['holiday', 'japan', 'travel'],
+      key_decisions: ['Book flights next week'],
+    });
+
+    const handler = getToolHandler('recall_conversations');
+    const result = await handler({ query: 'japan' });
+    const text = result.content[0]!.text;
+    expect(text).toContain('holiday plans to Japan');
+    expect(text).toContain('Topics:');
+  });
+
+  it('returns no-match message when nothing found', async () => {
+    const handler = getToolHandler('recall_conversations');
+    const result = await handler({ query: 'nonexistent' });
+    expect(result.content[0]!.text).toContain('No past conversations found');
+  });
+
+  it('includes decisions in output when present', async () => {
+    await saveConversationSummary(PHONE, {
+      summary: 'Planning meeting',
+      topics: ['planning'],
+      key_decisions: ['Deadline is March 15'],
+    });
+
+    const handler = getToolHandler('recall_conversations');
+    const result = await handler({ query: 'planning' });
+    const text = result.content[0]!.text;
+    expect(text).toContain('Decisions:');
+    expect(text).toContain('Deadline is March 15');
   });
 });

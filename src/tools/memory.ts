@@ -6,6 +6,7 @@ import {
   supersedeMemory,
   deleteMemory,
   recallMemories,
+  recallConversations,
   getAllMemories,
   upsertContact,
 } from "../memory/operations.js";
@@ -175,5 +176,50 @@ For each memory_type, provide the relevant fields in "data":
     }
   );
 
-  return [saveMemoryTool, updateMemoryTool, recallMemoryTool, listMemoriesTool, forgetMemoryTool];
+  const recallConversationsTool = tool(
+    "recall_conversations",
+    `Search past conversation summaries by topic or keyword. Use this to recall what was discussed in previous sessions — decisions made, topics covered, or context from earlier conversations. Useful for questions like "kapan terakhir kita bahas soal liburan?" or "apa yang kita obrolin kemarin?"`,
+    {
+      query: z.string().min(1).describe("Search query — topic or keyword to find in past conversations"),
+      limit: z.number().int().min(1).max(20).optional().describe("Max number of past conversations to return (default: 5)"),
+    },
+    async (args) => {
+      try {
+        const results = await recallConversations(memCtx.phoneNumber, args.query, args.limit ?? 5);
+
+        if (results.length === 0) {
+          return {
+            content: [{ type: "text", text: "No past conversations found matching that query." }],
+          };
+        }
+
+        const formatted = results
+          .map((r, i) => {
+            const topics = ((r.topics as string[]) ?? []).join(', ') || 'none';
+            const decisions = (r.key_decisions as string[]) ?? [];
+            const date = r.date
+              ? new Date(String(r.date)).toLocaleDateString()
+              : r.created_at
+                ? new Date(String(r.created_at)).toLocaleDateString()
+                : 'unknown date';
+            let out = `[${i + 1}] ${date}\nSummary: ${r.summary}\nTopics: ${topics}`;
+            if (decisions.length > 0) {
+              out += `\nDecisions: ${decisions.join('; ')}`;
+            }
+            return out;
+          })
+          .join('\n\n');
+
+        return {
+          content: [{ type: "text", text: formatted }],
+        };
+      } catch (err) {
+        return {
+          content: [{ type: "text", text: JSON.stringify({ success: false, error: String(err) }) }],
+        };
+      }
+    }
+  );
+
+  return [saveMemoryTool, updateMemoryTool, recallMemoryTool, listMemoriesTool, forgetMemoryTool, recallConversationsTool];
 }

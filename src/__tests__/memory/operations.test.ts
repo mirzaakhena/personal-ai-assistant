@@ -9,11 +9,13 @@ import {
   supersedeMemory,
   getFundamentalMemories,
   recallMemories,
+  recallConversations,
   getAllMemories,
   getRelationships,
   calculateRecencyScore,
   getImportanceSuggestions,
 } from '../../memory/operations.js';
+import { saveConversationSummary } from '../../memory/summarizer.js';
 
 const PHONE_A = '+6281234567890';
 const PHONE_B = '+6289876543210';
@@ -846,6 +848,115 @@ describe('getImportanceSuggestions', () => {
     // The superseded record should not appear
     const oldSuggestions = suggestions.filter(s => s.record_id === oldId);
     expect(oldSuggestions).toHaveLength(0);
+  });
+});
+
+describe('recallConversations', () => {
+  it('returns empty array for user with no conversations', async () => {
+    const results = await recallConversations('+unknown', 'anything');
+    expect(results).toHaveLength(0);
+  });
+
+  it('returns empty array for empty query tokens', async () => {
+    await getOrCreateSelfPerson(PHONE_A);
+    const results = await recallConversations(PHONE_A, '   ');
+    expect(results).toHaveLength(0);
+  });
+
+  it('finds conversations by keyword match in summary', async () => {
+    await getOrCreateSelfPerson(PHONE_A);
+    await saveConversationSummary(PHONE_A, {
+      summary: 'Discussed vacation plans to Bali next month',
+      topics: ['vacation', 'travel'],
+      key_decisions: ['Book hotel by Friday'],
+    });
+    await saveConversationSummary(PHONE_A, {
+      summary: 'Talked about work project deadline',
+      topics: ['work', 'project'],
+      key_decisions: ['Submit report on Monday'],
+    });
+
+    const results = await recallConversations(PHONE_A, 'vacation bali');
+    expect(results.length).toBeGreaterThanOrEqual(1);
+    expect(String((results[0] as Record<string, unknown>).summary)).toContain('vacation');
+  });
+
+  it('finds conversations by topic keyword', async () => {
+    await getOrCreateSelfPerson(PHONE_A);
+    await saveConversationSummary(PHONE_A, {
+      summary: 'General chat about hobbies',
+      topics: ['photography', 'hiking'],
+      key_decisions: [],
+    });
+
+    const results = await recallConversations(PHONE_A, 'photography');
+    expect(results).toHaveLength(1);
+    expect((results[0] as Record<string, unknown>).summary).toBe('General chat about hobbies');
+  });
+
+  it('finds conversations by key_decisions keyword', async () => {
+    await getOrCreateSelfPerson(PHONE_A);
+    await saveConversationSummary(PHONE_A, {
+      summary: 'Planning session',
+      topics: ['planning'],
+      key_decisions: ['Buy new laptop before March'],
+    });
+
+    const results = await recallConversations(PHONE_A, 'laptop');
+    expect(results).toHaveLength(1);
+  });
+
+  it('respects the limit parameter', async () => {
+    await getOrCreateSelfPerson(PHONE_A);
+    for (let i = 0; i < 5; i++) {
+      await saveConversationSummary(PHONE_A, {
+        summary: `Conversation about topic ${i}`,
+        topics: ['common'],
+        key_decisions: [],
+      });
+    }
+
+    const results = await recallConversations(PHONE_A, 'common', 2);
+    expect(results).toHaveLength(2);
+  });
+
+  it('does not return conversations from other users', async () => {
+    await getOrCreateSelfPerson(PHONE_A);
+    await getOrCreateSelfPerson(PHONE_B);
+
+    await saveConversationSummary(PHONE_A, {
+      summary: 'Secret conversation about project alpha',
+      topics: ['alpha'],
+      key_decisions: [],
+    });
+
+    const resultsA = await recallConversations(PHONE_A, 'alpha');
+    const resultsB = await recallConversations(PHONE_B, 'alpha');
+
+    expect(resultsA).toHaveLength(1);
+    expect(resultsB).toHaveLength(0);
+  });
+
+  it('bumps access count on returned conversations', async () => {
+    await getOrCreateSelfPerson(PHONE_A);
+    await saveConversationSummary(PHONE_A, {
+      summary: 'Discussed cooking recipes',
+      topics: ['cooking'],
+      key_decisions: [],
+    });
+
+    const results = await recallConversations(PHONE_A, 'cooking');
+    expect(results).toHaveLength(1);
+    const id = String((results[0] as Record<string, unknown>).id);
+
+    // Check access_count was bumped
+    const db = getMemoryDb();
+    const { StringRecordId } = await import('surrealdb');
+    const check = await db.query<[Array<{ access_count: number }>]>(
+      `SELECT access_count FROM $id`,
+      { id: new StringRecordId(id) },
+    );
+    expect(check[0]![0]!.access_count).toBe(1);
   });
 });
 

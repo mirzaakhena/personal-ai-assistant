@@ -605,6 +605,117 @@ export async function getRelationships(
   return result[0] ?? [];
 }
 
+// --- Conversation recall ---
+
+export async function recallConversations(
+  phoneNumber: string,
+  query: string,
+  limit: number = 5,
+): Promise<Record<string, unknown>[]> {
+  const db = getMemoryDb();
+
+  // Find self person
+  const selfResult = await db.query<[Array<{ id: unknown }>]>(
+    `SELECT id FROM person WHERE phone = $phone AND type = 'self'`,
+    { phone: phoneNumber },
+  );
+  if (!selfResult[0] || selfResult[0].length === 0) return [];
+
+  const selfId = String(selfResult[0][0]!.id);
+
+  // Tokenize query
+  const tokens = query
+    .toLowerCase()
+    .split(/\s+/)
+    .filter((t) => t.length > 0);
+  if (tokens.length === 0) return [];
+
+  const totalTokens = tokens.length;
+
+  // Check if embeddings are enabled and generate query embedding
+  const embeddingsEnabled =
+    process.env.MEMORY_EMBEDDING_ENABLED === 'true';
+  let queryEmbedding: number[] | null = null;
+  if (embeddingsEnabled) {
+    queryEmbedding = await generateEmbedding(query);
+  }
+  const useHybrid = queryEmbedding !== null;
+
+  // Determine weights based on whether hybrid mode is active
+  const keywordWeight = useHybrid
+    ? MEMORY_KEYWORD_WEIGHT
+    : KEYWORD_ONLY_KEYWORD_WEIGHT;
+  const recencyWeight = useHybrid
+    ? MEMORY_RECENCY_WEIGHT
+    : KEYWORD_ONLY_RECENCY_WEIGHT;
+  const vectorWeight = useHybrid ? MEMORY_VECTOR_WEIGHT : 0;
+
+  // Get all conversation summaries for this user
+  const queryResult = await db.query<[Array<Record<string, unknown>>]>(
+    `SELECT ->had_conversation->conversation_summary.* AS items FROM $selfId`,
+    { selfId: rid(selfId) },
+  );
+  const items =
+    (queryResult[0]?.[0] as { items?: Record<string, unknown>[] })?.items ??
+    [];
+
+  // Score each summary
+  const results: Array<Record<string, unknown> & { _score: number }> = [];
+
+  for (const item of items) {
+    const summaryText = String(item.summary ?? '');
+    const topicsText = ((item.topics as string[]) ?? []).join(' ');
+    const decisionsText = ((item.key_decisions as string[]) ?? []).join(' ');
+    const searchText =
+      `${summaryText} ${topicsText} ${decisionsText}`.toLowerCase();
+
+    let matchedTokens = 0;
+    for (const token of tokens) {
+      if (searchText.includes(token)) matchedTokens++;
+    }
+
+    // Calculate vector similarity score if hybrid mode
+    let vectorScore = 0;
+    if (useHybrid && queryEmbedding) {
+      const itemEmbedding = item.embedding as number[] | undefined;
+      if (
+        itemEmbedding &&
+        Array.isArray(itemEmbedding) &&
+        itemEmbedding.length > 0
+      ) {
+        vectorScore =
+          (cosineSimilarity(queryEmbedding, itemEmbedding) + 1) / 2;
+      }
+    }
+
+    const hasKeywordMatch = matchedTokens > 0;
+    const hasVectorMatch = vectorScore > 0.5;
+
+    if (hasKeywordMatch || (useHybrid && hasVectorMatch)) {
+      const keywordScore = matchedTokens / totalTokens;
+      const recencyScore = calculateRecencyScore(
+        item.created_at as Date | string | undefined,
+      );
+      const finalScore =
+        vectorWeight * vectorScore +
+        keywordWeight * keywordScore +
+        recencyWeight * recencyScore;
+      results.push({ ...item, _score: finalScore });
+    }
+  }
+
+  // Sort by score descending, limit results
+  results.sort((a, b) => b._score - a._score);
+  const top = results.slice(0, limit);
+
+  // Bump access counts
+  const ids = top.map((r) => String(r.id));
+  await bumpAccess(ids);
+
+  // Remove internal _score from results
+  return top.map(({ _score, ...rest }) => rest);
+}
+
 // --- Importance auto-promotion/demotion ---
 
 export interface ImportanceSuggestion {

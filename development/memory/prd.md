@@ -408,13 +408,13 @@ EDGES (relation tables):
     had_conversation — person -> conversation_summary
   ```
 
-- [ ] **10.2 Create conversation summary generation**
+- [x] **10.2 Create conversation summary generation**
   Create `src/memory/summarizer.ts`:
   - `generateConversationSummary(messages: Message[]): Promise<{ summary: string, topics: string[], key_decisions: string[] }>` — Use the AI model to generate a concise summary of the conversation, extract discussed topics, and identify any decisions or action items.
   - **Trigger mechanism:** Generate summary when user runs `/new` command (explicit session boundary). The existing `/new` handler already clears the session — add summary generation before clearing. This is more reliable than time-based gap detection, which is unreliable for WhatsApp (user may continue the same topic after hours, or switch topics within minutes).
   - **Secondary trigger (optional):** Also generate summary if message gap exceeds 2 hours (not 30 minutes). Use a longer timeout to reduce false positives. If user continues after the gap, append to existing summary rather than creating a new one.
 
-- [ ] **10.3 Add `recall_conversations` tool**
+- [x] **10.3 Add `recall_conversations` tool**
   New MCP tool to search past conversation summaries:
   - Parameters: `query` (string), `date_range` (optional: `{ from, to }`)
   - Search by topic keywords or semantic similarity (if embeddings enabled)
