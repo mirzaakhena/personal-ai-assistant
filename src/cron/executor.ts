@@ -1,5 +1,5 @@
 import { query } from '@anthropic-ai/claude-agent-sdk';
-import type { Client } from 'whatsapp-web.js';
+import type { MessageGateway } from '../gateway/types.js';
 import { getCronjobById, updateCronjobStatus, updateExecutionStatus } from '../db/cronjobs.js';
 import { unregisterCronTask, type CronRegistry } from './registry.js';
 import { saveSessionId } from '../db/sessions.js';
@@ -11,10 +11,10 @@ import type { MemoryContext } from '../tools/memory.js';
 import { getFundamentalMemories } from '../memory/operations.js';
 import { formatFundamentalMemory } from '../memory/formatter.js';
 import { log } from '../utils/logger.js';
-import { WA_JID_PERSONAL, CronjobStatuses, COST_USD_PRECISION } from '../core/constants.js';
+import { CronjobStatuses, COST_USD_PRECISION } from '../core/constants.js';
 
 export async function processCronjob(
-  client: Client,
+  gateway: MessageGateway,
   registry: CronRegistry,
   jobId: string,
   executionId: string
@@ -25,7 +25,6 @@ export async function processCronjob(
     return;
   }
 
-  const chatId = `${job.phone_number}${WA_JID_PERSONAL}`;
   const phoneNumber = job.phone_number;
 
   log.debug(`[CRON] ${phoneNumber} firing: ${job.schedule_human}`);
@@ -36,8 +35,10 @@ export async function processCronjob(
   }
 
   const sessionId = undefined; // always start a fresh session to avoid replaying prior tool calls
-  const ctx: MessageContext = { client, chatId };
-  const cronCtx: CronContext = { registry, client, phoneNumber };
+  const ctx: MessageContext = {
+    sendMessage: (content: string) => gateway.sendMessage(job.phone_number, content),
+  };
+  const cronCtx: CronContext = { registry, phoneNumber, gateway };
   const memCtx: MemoryContext = { phoneNumber };
 
   let memoryContext: string | undefined;

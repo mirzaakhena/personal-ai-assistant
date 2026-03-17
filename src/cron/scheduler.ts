@@ -1,6 +1,6 @@
 import cron from 'node-cron';
 import { v4 as uuidv4 } from 'uuid';
-import type { Client } from 'whatsapp-web.js';
+import type { MessageGateway } from '../gateway/types.js';
 import {
   getPendingOnceCronjobs,
   getActiveRecurringCronjobs,
@@ -38,7 +38,7 @@ function timestampToCronExpr(ms: number): string {
   return `${sec} ${min} ${hour} ${day} ${month} *`;
 }
 
-export function scheduleOnceJob(registry: CronRegistry, client: Client, job: Cronjob): void {
+export function scheduleOnceJob(registry: CronRegistry, gateway: MessageGateway, job: Cronjob): void {
   if (!job.scheduled_at) return;
 
   const cronExpr = timestampToCronExpr(job.scheduled_at);
@@ -57,7 +57,7 @@ export function scheduleOnceJob(registry: CronRegistry, client: Client, job: Cro
         status: CronjobStatuses.EXECUTING,
         created_at: Date.now(),
       });
-      enqueue(job.phone_number, () => processCronjob(client, registry, job.id, executionId));
+      enqueue(job.phone_number, () => processCronjob(gateway, registry, job.id, executionId));
     },
     { timezone: TIMEZONE }
   );
@@ -65,7 +65,7 @@ export function scheduleOnceJob(registry: CronRegistry, client: Client, job: Cro
   registerCronTask(registry, job.id, task);
 }
 
-export function scheduleRecurringJob(registry: CronRegistry, client: Client, job: Cronjob): void {
+export function scheduleRecurringJob(registry: CronRegistry, gateway: MessageGateway, job: Cronjob): void {
   if (!job.schedule_cron) return;
 
   log.debug(`[CRON] scheduled recurring ${job.id} — ${job.schedule_human} (${job.schedule_cron})`);
@@ -90,7 +90,7 @@ export function scheduleRecurringJob(registry: CronRegistry, client: Client, job
         status: CronjobStatuses.EXECUTING,
         created_at: Date.now(),
       });
-      enqueue(job.phone_number, () => processCronjob(client, registry, job.id, executionId));
+      enqueue(job.phone_number, () => processCronjob(gateway, registry, job.id, executionId));
     },
     { timezone: TIMEZONE }
   );
@@ -98,7 +98,7 @@ export function scheduleRecurringJob(registry: CronRegistry, client: Client, job
   registerCronTask(registry, job.id, task);
 }
 
-export function reconcileOnStartup(registry: CronRegistry, client: Client): void {
+export function reconcileOnStartup(registry: CronRegistry, gateway: MessageGateway): void {
   const now = Date.now();
 
   const onceJobs = getPendingOnceCronjobs();
@@ -121,7 +121,7 @@ export function reconcileOnStartup(registry: CronRegistry, client: Client): void
         created_at: now,
       });
     } else {
-      scheduleOnceJob(registry, client, job);
+      scheduleOnceJob(registry, gateway, job);
     }
   }
 
@@ -153,6 +153,6 @@ export function reconcileOnStartup(registry: CronRegistry, client: Client): void
       });
     }
 
-    scheduleRecurringJob(registry, client, job);
+    scheduleRecurringJob(registry, gateway, job);
   }
 }

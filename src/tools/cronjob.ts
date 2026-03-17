@@ -1,6 +1,6 @@
 import { tool } from "@anthropic-ai/claude-agent-sdk";
 import { z } from "zod";
-import type { Client } from "whatsapp-web.js";
+import type { MessageGateway } from '../gateway/types.js';
 import { v4 as uuidv4 } from "uuid";
 import cron from "node-cron";
 import {
@@ -25,8 +25,8 @@ import {
 
 export type CronContext = {
   registry: CronRegistry;
-  client: Client;
   phoneNumber: string;
+  gateway: MessageGateway;
 };
 
 export function createCronjobTools(cronCtx: CronContext) {
@@ -97,9 +97,9 @@ You can also create memory-triggered reminders, e.g., birthday reminders for con
       insertCronjob(job);
 
       if (args.type === "once") {
-        scheduleOnceJob(cronCtx.registry, cronCtx.client, job);
+        scheduleOnceJob(cronCtx.registry, cronCtx.gateway, job);
       } else {
-        scheduleRecurringJob(cronCtx.registry, cronCtx.client, job);
+        scheduleRecurringJob(cronCtx.registry, cronCtx.gateway, job);
       }
 
       console.log(`[CRON] Created ${args.type} job ${jobId}: ${args.schedule_human}`);
