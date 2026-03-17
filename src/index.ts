@@ -1,16 +1,14 @@
 import dotenv from 'dotenv';
-import { execSync } from 'child_process';
-import { readFileSync, rmSync, existsSync } from 'fs';
+import { existsSync, readFileSync, rmSync } from 'fs';
 import { join } from 'path';
-import type { Message } from 'whatsapp-web.js';
-import { createWhatsAppClient } from './whatsapp/client.js';
-import { enqueue } from './utils/queue.js';
+import { createWhatsAppGateway } from './gateway/whatsapp.js';
 import { processMessage } from './handlers/message.js';
 import { createCronRegistry } from './cron/registry.js';
 import { reconcileOnStartup } from './cron/scheduler.js';
 import { initMemoryDb, closeMemoryDb } from './db/memory.js';
 import { log } from './utils/logger.js';
-import { PROJECT_DIR, WA_JID_GROUP, WA_STATUS_BROADCAST, JID_SUFFIX_REGEX, WA_CHROME_KILL_PATTERN, WA_LOCK_FILES, RESTART_FLAG_FILE } from './core/constants.js';
+import { PROJECT_DIR, RESTART_FLAG_FILE } from './core/constants.js';
+import type { MessageGateway } from './gateway/types.js';
 
 dotenv.config({ path: join(PROJECT_DIR, '.env') });
 
@@ -26,54 +24,21 @@ if (WHITELIST_NUMBERS.size === 0) {
 }
 
 const registry = createCronRegistry();
-const client = createWhatsAppClient();
 
-client.on('ready', () => {
-  reconcileOnStartup(registry, client);
+// Gateway selection
+const gatewayType = process.env.GATEWAY ?? 'whatsapp';
+let gateway: MessageGateway;
 
-  if (existsSync(RESTART_FLAG_FILE)) {
-    try {
-      const { chatId } = JSON.parse(readFileSync(RESTART_FLAG_FILE, 'utf-8'));
-      rmSync(RESTART_FLAG_FILE);
-      if (chatId) {
-        client.sendMessage(chatId, '✅ Bot sudah aktif kembali.');
-      }
-    } catch (err) {
-      log.error(`[RESTART] failed to process restart flag: ${err}`);
-      rmSync(RESTART_FLAG_FILE, { force: true });
-    }
-  }
-});
-
-client.on('message', (message: Message) => {
-  if (message.from.endsWith(WA_JID_GROUP) || message.from === WA_STATUS_BROADCAST) return;
-  if (!message.body && !message.hasMedia) return;
-
-  const phoneNumber = message.from.replace(JID_SUFFIX_REGEX, '');
-
-  if (!WHITELIST_NUMBERS.has(phoneNumber)) {
-    log.debug(`[SKIP] ${phoneNumber}`);
-    return;
-  }
-
-  enqueue(phoneNumber, () => processMessage(client, message, registry));
-});
-
-// Kill orphaned Chrome processes and remove stale lock files before init
-try {
-  execSync(`pkill -f "${WA_CHROME_KILL_PATTERN}" 2>/dev/null || true`, { stdio: 'ignore' });
-} catch {}
-for (const lockFile of WA_LOCK_FILES) {
-  if (existsSync(lockFile)) {
-    log.debug(`[STARTUP] removing stale lock file: ${lockFile}`);
-    rmSync(lockFile);
-  }
+if (gatewayType === 'whatsapp') {
+  gateway = createWhatsAppGateway({ whitelistNumbers: WHITELIST_NUMBERS });
+} else {
+  throw new Error(`Unknown gateway: ${gatewayType} (webchat coming soon)`);
 }
 
 const shutdown = async (signal: string) => {
-  log.debug(`[SHUTDOWN] received ${signal}, destroying client...`);
+  log.debug(`[SHUTDOWN] received ${signal}, shutting down...`);
   await closeMemoryDb();
-  await client.destroy();
+  await gateway.stop();
   process.exit(0);
 };
 
@@ -81,4 +46,24 @@ process.on('SIGINT', () => shutdown('SIGINT'));
 process.on('SIGTERM', () => shutdown('SIGTERM'));
 
 await initMemoryDb();
-await client.initialize();
+
+// Start gateway first — must be ready before sending any messages
+await gateway.start((msg) => processMessage(gateway, msg, registry));
+
+// Reconcile cronjobs (schedules cron timers that fire later via gateway.sendMessage)
+reconcileOnStartup(registry, gateway);
+
+// Handle restart flag (WhatsApp-specific but harmless for other gateways)
+if (existsSync(RESTART_FLAG_FILE)) {
+  try {
+    const { chatId } = JSON.parse(readFileSync(RESTART_FLAG_FILE, 'utf-8'));
+    rmSync(RESTART_FLAG_FILE);
+    if (chatId) {
+      const userId = chatId.replace(/@.*$/, '');
+      await gateway.sendMessage(userId, '✅ Bot sudah aktif kembali.');
+    }
+  } catch (err) {
+    log.error(`[RESTART] failed to process restart flag: ${err}`);
+    rmSync(RESTART_FLAG_FILE, { force: true });
+  }
+}
