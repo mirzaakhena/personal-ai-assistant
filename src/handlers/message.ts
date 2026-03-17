@@ -1,50 +1,44 @@
 import { query } from "@anthropic-ai/claude-agent-sdk";
 import type { SDKUserMessage } from "@anthropic-ai/claude-agent-sdk";
-import type { Client, Message } from "whatsapp-web.js";
+import type { MessageGateway, IncomingMessage } from "../gateway/types.js";
 import { getSessionId, saveSessionId, deleteSessionId } from "../db/sessions.js";
 import type { MessageContext } from "../tools/message.js";
 import type { CronContext } from "../tools/cronjob.js";
 import type { MemoryContext } from "../tools/memory.js";
 import { createQueryOptions } from "../core/options.js";
 import { buildUserPrompt } from "../utils/prompt.js";
-import { downloadAndValidateMedia, buildMediaContentBlock } from "../utils/media.js";
-import type { MediaContentBlock } from "../utils/media.js";
 import type { CronRegistry } from "../cron/registry.js";
-import { execSync, exec } from "child_process";
-import { writeFileSync } from "fs";
 import { log } from "../utils/logger.js";
 import { updateStats, clearStats, getStats } from "../core/stats.js";
 import { incrementTurnCount, clearTurnCount, shouldInjectFlushReminder } from "../core/turns.js";
 import { trackMessage, clearTrackedMessages, summarizeAndSave } from "../memory/summarizer.js";
-import { PROJECT_DIR, JID_SUFFIX_REGEX, CMD_NEW, CMD_STATUS, CMD_RESTART, RESTART_FLAG_FILE, FALLBACK_MODEL, COST_USD_PRECISION } from "../core/constants.js";
+import { CMD_NEW, CMD_STATUS, CMD_RESTART, FALLBACK_MODEL, COST_USD_PRECISION } from "../core/constants.js";
 
-export async function processMessage(client: Client, message: Message, registry: CronRegistry): Promise<void> {
-  const chatId = message.from;
-  const phoneNumber = chatId.replace(JID_SUFFIX_REGEX, '');
-  const body = message.body.trim();
+export async function processMessage(gateway: MessageGateway, msg: IncomingMessage, registry: CronRegistry): Promise<void> {
+  const { userId, body, quotedBody, mediaBlocks } = msg;
 
-  log.chat(`${phoneNumber} → ${body}`);
+  log.chat(`${userId} → ${body}`);
 
   if (body === CMD_NEW) {
     // Generate conversation summary before clearing session
     try {
-      await summarizeAndSave(phoneNumber);
+      await summarizeAndSave(userId);
     } catch (err) {
-      log.error(`${phoneNumber} | /new — summary generation failed`, err);
+      log.error(`${userId} | /new — summary generation failed`, err);
     }
-    clearTrackedMessages(phoneNumber);
-    deleteSessionId(phoneNumber);
-    clearStats(phoneNumber);
-    clearTurnCount(phoneNumber);
-    log.debug(`${phoneNumber} | /new — session cleared`);
-    await client.sendMessage(chatId, '✅ New conversation session started. Previous context has been cleared.');
+    clearTrackedMessages(userId);
+    deleteSessionId(userId);
+    clearStats(userId);
+    clearTurnCount(userId);
+    log.debug(`${userId} | /new — session cleared`);
+    await gateway.sendMessage(userId, '✅ New conversation session started. Previous context has been cleared.');
     return;
   }
 
   if (body === CMD_STATUS) {
-    const sessionId = getSessionId(phoneNumber);
-    const stats = getStats(phoneNumber);
-    log.debug(`${phoneNumber} | /status`);
+    const sessionId = getSessionId(userId);
+    const stats = getStats(userId);
+    log.debug(`${userId} | /status`);
 
     let statusText: string;
     if (!sessionId) {
@@ -74,57 +68,28 @@ export async function processMessage(client: Client, message: Message, registry:
       ].join('\n');
     }
 
-    await client.sendMessage(chatId, statusText);
+    await gateway.sendMessage(userId, statusText);
     return;
   }
 
   if (body === CMD_RESTART) {
-    log.debug(`${phoneNumber} | /restart`);
-    await client.sendMessage(chatId, '🔄 Restarting... pulling latest code and restarting bot.');
-
-    try {
-      const gitOutput = execSync('git pull', { encoding: 'utf-8', timeout: 30_000, cwd: PROJECT_DIR });
-      log.debug(`[RESTART] git pull: ${gitOutput.trim()}`);
-    } catch (err) {
-      log.error(`[RESTART] git pull failed: ${err}`);
-      await client.sendMessage(chatId, '⚠️ git pull failed. Restart aborted.');
-      return;
-    }
-
-    writeFileSync(RESTART_FLAG_FILE, JSON.stringify({ chatId }));
-    exec('pm2 restart wa-bot');
+    await gateway.sendMessage(userId, '⚠️ /restart is only available via WhatsApp gateway.');
     return;
   }
 
-  let quotedBody: string | undefined;
-  if (message.hasQuotedMsg) {
-    const quoted = await message.getQuotedMessage();
-    quotedBody = quoted.body;
-  }
-
-  // Download and validate media if present
-  let mediaBlocks: MediaContentBlock[] | undefined;
-  if (message.hasMedia) {
-    const result = await downloadAndValidateMedia(message);
-    if ('error' in result) {
-      await client.sendMessage(chatId, `⚠️ ${result.error}`);
-      return;
-    }
-    mediaBlocks = [buildMediaContentBlock(result)];
-    log.debug(`${phoneNumber} | media: ${result.mimetype}${result.filename ? ` (${result.filename})` : ''}`);
-  }
-
   // Track user message for conversation summary generation
-  trackMessage(phoneNumber, 'user', body);
+  trackMessage(userId, 'user', body);
 
-  const sessionId = getSessionId(phoneNumber);
-  const ctx: MessageContext = { client, chatId };
-  const cronCtx: CronContext = { registry, client, phoneNumber };
-  const memCtx: MemoryContext = { phoneNumber };
+  const sessionId = getSessionId(userId);
+  const ctx: MessageContext = {
+    sendMessage: (content: string) => gateway.sendMessage(userId, content),
+  };
+  const cronCtx: CronContext = { registry, phoneNumber: userId, gateway };
+  const memCtx: MemoryContext = { phoneNumber: userId };
   const contentBlocks = buildUserPrompt(body, quotedBody, mediaBlocks);
 
-  incrementTurnCount(phoneNumber);
-  const flushReminder = shouldInjectFlushReminder(phoneNumber);
+  incrementTurnCount(userId);
+  const flushReminder = shouldInjectFlushReminder(userId);
   const options = await createQueryOptions(sessionId, ctx, cronCtx, memCtx, flushReminder);
 
   // Build async iterable prompt with content blocks
@@ -147,12 +112,12 @@ export async function processMessage(client: Client, message: Message, registry:
     }
     if (msg.type === 'result') {
       finalSessionId = msg.session_id;
-      log.debug(`${phoneNumber} | $${msg.total_cost_usd.toFixed(COST_USD_PRECISION)} | session: ${msg.session_id}`);
-      updateStats(phoneNumber, msg.session_id, finalModel, msg.total_cost_usd, msg.usage.input_tokens, msg.usage.output_tokens);
+      log.debug(`${userId} | $${msg.total_cost_usd.toFixed(COST_USD_PRECISION)} | session: ${msg.session_id}`);
+      updateStats(userId, msg.session_id, finalModel, msg.total_cost_usd, msg.usage.input_tokens, msg.usage.output_tokens);
     }
   }
 
   if (finalSessionId) {
-    saveSessionId(phoneNumber, finalSessionId);
+    saveSessionId(userId, finalSessionId);
   }
 }
