@@ -2,6 +2,7 @@ import dotenv from 'dotenv';
 import { existsSync, readFileSync, rmSync } from 'fs';
 import { join } from 'path';
 import { createWhatsAppGateway } from './gateway/whatsapp.js';
+import { createWebChatGateway } from './gateway/webchat.js';
 import { processMessage } from './handlers/message.js';
 import { createCronRegistry } from './cron/registry.js';
 import { reconcileOnStartup } from './cron/scheduler.js';
@@ -29,10 +30,13 @@ const registry = createCronRegistry();
 const gatewayType = process.env.GATEWAY ?? 'whatsapp';
 let gateway: MessageGateway;
 
-if (gatewayType === 'whatsapp') {
-  gateway = createWhatsAppGateway({ whitelistNumbers: WHITELIST_NUMBERS });
+if (gatewayType === 'webchat') {
+  const userId = process.env.WEBCHAT_USER_ID;
+  if (!userId) throw new Error('WEBCHAT_USER_ID env var is required for webchat gateway');
+  const port = parseInt(process.env.WEBCHAT_PORT ?? '3000', 10);
+  gateway = createWebChatGateway({ userId, port });
 } else {
-  throw new Error(`Unknown gateway: ${gatewayType} (webchat coming soon)`);
+  gateway = createWhatsAppGateway({ whitelistNumbers: WHITELIST_NUMBERS });
 }
 
 const shutdown = async (signal: string) => {
