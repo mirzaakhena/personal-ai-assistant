@@ -31,7 +31,7 @@ The interface is intentionally minimal — only transport concerns:
 // src/gateway/types.ts
 
 interface IncomingMessage {
-  userId: string;              // phone number as identifier
+  userId: string;              // unique user identifier (phone number used as ID)
   body: string;                // text content
   mediaBlocks?: MediaContentBlock[];  // optional media
   quotedBody?: string;         // optional reply context
@@ -64,13 +64,16 @@ File: `src/gateway/whatsapp.ts` — implements `MessageGateway`
 - Typing simulation stays inside WhatsApp's `sendMessage` implementation
 
 **What does NOT change:**
-- `processMessage()` in `handlers/message.ts` — same logic, different caller
-- All core systems (session, memory, cronjob, stats, turns) — untouched
+- All core systems (session, memory, cronjob DB, stats, turns) — untouched
 
-**MessageContext decoupling:**
+**Decoupling WhatsApp types from shared code:**
+
+Several modules currently import `Client` from `whatsapp-web.js`. All of these must be decoupled:
+
+1. **`MessageContext`** (`src/tools/message.ts`) — used by `send_message` MCP tool:
 
 ```typescript
-// Before (tightly coupled to WhatsApp)
+// Before (tightly coupled)
 type MessageContext = { client: Client; chatId: string };
 
 // After (gateway-agnostic)
@@ -79,7 +82,53 @@ type MessageContext = {
 };
 ```
 
-The `send_message` MCP tool only needs to know how to send a message. Each gateway provides its own implementation — WhatsApp wraps it with typing simulation, WebChat sends directly via WebSocket.
+Each gateway provides its own `sendMessage` implementation — WhatsApp wraps it with typing simulation, WebChat sends directly via WebSocket. The `send_message` tool's `pauseBeforeTyping` parameter becomes a no-op for webchat (sleep is skipped, message sent immediately).
+
+2. **`CronContext`** (`src/tools/cronjob.ts`) — used for creating cronjobs:
+
+```typescript
+// Before
+type CronContext = { registry: CronRegistry; client: Client; phoneNumber: string };
+
+// After — client removed, not needed for creating cronjobs
+type CronContext = { registry: CronRegistry; phoneNumber: string; };
+```
+
+3. **`processCronjob()`** (`src/cron/executor.ts`) — fires scheduled messages:
+
+```typescript
+// Before
+processCronjob(client: Client, registry: CronRegistry, jobId, executionId)
+
+// After — takes gateway.sendMessage instead of Client
+processCronjob(gateway: MessageGateway, registry: CronRegistry, jobId, executionId)
+```
+
+The executor builds a `MessageContext` from `gateway.sendMessage()` bound to the user's chatId, then passes it to `createQueryOptions` as before.
+
+4. **`processMessage()` signature** (`src/handlers/message.ts`):
+
+```typescript
+// Before
+processMessage(client: Client, message: Message, registry: CronRegistry)
+
+// After — takes gateway + normalized message
+processMessage(gateway: MessageGateway, msg: IncomingMessage, registry: CronRegistry)
+```
+
+The function currently extracts `chatId`, `phoneNumber`, `body`, `quotedBody`, and `mediaBlocks` from the WhatsApp `Message` object. With the new signature, these are already normalized in `IncomingMessage`. Direct `client.sendMessage()` calls inside command handlers (`/new`, `/status`, `/restart`) are replaced with `gateway.sendMessage(msg.userId, text)`.
+
+5. **`/restart` command handling**: The `/restart` command is WhatsApp-specific (PM2 restart + restart flag). Under webchat, this command is ignored with a "not supported" response. The command handler checks a gateway type or capability flag.
+
+6. **System prompt** (`src/core/options.ts`): The phrase "via WhatsApp" is made generic (e.g., "from user") so Claude's behavior is channel-agnostic.
+
+7. **`reconcileOnStartup()`** and `scheduleOnceJob()`/`scheduleRecurringJob()`: These currently pass `Client` to `processCronjob`. Updated to pass `gateway: MessageGateway` instead.
+
+8. **`enqueue()` in scheduler**: The cron scheduler (`src/cron/scheduler.ts`) imports `enqueue` from `src/whatsapp/queue.ts`. This queue module is not WhatsApp-specific — it's a generic per-phone sequential processor. It should be moved to a shared location (e.g., `src/utils/queue.ts`) so both gateways and the scheduler can use it.
+
+9. **JID construction in executor**: `processCronjob()` currently constructs `chatId` by appending `WA_JID_PERSONAL` suffix. With the new signature taking `gateway: MessageGateway`, it should use `gateway.sendMessage(job.phone_number, content)` directly — no JID construction needed.
+
+10. **`send_message` tool rewrite**: The `createMessageTools` function currently uses WhatsApp-specific APIs (`getChatById`, `sendStateTyping`, `clearState`). With the new `MessageContext = { sendMessage }`, the tool simply calls `ctx.sendMessage(msg.content)` for each message. The `pauseBeforeTyping` schema field is kept for backward compatibility but the sleep behavior is the gateway's concern — WhatsApp gateway's `sendMessage` includes typing simulation, WebChat's does not.
 
 ### Web Chat Gateway
 
@@ -149,6 +198,8 @@ web/                      # React app (separate project with own tooling)
 ```
 
 `web/` is at root level (not inside `src/`) because it's a separate project with its own build tooling (Vite, React). Backend build (`tsc`) and frontend build (`vite build`) are independent.
+
+**Frontend build:** `webchat.ts` serves pre-built static files from `web/dist/`. During development, run `vite dev` separately with WebSocket proxy to the backend.
 
 ### Data Sharing
 
