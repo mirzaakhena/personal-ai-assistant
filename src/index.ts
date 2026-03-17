@@ -4,7 +4,7 @@ import { readFileSync, rmSync, existsSync } from 'fs';
 import { join } from 'path';
 import type { Message } from 'whatsapp-web.js';
 import { createWhatsAppClient } from './whatsapp/client.js';
-import { enqueue } from './whatsapp/queue.js';
+import { enqueue } from './utils/queue.js';
 import { processMessage } from './handlers/message.js';
 import { createCronRegistry } from './cron/registry.js';
 import { reconcileOnStartup } from './cron/scheduler.js';

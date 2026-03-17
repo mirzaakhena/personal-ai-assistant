@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { enqueue } from '../../whatsapp/queue.js';
+import { enqueue } from '../../utils/queue.js';
 
 beforeEach(() => {
   vi.restoreAllMocks();

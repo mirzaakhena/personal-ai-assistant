@@ -12,7 +12,7 @@ import {
 import { registerCronTask, type CronRegistry } from './registry.js';
 import { processCronjob } from './executor.js';
 import { computeMissedExecutionTimes } from '../utils/cron-utils.js';
-import { enqueue } from '../whatsapp/queue.js';
+import { enqueue } from '../utils/queue.js';
 import { log } from '../utils/logger.js';
 import { TIMEZONE, CronjobStatuses } from '../core/constants.js';
 

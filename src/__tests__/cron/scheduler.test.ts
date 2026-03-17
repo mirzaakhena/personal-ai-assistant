@@ -25,7 +25,7 @@ vi.mock('../../utils/cron-utils.js', () => ({
   computeMissedExecutionTimes: vi.fn(() => []),
 }));
 
-vi.mock('../../whatsapp/queue.js', () => ({ enqueue: vi.fn() }));
+vi.mock('../../utils/queue.js', () => ({ enqueue: vi.fn() }));
 
 // ---------------------------------------------------------------------------
 // Imports — after mocks are registered
