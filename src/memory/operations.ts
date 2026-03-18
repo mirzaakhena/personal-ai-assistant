@@ -1,5 +1,4 @@
-import { StringRecordId } from 'surrealdb';
-import { getMemoryDb } from '../db/memory.js';
+import { getMemoryDb, rid, extractItems } from '../db/memory.js';
 import {
   MEMORY_FUNDAMENTAL_LIMIT,
   MEMORY_DECAY_HALF_LIFE_DAYS,
@@ -86,14 +85,6 @@ function toRecordIdStr(result: unknown): string {
     return String((result as { id: unknown }).id);
   }
   throw new Error('Could not extract record ID from result');
-}
-
-/**
- * Wrap a string record ID (e.g. "person:abc") into a StringRecordId
- * so SurrealDB treats it as a record reference, not a plain string.
- */
-function rid(id: string): StringRecordId {
-  return new StringRecordId(id);
 }
 
 // --- Person operations ---
@@ -353,28 +344,19 @@ export async function getFundamentalMemories(
       ),
     ]);
 
-  const allPrefs = (
-    (prefResult[0]?.[0] as { items?: Record<string, unknown>[] })?.items ?? []
-  )
+  const allPrefs = extractItems(prefResult)
     .filter((p) => p.importance === 'fundamental')
     .slice(0, MEMORY_FUNDAMENTAL_LIMIT);
 
-  const allFacts = (
-    (factResult[0]?.[0] as { items?: Record<string, unknown>[] })?.items ?? []
-  )
+  const allFacts = extractItems(factResult)
     .filter((f) => f.importance === 'fundamental' && !f.superseded_by)
     .slice(0, MEMORY_FUNDAMENTAL_LIMIT);
 
-  const allRoutines = (
-    (routineResult[0]?.[0] as { items?: Record<string, unknown>[] })?.items ??
-    []
-  )
+  const allRoutines = extractItems(routineResult)
     .filter((r) => r.importance === 'fundamental')
     .slice(0, MEMORY_FUNDAMENTAL_LIMIT);
 
-  const personas =
-    (personaResult[0]?.[0] as { items?: Record<string, unknown>[] })?.items ??
-    [];
+  const personas = extractItems(personaResult);
 
   // Bump access counts
   const allIds = [
@@ -447,9 +429,7 @@ export async function recallMemories(
       `SELECT ->${edgeTable}->${table}.* AS items FROM $selfId`,
       { selfId: rid(selfId) },
     );
-    const items =
-      (queryResult[0]?.[0] as { items?: Record<string, unknown>[] })?.items ??
-      [];
+    const items = extractItems(queryResult);
 
     for (const item of items) {
       // Skip superseded facts
@@ -565,21 +545,11 @@ export async function getAllMemories(phoneNumber: string): Promise<{
 
   return {
     profile: selfPerson,
-    preferences:
-      (prefResult[0]?.[0] as { items?: Record<string, unknown>[] })?.items ??
-      [],
-    facts:
-      (factResult[0]?.[0] as { items?: Record<string, unknown>[] })?.items ??
-      [],
-    routines:
-      (routineResult[0]?.[0] as { items?: Record<string, unknown>[] })?.items ??
-      [],
-    personas:
-      (personaResult[0]?.[0] as { items?: Record<string, unknown>[] })?.items ??
-      [],
-    contacts:
-      (contactResult[0]?.[0] as { items?: Record<string, unknown>[] })?.items ??
-      [],
+    preferences: extractItems(prefResult),
+    facts: extractItems(factResult),
+    routines: extractItems(routineResult),
+    personas: extractItems(personaResult),
+    contacts: extractItems(contactResult),
   };
 }
 
@@ -655,9 +625,7 @@ export async function recallConversations(
     `SELECT ->had_conversation->conversation_summary.* AS items FROM $selfId`,
     { selfId: rid(selfId) },
   );
-  const items =
-    (queryResult[0]?.[0] as { items?: Record<string, unknown>[] })?.items ??
-    [];
+  const items = extractItems(queryResult);
 
   // Score each summary
   const results: Array<Record<string, unknown> & { _score: number }> = [];
@@ -747,9 +715,7 @@ export async function queryRelationships(
         `SELECT ->knows->person.* AS items FROM $selfId`,
         { selfId: rid(selfId) },
       );
-      const contacts =
-        (contactResult[0]?.[0] as { items?: Record<string, unknown>[] })
-          ?.items ?? [];
+      const contacts = extractItems(contactResult);
 
       // Also get the edge data for relationship info
       const edgeResult = await db.query<[Array<Record<string, unknown>>]>(
@@ -803,9 +769,7 @@ export async function queryRelationships(
         `SELECT ->knows->person.* AS items FROM $selfId`,
         { selfId: rid(selfId) },
       );
-      const contacts =
-        (contactResult[0]?.[0] as { items?: Record<string, unknown>[] })
-          ?.items ?? [];
+      const contacts = extractItems(contactResult);
 
       const now = new Date();
       const results: Record<string, unknown>[] = [];
@@ -857,9 +821,7 @@ export async function queryRelationships(
         `SELECT ->knows->person.* AS items FROM $selfId`,
         { selfId: rid(selfId) },
       );
-      const contacts =
-        (contactResult[0]?.[0] as { items?: Record<string, unknown>[] })
-          ?.items ?? [];
+      const contacts = extractItems(contactResult);
 
       const contact = contacts.find(
         (c) =>
@@ -877,9 +839,7 @@ export async function queryRelationships(
           `SELECT ->${edgeTable}->${table}.* AS items FROM $selfId`,
           { selfId: rid(selfId) },
         );
-        const items =
-          (queryResult[0]?.[0] as { items?: Record<string, unknown>[] })
-            ?.items ?? [];
+        const items = extractItems(queryResult);
 
         for (const item of items) {
           if (item.superseded_by) continue;
@@ -967,9 +927,7 @@ export async function getImportanceSuggestions(
       `SELECT ->${edgeTable}->${table}.* AS items FROM $selfId`,
       { selfId: rid(selfId) },
     );
-    const items =
-      (queryResult[0]?.[0] as { items?: Record<string, unknown>[] })?.items ??
-      [];
+    const items = extractItems(queryResult);
 
     for (const item of items) {
       // Skip superseded facts

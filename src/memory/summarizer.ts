@@ -1,5 +1,4 @@
-import { StringRecordId } from 'surrealdb';
-import { getMemoryDb } from '../db/memory.js';
+import { getMemoryDb, rid } from '../db/memory.js';
 import { getOrCreateSelfPerson } from './operations.js';
 import { generateEmbedding } from './embeddings.js';
 import { log } from '../utils/logger.js';
@@ -122,10 +121,6 @@ export async function generateConversationSummary(
 }
 
 // --- Save conversation summary to SurrealDB ---
-
-function rid(id: string): StringRecordId {
-  return new StringRecordId(id);
-}
 
 /**
  * Save a conversation summary to the graph database.
