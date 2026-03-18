@@ -89,7 +89,7 @@ export async function createQueryOptions(
     permissionMode: 'bypassPermissions' as const,
     allowDangerouslySkipPermissions: true,
     systemPrompt,
-    cwd: '/home/botuser',
+    cwd: process.env.CLAUDE_CWD ?? '/home/botuser',
     settingSources: ['user', 'project'],
     allowedTools: ['Skill'],
     mcpServers: {
