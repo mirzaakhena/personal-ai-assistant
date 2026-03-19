@@ -1,4 +1,4 @@
-import { Surreal } from 'surrealdb';
+import { Surreal, StringRecordId } from 'surrealdb';
 import { createNodeEngines } from '@surrealdb/node';
 import { createRemoteEngines } from 'surrealdb';
 import { mkdirSync } from 'fs';
@@ -151,4 +151,24 @@ export async function closeMemoryDb(): Promise<void> {
     await db.close();
     db = null;
   }
+}
+
+/**
+ * Wrap a string record ID (e.g. "person:abc") into a StringRecordId
+ * so SurrealDB treats it as a record reference, not a plain string.
+ */
+export function rid(id: string): StringRecordId {
+  return new StringRecordId(id);
+}
+
+/**
+ * Extract items array from SurrealDB graph traversal result.
+ * Replaces the repeated cast: (result[0]?.[0] as { items?: T[] })?.items ?? []
+ */
+export function extractItems<T = Record<string, unknown>>(
+  result: unknown[][],
+): T[] {
+  return (
+    (result[0]?.[0] as { items?: T[] })?.items ?? []
+  );
 }

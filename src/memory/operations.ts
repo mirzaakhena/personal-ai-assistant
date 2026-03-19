@@ -1,15 +1,14 @@
-import { StringRecordId } from 'surrealdb';
-import { getMemoryDb } from '../db/memory.js';
+import { getMemoryDb, rid, extractItems } from '../db/memory.js';
 import {
   MEMORY_FUNDAMENTAL_LIMIT,
-  MEMORY_DECAY_HALF_LIFE_DAYS,
-  MEMORY_VECTOR_WEIGHT,
-  MEMORY_KEYWORD_WEIGHT,
-  MEMORY_RECENCY_WEIGHT,
   MEMORY_PROMOTION_ACCESS_THRESHOLD,
   MEMORY_DEMOTION_INACTIVE_DAYS,
 } from '../core/constants.js';
-import { generateEmbedding, cosineSimilarity } from './embeddings.js';
+import { generateEmbedding } from './embeddings.js';
+import { scoredSearch } from './search.js';
+
+// Re-export for backward compatibility (tests import from operations.ts)
+export { calculateRecencyScore } from './search.js';
 
 // Maps memory table to its edge table
 const EDGE_TABLE_MAP: Record<string, string> = {
@@ -37,47 +36,6 @@ const SEARCHABLE_FIELDS: Record<string, string[]> = {
 
 type MemoryTable = 'preference' | 'fact' | 'routine' | 'persona';
 
-// Recency scoring constants
-const DECAY_LAMBDA = Math.log(2) / MEMORY_DECAY_HALF_LIFE_DAYS;
-// Keyword-only mode weights (when embeddings disabled)
-const KEYWORD_ONLY_KEYWORD_WEIGHT = 0.7;
-const KEYWORD_ONLY_RECENCY_WEIGHT = 0.3;
-
-/**
- * Calculate recency score using exponential decay.
- * Returns a value between 0 and 1, where 1 means "just created".
- * Fundamental memories always return 1.0 (skip decay).
- */
-export function calculateRecencyScore(
-  createdAt: unknown,
-  importance?: string,
-): number {
-  if (importance === 'fundamental') return 1.0;
-  if (!createdAt) return 0.5; // default for missing timestamps
-  // SurrealDB may return a Datetime object, a JS Date, or a string
-  let ms: number;
-  if (createdAt instanceof Date) {
-    ms = createdAt.getTime();
-  } else if (
-    typeof createdAt === 'object' &&
-    createdAt !== null &&
-    'getTime' in createdAt &&
-    typeof (createdAt as { getTime: unknown }).getTime === 'function'
-  ) {
-    ms = (createdAt as { getTime(): number }).getTime();
-  } else {
-    // Convert string or SurrealDB Datetime (which has .toISOString()) to Date
-    const str =
-      typeof createdAt === 'string'
-        ? createdAt
-        : String(createdAt);
-    ms = new Date(str).getTime();
-  }
-  if (isNaN(ms)) return 0.5; // fallback for unparseable dates
-  const daysSinceCreation = (Date.now() - ms) / (1000 * 60 * 60 * 24);
-  return Math.exp(-DECAY_LAMBDA * Math.max(0, daysSinceCreation));
-}
-
 /**
  * Convert a record result to a string record ID.
  */
@@ -86,14 +44,6 @@ function toRecordIdStr(result: unknown): string {
     return String((result as { id: unknown }).id);
   }
   throw new Error('Could not extract record ID from result');
-}
-
-/**
- * Wrap a string record ID (e.g. "person:abc") into a StringRecordId
- * so SurrealDB treats it as a record reference, not a plain string.
- */
-function rid(id: string): StringRecordId {
-  return new StringRecordId(id);
 }
 
 // --- Person operations ---
@@ -353,28 +303,19 @@ export async function getFundamentalMemories(
       ),
     ]);
 
-  const allPrefs = (
-    (prefResult[0]?.[0] as { items?: Record<string, unknown>[] })?.items ?? []
-  )
+  const allPrefs = extractItems(prefResult)
     .filter((p) => p.importance === 'fundamental')
     .slice(0, MEMORY_FUNDAMENTAL_LIMIT);
 
-  const allFacts = (
-    (factResult[0]?.[0] as { items?: Record<string, unknown>[] })?.items ?? []
-  )
+  const allFacts = extractItems(factResult)
     .filter((f) => f.importance === 'fundamental' && !f.superseded_by)
     .slice(0, MEMORY_FUNDAMENTAL_LIMIT);
 
-  const allRoutines = (
-    (routineResult[0]?.[0] as { items?: Record<string, unknown>[] })?.items ??
-    []
-  )
+  const allRoutines = extractItems(routineResult)
     .filter((r) => r.importance === 'fundamental')
     .slice(0, MEMORY_FUNDAMENTAL_LIMIT);
 
-  const personas =
-    (personaResult[0]?.[0] as { items?: Record<string, unknown>[] })?.items ??
-    [];
+  const personas = extractItems(personaResult);
 
   // Bump access counts
   const allIds = [
@@ -409,107 +350,43 @@ export async function recallMemories(
 
   const selfId = String(selfResult[0][0]!.id);
 
-  // Tokenize query
-  const tokens = query
-    .toLowerCase()
-    .split(/\s+/)
-    .filter((t) => t.length > 0);
-  if (tokens.length === 0) return [];
+  // Collect all non-superseded items across memory tables
+  const allItems: Record<string, unknown>[] = [];
 
-  const totalTokens = tokens.length;
-
-  // Check if embeddings are enabled and generate query embedding
-  const embeddingsEnabled =
-    process.env.MEMORY_EMBEDDING_ENABLED === 'true';
-  let queryEmbedding: number[] | null = null;
-  if (embeddingsEnabled) {
-    queryEmbedding = await generateEmbedding(query);
-  }
-  const useHybrid = queryEmbedding !== null;
-
-  // Determine weights based on whether hybrid mode is active
-  const keywordWeight = useHybrid
-    ? MEMORY_KEYWORD_WEIGHT
-    : KEYWORD_ONLY_KEYWORD_WEIGHT;
-  const recencyWeight = useHybrid
-    ? MEMORY_RECENCY_WEIGHT
-    : KEYWORD_ONLY_RECENCY_WEIGHT;
-  const vectorWeight = useHybrid ? MEMORY_VECTOR_WEIGHT : 0;
-
-  // Search across all memory tables
-  const results: Array<Record<string, unknown> & { _score: number }> = [];
-
-  for (const [table, fields] of Object.entries(SEARCHABLE_FIELDS)) {
+  for (const [table] of Object.entries(SEARCHABLE_FIELDS)) {
     const edgeTable = EDGE_TABLE_MAP[table]!;
-
-    // Get all memories for this user in this table
     const queryResult = await db.query<[Array<Record<string, unknown>>]>(
       `SELECT ->${edgeTable}->${table}.* AS items FROM $selfId`,
       { selfId: rid(selfId) },
     );
-    const items =
-      (queryResult[0]?.[0] as { items?: Record<string, unknown>[] })?.items ??
-      [];
+    const items = extractItems(queryResult);
 
     for (const item of items) {
-      // Skip superseded facts
       if (item.superseded_by) continue;
-
-      // Concatenate all searchable fields
-      const searchText = fields
-        .map((f) => String(item[f] ?? ''))
-        .join(' ')
-        .toLowerCase();
-
-      // Count matched tokens
-      let matchedTokens = 0;
-      for (const token of tokens) {
-        if (searchText.includes(token)) {
-          matchedTokens++;
-        }
-      }
-
-      // Calculate vector similarity score if hybrid mode
-      let vectorScore = 0;
-      if (useHybrid && queryEmbedding) {
-        const itemEmbedding = item.embedding as number[] | undefined;
-        if (itemEmbedding && Array.isArray(itemEmbedding) && itemEmbedding.length > 0) {
-          // Cosine similarity is in [-1, 1], normalize to [0, 1]
-          vectorScore = (cosineSimilarity(queryEmbedding, itemEmbedding) + 1) / 2;
-        }
-      }
-
-      // In hybrid mode, include results that match via keyword OR vector similarity
-      const hasKeywordMatch = matchedTokens > 0;
-      const hasVectorMatch = vectorScore > 0.5; // Normalized threshold (cosine > 0 in original space)
-
-      if (hasKeywordMatch || (useHybrid && hasVectorMatch)) {
-        const keywordScore = matchedTokens / totalTokens;
-        const recencyScore = calculateRecencyScore(
-          item.created_at as Date | string | undefined,
-          item.importance as string | undefined,
-        );
-        const finalScore =
-          vectorWeight * vectorScore +
-          keywordWeight * keywordScore +
-          recencyWeight * recencyScore;
-        results.push({
-          ...item,
-          _score: finalScore,
-        });
-      }
+      allItems.push(item);
     }
   }
 
-  // Sort by score descending
-  results.sort((a, b) => b._score - a._score);
+  const results = await scoredSearch(
+    allItems,
+    query,
+    (item) => {
+      const table = String(item.id).split(':')[0];
+      const fields = SEARCHABLE_FIELDS[table!] ?? [];
+      return fields.map((f) => String(item[f] ?? '')).join(' ');
+    },
+    {
+      getCreatedAt: (item) => item.created_at as Date | string | undefined,
+      getImportance: (item) => item.importance as string | undefined,
+      getEmbedding: (item) => item.embedding as number[] | undefined,
+    },
+  );
 
   // Bump access counts
   const ids = results.map((r) => String(r.id));
   await bumpAccess(ids);
 
-  // Remove internal _score from results
-  return results.map(({ _score, ...rest }) => rest);
+  return results;
 }
 
 export async function getAllMemories(phoneNumber: string): Promise<{
@@ -565,21 +442,11 @@ export async function getAllMemories(phoneNumber: string): Promise<{
 
   return {
     profile: selfPerson,
-    preferences:
-      (prefResult[0]?.[0] as { items?: Record<string, unknown>[] })?.items ??
-      [],
-    facts:
-      (factResult[0]?.[0] as { items?: Record<string, unknown>[] })?.items ??
-      [],
-    routines:
-      (routineResult[0]?.[0] as { items?: Record<string, unknown>[] })?.items ??
-      [],
-    personas:
-      (personaResult[0]?.[0] as { items?: Record<string, unknown>[] })?.items ??
-      [],
-    contacts:
-      (contactResult[0]?.[0] as { items?: Record<string, unknown>[] })?.items ??
-      [],
+    preferences: extractItems(prefResult),
+    facts: extractItems(factResult),
+    routines: extractItems(routineResult),
+    personas: extractItems(personaResult),
+    contacts: extractItems(contactResult),
   };
 }
 
@@ -623,97 +490,33 @@ export async function recallConversations(
 
   const selfId = String(selfResult[0][0]!.id);
 
-  // Tokenize query
-  const tokens = query
-    .toLowerCase()
-    .split(/\s+/)
-    .filter((t) => t.length > 0);
-  if (tokens.length === 0) return [];
-
-  const totalTokens = tokens.length;
-
-  // Check if embeddings are enabled and generate query embedding
-  const embeddingsEnabled =
-    process.env.MEMORY_EMBEDDING_ENABLED === 'true';
-  let queryEmbedding: number[] | null = null;
-  if (embeddingsEnabled) {
-    queryEmbedding = await generateEmbedding(query);
-  }
-  const useHybrid = queryEmbedding !== null;
-
-  // Determine weights based on whether hybrid mode is active
-  const keywordWeight = useHybrid
-    ? MEMORY_KEYWORD_WEIGHT
-    : KEYWORD_ONLY_KEYWORD_WEIGHT;
-  const recencyWeight = useHybrid
-    ? MEMORY_RECENCY_WEIGHT
-    : KEYWORD_ONLY_RECENCY_WEIGHT;
-  const vectorWeight = useHybrid ? MEMORY_VECTOR_WEIGHT : 0;
-
-  // Get all conversation summaries for this user
   const queryResult = await db.query<[Array<Record<string, unknown>>]>(
     `SELECT ->had_conversation->conversation_summary.* AS items FROM $selfId`,
     { selfId: rid(selfId) },
   );
-  const items =
-    (queryResult[0]?.[0] as { items?: Record<string, unknown>[] })?.items ??
-    [];
+  const items = extractItems(queryResult);
 
-  // Score each summary
-  const results: Array<Record<string, unknown> & { _score: number }> = [];
-
-  for (const item of items) {
-    const summaryText = String(item.summary ?? '');
-    const topicsText = ((item.topics as string[]) ?? []).join(' ');
-    const decisionsText = ((item.key_decisions as string[]) ?? []).join(' ');
-    const searchText =
-      `${summaryText} ${topicsText} ${decisionsText}`.toLowerCase();
-
-    let matchedTokens = 0;
-    for (const token of tokens) {
-      if (searchText.includes(token)) matchedTokens++;
-    }
-
-    // Calculate vector similarity score if hybrid mode
-    let vectorScore = 0;
-    if (useHybrid && queryEmbedding) {
-      const itemEmbedding = item.embedding as number[] | undefined;
-      if (
-        itemEmbedding &&
-        Array.isArray(itemEmbedding) &&
-        itemEmbedding.length > 0
-      ) {
-        vectorScore =
-          (cosineSimilarity(queryEmbedding, itemEmbedding) + 1) / 2;
-      }
-    }
-
-    const hasKeywordMatch = matchedTokens > 0;
-    const hasVectorMatch = vectorScore > 0.5;
-
-    if (hasKeywordMatch || (useHybrid && hasVectorMatch)) {
-      const keywordScore = matchedTokens / totalTokens;
-      const recencyScore = calculateRecencyScore(
-        item.created_at as Date | string | undefined,
-      );
-      const finalScore =
-        vectorWeight * vectorScore +
-        keywordWeight * keywordScore +
-        recencyWeight * recencyScore;
-      results.push({ ...item, _score: finalScore });
-    }
-  }
-
-  // Sort by score descending, limit results
-  results.sort((a, b) => b._score - a._score);
-  const top = results.slice(0, limit);
+  const results = await scoredSearch(
+    items,
+    query,
+    (item) => {
+      const summaryText = String(item.summary ?? '');
+      const topicsText = ((item.topics as string[]) ?? []).join(' ');
+      const decisionsText = ((item.key_decisions as string[]) ?? []).join(' ');
+      return `${summaryText} ${topicsText} ${decisionsText}`;
+    },
+    {
+      getCreatedAt: (item) => item.created_at as Date | string | undefined,
+      getEmbedding: (item) => item.embedding as number[] | undefined,
+      limit,
+    },
+  );
 
   // Bump access counts
-  const ids = top.map((r) => String(r.id));
+  const ids = results.map((r) => String(r.id));
   await bumpAccess(ids);
 
-  // Remove internal _score from results
-  return top.map(({ _score, ...rest }) => rest);
+  return results;
 }
 
 // --- Graph-powered relational queries ---
@@ -747,9 +550,7 @@ export async function queryRelationships(
         `SELECT ->knows->person.* AS items FROM $selfId`,
         { selfId: rid(selfId) },
       );
-      const contacts =
-        (contactResult[0]?.[0] as { items?: Record<string, unknown>[] })
-          ?.items ?? [];
+      const contacts = extractItems(contactResult);
 
       // Also get the edge data for relationship info
       const edgeResult = await db.query<[Array<Record<string, unknown>>]>(
@@ -803,9 +604,7 @@ export async function queryRelationships(
         `SELECT ->knows->person.* AS items FROM $selfId`,
         { selfId: rid(selfId) },
       );
-      const contacts =
-        (contactResult[0]?.[0] as { items?: Record<string, unknown>[] })
-          ?.items ?? [];
+      const contacts = extractItems(contactResult);
 
       const now = new Date();
       const results: Record<string, unknown>[] = [];
@@ -857,9 +656,7 @@ export async function queryRelationships(
         `SELECT ->knows->person.* AS items FROM $selfId`,
         { selfId: rid(selfId) },
       );
-      const contacts =
-        (contactResult[0]?.[0] as { items?: Record<string, unknown>[] })
-          ?.items ?? [];
+      const contacts = extractItems(contactResult);
 
       const contact = contacts.find(
         (c) =>
@@ -877,9 +674,7 @@ export async function queryRelationships(
           `SELECT ->${edgeTable}->${table}.* AS items FROM $selfId`,
           { selfId: rid(selfId) },
         );
-        const items =
-          (queryResult[0]?.[0] as { items?: Record<string, unknown>[] })
-            ?.items ?? [];
+        const items = extractItems(queryResult);
 
         for (const item of items) {
           if (item.superseded_by) continue;
@@ -967,9 +762,7 @@ export async function getImportanceSuggestions(
       `SELECT ->${edgeTable}->${table}.* AS items FROM $selfId`,
       { selfId: rid(selfId) },
     );
-    const items =
-      (queryResult[0]?.[0] as { items?: Record<string, unknown>[] })?.items ??
-      [];
+    const items = extractItems(queryResult);
 
     for (const item of items) {
       // Skip superseded facts
