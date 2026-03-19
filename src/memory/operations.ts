@@ -7,9 +7,6 @@ import {
 import { generateEmbedding } from './embeddings.js';
 import { scoredSearch } from './search.js';
 
-// Re-export for backward compatibility (tests import from operations.ts)
-export { calculateRecencyScore } from './search.js';
-
 // Maps memory table to its edge table
 const EDGE_TABLE_MAP: Record<string, string> = {
   preference: 'has_preference',
@@ -27,7 +24,7 @@ const ALL_EDGE_TABLES = [
 ];
 
 // Searchable fields per table
-const SEARCHABLE_FIELDS: Record<string, string[]> = {
+export const SEARCHABLE_FIELDS: Record<string, string[]> = {
   preference: ['value', 'category', 'context'],
   fact: ['content', 'category'],
   routine: ['activity', 'schedule', 'details'],
@@ -136,7 +133,7 @@ export async function upsertContact(
  * Build a text string from memory data for embedding generation.
  * Concatenates all string values from the data record.
  */
-function buildEmbeddingText(
+export function buildEmbeddingText(
   table: MemoryTable,
   data: Record<string, unknown>,
 ): string {
@@ -350,31 +347,36 @@ export async function recallMemories(
 
   const selfId = String(selfResult[0][0]!.id);
 
-  // Collect all non-superseded items across memory tables
-  const allItems: Record<string, unknown>[] = [];
+  // Collect all non-superseded items across memory tables (parallel queries)
+  const allItems: Array<Record<string, unknown> & { _searchText: string }> = [];
 
-  for (const [table] of Object.entries(SEARCHABLE_FIELDS)) {
-    const edgeTable = EDGE_TABLE_MAP[table]!;
-    const queryResult = await db.query<[Array<Record<string, unknown>>]>(
-      `SELECT ->${edgeTable}->${table}.* AS items FROM $selfId`,
-      { selfId: rid(selfId) },
-    );
-    const items = extractItems(queryResult);
+  const tableEntries = Object.entries(SEARCHABLE_FIELDS);
+  const queryResults = await Promise.all(
+    tableEntries.map(([table]) => {
+      const edgeTable = EDGE_TABLE_MAP[table]!;
+      return db.query<[Array<Record<string, unknown>>]>(
+        `SELECT ->${edgeTable}->${table}.* AS items FROM $selfId`,
+        { selfId: rid(selfId) },
+      );
+    }),
+  );
 
+  for (let i = 0; i < tableEntries.length; i++) {
+    const [, fields] = tableEntries[i]!;
+    const items = extractItems(queryResults[i]!);
     for (const item of items) {
       if (item.superseded_by) continue;
-      allItems.push(item);
+      const _searchText = fields
+        .map((f) => String(item[f] ?? ''))
+        .join(' ');
+      allItems.push({ ...item, _searchText });
     }
   }
 
   const results = await scoredSearch(
     allItems,
     query,
-    (item) => {
-      const table = String(item.id).split(':')[0];
-      const fields = SEARCHABLE_FIELDS[table!] ?? [];
-      return fields.map((f) => String(item[f] ?? '')).join(' ');
-    },
+    (item) => item._searchText as string,
     {
       getCreatedAt: (item) => item.created_at as Date | string | undefined,
       getImportance: (item) => item.importance as string | undefined,
@@ -386,7 +388,8 @@ export async function recallMemories(
   const ids = results.map((r) => String(r.id));
   await bumpAccess(ids);
 
-  return results;
+  // Strip internal _searchText field
+  return results.map(({ _searchText, ...rest }) => rest);
 }
 
 export async function getAllMemories(phoneNumber: string): Promise<{

@@ -12,7 +12,6 @@ import {
   recallConversations,
   getAllMemories,
   getRelationships,
-  calculateRecencyScore,
   getImportanceSuggestions,
 } from '../../memory/operations.js';
 import { saveConversationSummary } from '../../memory/summarizer.js';
@@ -416,40 +415,7 @@ describe('getRelationships', () => {
   });
 });
 
-describe('calculateRecencyScore', () => {
-  it('returns 1.0 for fundamental importance regardless of age', () => {
-    const oldDate = new Date('2020-01-01');
-    expect(calculateRecencyScore(oldDate, 'fundamental')).toBe(1.0);
-  });
-
-  it('returns 1.0 for a memory just created', () => {
-    const now = new Date();
-    const score = calculateRecencyScore(now, 'extended');
-    expect(score).toBeCloseTo(1.0, 1);
-  });
-
-  it('returns ~0.5 for a memory created 30 days ago (half-life)', () => {
-    const thirtyDaysAgo = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
-    const score = calculateRecencyScore(thirtyDaysAgo, 'extended');
-    expect(score).toBeCloseTo(0.5, 1);
-  });
-
-  it('returns ~0.25 for a memory created 60 days ago (two half-lives)', () => {
-    const sixtyDaysAgo = new Date(Date.now() - 60 * 24 * 60 * 60 * 1000);
-    const score = calculateRecencyScore(sixtyDaysAgo, 'extended');
-    expect(score).toBeCloseTo(0.25, 1);
-  });
-
-  it('returns 0.5 for missing created_at', () => {
-    expect(calculateRecencyScore(undefined, 'extended')).toBe(0.5);
-  });
-
-  it('handles string dates', () => {
-    const now = new Date().toISOString();
-    const score = calculateRecencyScore(now, 'extended');
-    expect(score).toBeCloseTo(1.0, 1);
-  });
-});
+// calculateRecencyScore tests are in search.test.ts
 
 describe('recallMemories recency-weighted scoring', () => {
   it('ranks recent memories higher than old ones with same keyword match', async () => {

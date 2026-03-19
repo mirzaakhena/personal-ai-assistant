@@ -135,5 +135,5 @@ export async function scoredSearch<T extends SearchableItem>(
 
   const limited = options.limit ? results.slice(0, options.limit) : results;
 
-  return limited.map(({ _score, ...rest }) => rest) as T[];
+  return limited.map(({ _score, ...rest }) => rest as unknown as T);
 }

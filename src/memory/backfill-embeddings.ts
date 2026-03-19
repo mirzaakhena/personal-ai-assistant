@@ -9,29 +9,12 @@
  */
 
 import 'dotenv/config';
-import { initMemoryDb, getMemoryDb, closeMemoryDb } from '../db/memory.js';
+import { initMemoryDb, getMemoryDb, closeMemoryDb, rid } from '../db/memory.js';
 import { generateEmbedding } from './embeddings.js';
 import { MEMORY_DB_PATH } from '../core/constants.js';
+import { SEARCHABLE_FIELDS, buildEmbeddingText } from './operations.js';
 
 const MEMORY_TABLES = ['preference', 'fact', 'routine', 'persona'] as const;
-
-const SEARCHABLE_FIELDS: Record<string, string[]> = {
-  preference: ['value', 'category', 'context'],
-  fact: ['content', 'category'],
-  routine: ['activity', 'schedule', 'details'],
-  persona: ['name', 'personality_traits', 'communication_style'],
-};
-
-function buildText(
-  table: string,
-  record: Record<string, unknown>,
-): string {
-  const fields = SEARCHABLE_FIELDS[table] ?? [];
-  return fields
-    .map((f) => String(record[f] ?? ''))
-    .filter((s) => s.length > 0)
-    .join(' ');
-}
 
 async function main() {
   const connectionString = `surrealkv://${MEMORY_DB_PATH}`;
@@ -55,7 +38,7 @@ async function main() {
     for (const record of items) {
       totalProcessed++;
       const id = String(record.id);
-      const text = buildText(table, record);
+      const text = buildEmbeddingText(table, record);
 
       if (text.length === 0) {
         console.log(`  [skip] ${id} — no text content`);
@@ -67,7 +50,7 @@ async function main() {
         const embedding = await generateEmbedding(text);
         if (embedding) {
           await db.query(`UPDATE $id SET embedding = $embedding`, {
-            id: new (await import('surrealdb')).StringRecordId(id),
+            id: rid(id),
             embedding,
           });
           console.log(`  [ok] ${id}`);

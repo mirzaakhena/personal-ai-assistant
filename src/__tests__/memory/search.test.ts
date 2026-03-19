@@ -7,7 +7,7 @@ describe('scoredSearch', () => {
   });
 
   it('returns empty array when items is empty', async () => {
-    const results = await scoredSearch([], 'test', (item) => String(item.text));
+    const results = await scoredSearch([] as Record<string, unknown>[], 'test', (item) => String(item.text));
     expect(results).toHaveLength(0);
   });
 
