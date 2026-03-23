@@ -48,8 +48,9 @@ export const MEMORY_KEYWORD_WEIGHT = 0.3;
 export const MEMORY_RECENCY_WEIGHT = 0.2;
 
 // Model
-export const DEFAULT_MODEL = 'sonnet' as const;
-export const FALLBACK_MODEL = 'haiku';
+// claude-opus-4-6 has native 1M context window (no beta flag needed)
+export const DEFAULT_MODEL = 'opus' as const;
+export const FALLBACK_MODEL = 'sonnet';
 
 // Query
 export const MAX_TURNS = 10;
