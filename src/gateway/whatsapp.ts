@@ -35,6 +35,8 @@ export function createWhatsAppGateway(opts: WhatsAppGatewayOptions): MessageGate
   });
 
   return {
+    type: 'whatsapp' as const,
+
     async sendMessage(userId: string, content: string) {
       const chatId = `${userId}@c.us`;
       const chat = await client.getChatById(chatId);

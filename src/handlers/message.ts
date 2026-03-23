@@ -12,7 +12,9 @@ import { log } from "../utils/logger.js";
 import { updateStats, clearStats, getStats } from "../core/stats.js";
 import { incrementTurnCount, clearTurnCount, shouldInjectFlushReminder } from "../core/turns.js";
 import { trackMessage, clearTrackedMessages, summarizeAndSave } from "../memory/summarizer.js";
-import { CMD_NEW, CMD_STATUS, CMD_RESTART, FALLBACK_MODEL, COST_USD_PRECISION } from "../core/constants.js";
+import { writeFileSync } from "fs";
+import { exec } from "child_process";
+import { CMD_NEW, CMD_STATUS, CMD_RESTART, RESTART_FLAG_FILE, FALLBACK_MODEL, COST_USD_PRECISION } from "../core/constants.js";
 
 export async function processMessage(gateway: MessageGateway, msg: IncomingMessage, registry: CronRegistry): Promise<void> {
   const { userId, body, quotedBody, mediaBlocks } = msg;
@@ -73,7 +75,15 @@ export async function processMessage(gateway: MessageGateway, msg: IncomingMessa
   }
 
   if (body === CMD_RESTART) {
-    await gateway.sendMessage(userId, '⚠️ /restart is only available via WhatsApp gateway.');
+    if (gateway.type !== 'whatsapp') {
+      await gateway.sendMessage(userId, '⚠️ /restart is only available via WhatsApp gateway.');
+      return;
+    }
+    const chatId = `${userId}@c.us`;
+    writeFileSync(RESTART_FLAG_FILE, JSON.stringify({ chatId }));
+    await gateway.sendMessage(userId, '🔄 Restarting bot...');
+    log.debug(`${userId} | /restart — flag written, triggering pm2 restart`);
+    exec('pm2 restart wa-bot');
     return;
   }
 

@@ -7,7 +7,10 @@ export interface IncomingMessage {
   quotedBody?: string;
 }
 
+export type GatewayType = 'whatsapp' | 'webchat';
+
 export interface MessageGateway {
+  readonly type: GatewayType;
   sendMessage(userId: string, content: string): Promise<void>;
   start(onMessage: (msg: IncomingMessage) => Promise<void>): Promise<void>;
   stop(): Promise<void>;

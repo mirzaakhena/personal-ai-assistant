@@ -28,6 +28,8 @@ export function createWebChatGateway(opts: WebChatGatewayOptions): MessageGatewa
   let httpServer: ReturnType<typeof createServer> | null = null;
 
   return {
+    type: 'webchat' as const,
+
     async sendMessage(_userId: string, content: string) {
       if (activeSocket && activeSocket.readyState === WebSocket.OPEN) {
         activeSocket.send(JSON.stringify({ type: 'message', content }));
