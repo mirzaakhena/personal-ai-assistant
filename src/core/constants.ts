@@ -108,6 +108,10 @@ export const CMD_RESTART = '/restart';
 // Restart flag
 export const RESTART_FLAG_FILE = join(DATA_DIR, 'restart-flag.json');
 
+// Internal trigger server (for Claude Code Stop hook notifications)
+export const TRIGGER_PORT = 3100;
+export const TRIGGER_HOST = '127.0.0.1';
+
 export const allBuiltInTools = [
   'Task',            'Bash',
   'Glob',            'Grep',

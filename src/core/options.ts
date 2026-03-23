@@ -89,7 +89,7 @@ export async function createQueryOptions(
     permissionMode: 'bypassPermissions' as const,
     allowDangerouslySkipPermissions: true,
     systemPrompt,
-    cwd: process.env.CLAUDE_CWD ?? '/home/botuser',
+    cwd: process.env.CLAUDE_CWD ?? '/home/botuser/personal-ai-assistant',
     settingSources: ['user', 'project'],
     allowedTools: ['Skill'],
     mcpServers: {

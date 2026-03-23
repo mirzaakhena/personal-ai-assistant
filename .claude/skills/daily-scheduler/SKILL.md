@@ -33,24 +33,43 @@ Randomly decide how many check-ins to create today:
 - Maximum: **7**
 - Vary day to day — don't always pick the same number
 
-### Step 3 — Pick random times
+### Step 3 — Schedule sholat reminders FIRST (strict time windows)
 
-For each check-in, pick a random time within the active window (04:30–22:00).
+Sholat reminders are **NOT random**. They must be sent within strict time windows so Mirza has time to prepare and get to the masjid. Schedule these **before** picking random check-in slots.
 
-Rules:
-- At least **90 minutes gap** between each check-in
-- Times must be **after the current time** (it's already ~04:00 when this runs, so start from 04:30 at earliest)
-- Use **non-round minutes** (avoid :00, :15, :30, :45) — pick irregular minutes like :07, :23, :41, :53, etc.
-- Distribute across the day — don't cluster all in the morning or evening
+| Prayer | Send reminder at | Notes |
+|--------|-----------------|-------|
+| Subuh  | **04:30–04:45 WIB** | HARD LIMIT — never after 04:45. Mirza prays at ~04:30. |
+| Dzuhur | **11:45–11:55 WIB** | Must be BEFORE 12:00. Mirza leaves for masjid around/before 12:00. |
+| Ashar  | **14:50–15:05 WIB** | Ashar ~15:00. Send a few minutes before. |
+| Maghrib | **17:53–18:00 WIB** | Maghrib ~18:00. Send just before. |
+| Isya   | **19:10–19:18 WIB** | Isya ~19:15. Send a few minutes before. |
+
+Rules for sholat reminders:
+- Pick a **non-round minute** within the window (e.g., 04:33, 11:47, 14:53)
+- Only include a sholat reminder if the time is **still in the future** when the scheduler runs (04:00 WIB) — all of the above should qualify
+- You do **NOT** have to include all 5 sholat reminders every day — pick 2–4 of them randomly to vary the pattern, but **Subuh must always be included**
+
+### Step 4 — Pick random times for general check-ins
+
+After scheduling sholat reminders, fill the remaining slots with general check-ins (type: `kabar`, `aktivitas`, `ai_news`, `say_hi`).
+
+Total check-ins per day (sholat + general combined):
+- Minimum: **4**
+- Maximum: **8**
+
+Rules for general check-in timing:
+- Pick random times within the active window (04:30–22:00)
+- At least **90 minutes gap** between ALL check-ins (sholat + general)
+- Times must be **after the current time**
+- Use **non-round minutes** — pick irregular minutes like :07, :23, :41, :53
+- Distribute across the day — don't cluster all in morning or evening
 - Do NOT reveal the times to Mirza
 
-### Step 4 — Pick a message type for each check-in
-
-Vary the type of message for each slot. Choose from:
+### Step 4b — Pick a message type for each general check-in
 
 | Type | Description |
 |------|-------------|
-| `sholat` | Remind Mirza to pray. Match the time to the relevant prayer: Subuh (~05:00), Dhuha (~07:00-11:00), Dzuhur (~12:00), Ashar (~15:00-17:00), Maghrib (~18:00), Isya (~19:30) |
 | `kabar` | Ask how Mirza is doing, what he's up to, how his day is going |
 | `aktivitas` | Ask about what he's working on, coding projects, or current activities |
 | `ai_news` | Share something interesting/viral about AI — search the web to find a recent trending AI topic and share it naturally |
@@ -65,9 +84,14 @@ For each check-in slot, call `create_cronjob` with:
 - `scheduled_at`: ISO 8601 datetime with `+07:00` offset for today's date and the chosen time
   - Format: `"YYYY-MM-DDTHH:mm:00+07:00"`
 - `schedule_human`: Human-readable description like `"Today at HH:mm WIB"`
-- `message`: Instructions to your future self (written in third person), describing what type of check-in to do and including Mirza's name. Be specific about the tone and content type. Example:
-  > "Check in on Mirza. It's around [time], time for Ashar prayer. Remind him warmly and casually, like a friend who cares."
-  > "Check in on Mirza. Ask what he's been coding or working on today. Be curious and casual."
+- `message`: Instructions to your future self (written in third person), describing what type of check-in to do and including Mirza's name. Be specific about the tone and content type.
+
+  **Always include this instruction in every message:**
+  > "Before sending, recall relevant memories about Mirza using `recall_memory` — check for recent habits, ongoing projects, routines, or anything contextually relevant to this time of day or message type. Personalize the message based on what you find. For example, if you know he drinks coffee at 7am, mention it. If he's been working on a project, ask about it. Make it feel like you genuinely remember, not like a generic check-in."
+
+  Examples:
+  > "Check in on Mirza. It's around [time], time for Ashar prayer. Recall his habits/routines first, then remind him warmly and casually, like a friend who cares."
+  > "Check in on Mirza. Ask what he's been coding or working on today. Recall any ongoing projects from memory first — if something comes up, ask specifically about that."
   > "Check in on Mirza. Share a recent viral or interesting AI news item — search the web for something trending today. Keep it conversational, not like a newsletter."
 
 ### Step 6 — Confirm silently
@@ -76,15 +100,17 @@ After creating all cronjobs, do NOT message Mirza. The job is done. The check-in
 
 ---
 
-## Example Output (for a 5-check-in day)
+## Example Output (for a 7-check-in day)
 
-| Time | Type | Message |
-|------|------|---------|
-| 06:23 | sholat | Remind Mirza about Subuh/morning prayer, warm and casual |
-| 09:47 | ai_news | Share something interesting about AI that's trending today |
-| 13:11 | kabar | Ask how Mirza's day is going, what he's up to |
-| 17:38 | sholat | Remind Mirza about Ashar prayer |
-| 20:52 | say_hi | Just a casual good evening message |
+| Time | Type | Notes |
+|------|------|-------|
+| 04:33 | sholat (Subuh) | Within 04:30–04:45 window ✅ |
+| 08:17 | ai_news | General check-in, 90+ min after Subuh |
+| 11:47 | sholat (Dzuhur) | Within 11:45–11:55 window ✅ |
+| 14:53 | sholat (Ashar) | Within 14:50–15:05 window ✅ |
+| 16:29 | kabar | General check-in, 90+ min after Ashar |
+| 17:56 | sholat (Maghrib) | Within 17:53–18:00 window ✅ |
+| 20:41 | say_hi | General check-in evening |
 
 ---
 

@@ -6,6 +6,7 @@ import { createWebChatGateway } from './gateway/webchat.js';
 import { processMessage } from './handlers/message.js';
 import { createCronRegistry } from './cron/registry.js';
 import { reconcileOnStartup } from './cron/scheduler.js';
+import { startTriggerServer } from './trigger/server.js';
 import { initMemoryDb, closeMemoryDb } from './db/memory.js';
 import { log } from './utils/logger.js';
 import { PROJECT_DIR, RESTART_FLAG_FILE } from './core/constants.js';
@@ -56,6 +57,9 @@ await gateway.start((msg) => processMessage(gateway, msg, registry));
 
 // Reconcile cronjobs (schedules cron timers that fire later via gateway.sendMessage)
 reconcileOnStartup(registry, gateway);
+
+// Start internal trigger server for Claude Code Stop hook notifications
+startTriggerServer(gateway, registry);
 
 // Handle restart flag (WhatsApp-specific but harmless for other gateways)
 if (existsSync(RESTART_FLAG_FILE)) {

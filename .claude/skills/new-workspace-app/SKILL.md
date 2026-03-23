@@ -13,7 +13,7 @@ Every new app MUST follow these conventions without needing to be reminded.
 2. **Package manager**: `pnpm` always (never npm or yarn)
 3. **Public URL**: `http://149.28.11.128:8080/<app-name>` via the reverse proxy
 4. **Process manager**: PM2 (register in ecosystem.config.cjs)
-5. **Keep user informed**: Send a WhatsApp message at every major step completed
+5. **Keep user informed**: Use the `send_message` tool (mcp__message__send_message) to notify the user at EVERY major step — before and after. Never go silent.
 
 ## Step-by-Step Procedure
 
@@ -92,7 +92,16 @@ Report the public URL to the user via WhatsApp.
 The proxy auto-redirects `/app-name` → `/app-name/` (301), so both URLs work for the user.
 
 ## Communication Rule
-Always send a WhatsApp update message after each major step is done. Never go silent for more than a few steps.
+**MANDATORY**: Use `mcp__message__send_message` tool to send a WhatsApp message after EACH step below is completed:
+- ✅ After directory created & project initialized
+- ✅ After dependencies installed
+- ✅ After Vite config done
+- ✅ After source code / components written
+- ✅ After proxy registered & restarted
+- ✅ After PM2 registered & started
+- ✅ Final message with public URL
+
+Never go silent for more than 1 step. The user must always know what's happening.
 
 ## Avoid Interactive Prompts
 - Never run `pnpm approve-builds` interactively — always use `onlyBuiltDependencies` in package.json instead
