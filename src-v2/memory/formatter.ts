@@ -1,4 +1,4 @@
-import type { FundamentalMemories } from './operations.js';
+import type { FundamentalMemories } from './operations/index.js';
 
 const MEMORY_HEADER = '[MEMORY CONTEXT]';
 

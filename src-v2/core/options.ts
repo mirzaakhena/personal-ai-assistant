@@ -3,7 +3,7 @@ import { createToolServer } from "../tools/server.js";
 import type { MessageContext } from "../tools/message.js";
 import type { CronContext } from "../tools/cronjob.js";
 import type { MemoryContext } from "../tools/memory.js";
-import { getFundamentalMemories } from "../memory/operations.js";
+import { getFundamentalMemories } from "../memory/operations/index.js";
 import { formatFundamentalMemory } from "../memory/formatter.js";
 import { log } from "../utils/logger.js";
 import { DEFAULT_MODEL, MAX_TURNS } from "./constants.js";

@@ -10,7 +10,7 @@ import {
   getAllMemories,
   upsertContact,
   queryRelationships,
-} from "../memory/operations.js";
+} from "../memory/operations/index.js";
 import {
   formatRecalledMemories,
   formatAllMemories,

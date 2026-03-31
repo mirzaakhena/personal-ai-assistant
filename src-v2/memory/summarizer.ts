@@ -1,5 +1,5 @@
 import { getMemoryDb, rid } from '../db/memory.js';
-import { getOrCreateSelfPerson } from './operations.js';
+import { getOrCreateSelfPerson } from './operations/index.js';
 import { generateEmbedding } from './embeddings.js';
 import { log } from '../utils/logger.js';
 import { SUMMARY_MODEL } from '../core/constants.js';
