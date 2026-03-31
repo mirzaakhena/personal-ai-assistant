@@ -46,7 +46,9 @@ export async function processCronjob(
   const prompt = buildCronjobPrompt(job.message);
 
   try {
-    const options = await createQueryOptions(sessionId, ctx, cronCtx, memCtx);
+    const options = await createQueryOptions(sessionId, ctx, cronCtx, memCtx, {
+      effort: 'low',
+    });
     const responses = query({ prompt, options });
     let finalSessionId: string | undefined;
     for await (const msg of responses) {

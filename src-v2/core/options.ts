@@ -21,12 +21,14 @@ export async function buildSystemPrompt(phoneNumber: string): Promise<string> {
   }
 }
 
+type EffortLevel = 'low' | 'medium' | 'high';
+
 export async function createQueryOptions(
   sessionId: string | undefined,
   ctx: MessageContext,
   cronCtx: CronContext,
   memCtx: MemoryContext,
-  injectFlushReminder = false
+  { injectFlushReminder = false, effort = 'high' as EffortLevel } = {}
 ): Promise<Options> {
   let systemPrompt = await buildSystemPrompt(memCtx.phoneNumber);
   if (injectFlushReminder) {
@@ -36,6 +38,7 @@ export async function createQueryOptions(
   const options: Options = {
     model: DEFAULT_MODEL,
     maxTurns: MAX_TURNS,
+    effort,
     permissionMode: 'bypassPermissions' as const,
     allowDangerouslySkipPermissions: true,
     systemPrompt,
