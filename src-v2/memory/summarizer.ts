@@ -1,10 +1,8 @@
-// TODO [ENHANCE]: Track assistant responses (currently only user messages tracked)
-// TODO [ENHANCE]: Make summary model configurable instead of hardcoded 'claude-haiku-4-5-20251001'
-// TODO [ENHANCE]: Consider using Agent SDK hooks (PostToolUse on send_message) for assistant tracking
 import { getMemoryDb, rid } from '../db/memory.js';
 import { getOrCreateSelfPerson } from './operations.js';
 import { generateEmbedding } from './embeddings.js';
 import { log } from '../utils/logger.js';
+import { SUMMARY_MODEL } from '../core/constants.js';
 
 // --- In-memory message tracking per phone number ---
 
@@ -23,6 +21,17 @@ export function trackMessage(
   const messages = sessionMessages.get(phoneNumber) ?? [];
   messages.push({ role, content });
   sessionMessages.set(phoneNumber, messages);
+}
+
+/**
+ * Track assistant response sent via send_message tool.
+ * Called from PostToolUse hook on mcp__tools__send_message.
+ */
+export function trackAssistantMessage(
+  phoneNumber: string,
+  content: string,
+): void {
+  trackMessage(phoneNumber, 'assistant', content);
 }
 
 export function getTrackedMessages(
@@ -80,7 +89,7 @@ export async function generateConversationSummary(
         'anthropic-version': '2023-06-01',
       },
       body: JSON.stringify({
-        model: 'claude-haiku-4-5-20251001',
+        model: SUMMARY_MODEL,
         max_tokens: 512,
         system: SUMMARY_PROMPT,
         messages: [

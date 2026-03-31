@@ -1,9 +1,10 @@
 import { tool } from "@anthropic-ai/claude-agent-sdk";
 import { z } from "zod";
-import { log } from "../utils/logger.js";
 
 export type MessageContext = {
   sendMessage: (content: string) => Promise<void>;
+  /** Optional callback to track assistant messages for conversation summary */
+  onAssistantMessage?: (content: string) => void;
 };
 
 export function createMessageTools(ctx: MessageContext) {
@@ -29,6 +30,7 @@ Multiple messages:
     async (args) => {
       for (const msg of args.messages) {
         await ctx.sendMessage(msg.content);
+        ctx.onAssistantMessage?.(msg.content);
       }
       return {
         content: [{ type: "text", text: JSON.stringify({ success: true, message_count: args.messages.length }) }]

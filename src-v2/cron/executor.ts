@@ -9,6 +9,7 @@ import type { MessageContext } from '../tools/message.js';
 import type { CronContext } from '../tools/cronjob.js';
 import type { MemoryContext } from '../tools/memory.js';
 import { log } from '../utils/logger.js';
+import { trackAssistantMessage } from '../memory/summarizer.js';
 import { CronjobStatuses, COST_USD_PRECISION } from '../core/constants.js';
 
 export async function processCronjob(
@@ -37,6 +38,7 @@ export async function processCronjob(
   const sessionId = getSessionId(phoneNumber);
   const ctx: MessageContext = {
     sendMessage: (content: string) => gateway.sendMessage(job.phone_number, content),
+    onAssistantMessage: (content: string) => trackAssistantMessage(phoneNumber, content),
   };
   const cronCtx: CronContext = { registry, phoneNumber, gateway };
   const memCtx: MemoryContext = { phoneNumber };

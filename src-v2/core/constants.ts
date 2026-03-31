@@ -54,6 +54,9 @@ export const FALLBACK_MODEL = process.env.CLAUDE_FALLBACK_MODEL ?? 'sonnet';
 // Query
 export const MAX_TURNS = 10;
 
+// Summarizer model (lightweight model for conversation summaries)
+export const SUMMARY_MODEL = process.env.SUMMARY_MODEL ?? 'claude-haiku-4-5-20251001';
+
 // Memory flush heuristic
 // Inject a save-reminder when user message count in session reaches this threshold
 export const MEMORY_FLUSH_TURN_THRESHOLD = 7; // ~70% of MAX_TURNS

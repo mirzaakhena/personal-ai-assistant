@@ -11,7 +11,7 @@ import type { CronRegistry } from "../cron/registry.js";
 import { log } from "../utils/logger.js";
 import { updateStats, clearStats, getStats } from "../core/stats.js";
 import { incrementTurnCount, clearTurnCount, shouldInjectFlushReminder } from "../core/turns.js";
-import { trackMessage, clearTrackedMessages, summarizeAndSave } from "../memory/summarizer.js";
+import { trackMessage, trackAssistantMessage, clearTrackedMessages, summarizeAndSave } from "../memory/summarizer.js";
 import { CMD_NEW, CMD_STATUS, CMD_RESTART, FALLBACK_MODEL, COST_USD_PRECISION } from "../core/constants.js";
 
 export async function processMessage(gateway: MessageGateway, msg: IncomingMessage, registry: CronRegistry): Promise<void> {
@@ -83,6 +83,7 @@ export async function processMessage(gateway: MessageGateway, msg: IncomingMessa
   const sessionId = getSessionId(userId);
   const ctx: MessageContext = {
     sendMessage: (content: string) => gateway.sendMessage(userId, content),
+    onAssistantMessage: (content: string) => trackAssistantMessage(userId, content),
   };
   const cronCtx: CronContext = { registry, phoneNumber: userId, gateway };
   const memCtx: MemoryContext = { phoneNumber: userId };

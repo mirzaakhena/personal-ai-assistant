@@ -1,5 +1,5 @@
 import { type Options } from "@anthropic-ai/claude-agent-sdk";
-import { createMessageServer } from "../tools/server.js";
+import { createToolServer } from "../tools/server.js";
 import type { MessageContext } from "../tools/message.js";
 import type { CronContext } from "../tools/cronjob.js";
 import type { MemoryContext } from "../tools/memory.js";
@@ -43,7 +43,7 @@ export async function createQueryOptions(
     settingSources: ['user', 'project'],
     allowedTools: ['Skill'],
     mcpServers: {
-      "message": createMessageServer(ctx, cronCtx, memCtx),
+      "tools": createToolServer(ctx, cronCtx, memCtx),
     },
   };
 
