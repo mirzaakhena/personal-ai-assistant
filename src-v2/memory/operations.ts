@@ -1,3 +1,8 @@
+// TODO [ENHANCE]: Split this 832-line file into separate modules:
+//   - operations/crud.ts (save, update, delete, supersede)
+//   - operations/query.ts (getFundamental, recall, search)
+//   - operations/graph.ts (contacts, relationships)
+//   - operations/lifecycle.ts (promote, demote, importance suggestions)
 import { getMemoryDb, rid, extractItems } from '../db/memory.js';
 import {
   MEMORY_FUNDAMENTAL_LIMIT,

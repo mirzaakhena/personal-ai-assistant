@@ -1,3 +1,6 @@
+// TODO [ENHANCE]: Track assistant responses (currently only user messages tracked)
+// TODO [ENHANCE]: Make summary model configurable instead of hardcoded 'claude-haiku-4-5-20251001'
+// TODO [ENHANCE]: Consider using Agent SDK hooks (PostToolUse on send_message) for assistant tracking
 import { getMemoryDb, rid } from '../db/memory.js';
 import { getOrCreateSelfPerson } from './operations.js';
 import { generateEmbedding } from './embeddings.js';
