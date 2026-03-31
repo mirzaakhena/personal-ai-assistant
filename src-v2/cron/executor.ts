@@ -2,7 +2,7 @@ import { query } from '@anthropic-ai/claude-agent-sdk';
 import type { MessageGateway } from '../gateway/types.js';
 import { getCronjobById, updateCronjobStatus, updateExecutionStatus } from '../db/cronjobs.js';
 import { unregisterCronTask, type CronRegistry } from './registry.js';
-import { saveSessionId } from '../db/sessions.js';
+import { getSessionId, saveSessionId } from '../db/sessions.js';
 import { createQueryOptions } from '../core/options.js';
 import { buildCronjobPrompt } from '../utils/prompt.js';
 import type { MessageContext } from '../tools/message.js';
@@ -32,7 +32,9 @@ export async function processCronjob(
     updateCronjobStatus(jobId, CronjobStatuses.EXECUTING);
   }
 
-  const sessionId = undefined; // always start a fresh session to avoid replaying prior tool calls
+  // Resume existing session so cronjob has conversation context.
+  // e.g. if user already addressed the reminder topic, Claude can adapt its message.
+  const sessionId = getSessionId(phoneNumber);
   const ctx: MessageContext = {
     sendMessage: (content: string) => gateway.sendMessage(job.phone_number, content),
   };
