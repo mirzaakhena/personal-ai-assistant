@@ -4,7 +4,7 @@ import { getCronjobById, updateCronjobStatus, updateExecutionStatus } from '../d
 import { unregisterCronTask, type CronRegistry } from './registry.js';
 import { getSessionId, saveSessionId } from '../db/sessions.js';
 import { createQueryOptions } from '../core/options.js';
-import { buildCronjobPrompt } from '../utils/prompt.js';
+import { buildSystemMessagePrompt } from '../utils/prompt.js';
 import type { MessageContext } from '../tools/message.js';
 import type { CronContext } from '../tools/cronjob.js';
 import type { MemoryContext } from '../tools/memory.js';
@@ -43,7 +43,7 @@ export async function processCronjob(
   const cronCtx: CronContext = { registry, phoneNumber, gateway };
   const memCtx: MemoryContext = { phoneNumber };
 
-  const prompt = buildCronjobPrompt(job.message);
+  const prompt = buildSystemMessagePrompt(job.message);
 
   try {
     const options = await createQueryOptions(sessionId, ctx, cronCtx, memCtx, {

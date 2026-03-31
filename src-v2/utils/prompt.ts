@@ -56,13 +56,16 @@ ${message || '(no caption)'}`;
   return blocks;
 }
 
-export function buildCronjobPrompt(message: string): string {
+export function buildSystemMessagePrompt(message: string): string {
   const { dateStr, timeStr } = getFormattedDateTime();
 
-  return `[CRONJOB MESSAGE]
+  return `[SYSTEM MESSAGE]
 
 Timestamp: ${dateStr}, ${timeStr}
 
 [MESSAGE]
 ${message}`;
 }
+
+/** @deprecated Use buildSystemMessagePrompt instead */
+export const buildCronjobPrompt = buildSystemMessagePrompt;

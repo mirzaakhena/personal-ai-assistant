@@ -103,6 +103,10 @@ export const SUPPORTED_DOCUMENT_TYPES = new Set([
   'application/pdf',
 ]);
 
+// Trigger server (internal only)
+export const TRIGGER_PORT = 3100;
+export const TRIGGER_HOST = '127.0.0.1';
+
 // Commands
 export const CMD_NEW = '/new';
 export const CMD_STATUS = '/status';

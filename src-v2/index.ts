@@ -7,6 +7,7 @@ import { processMessage } from './handlers/message.js';
 import { createCronRegistry } from './cron/registry.js';
 import { reconcileOnStartup } from './cron/scheduler.js';
 import { initMemoryDb, closeMemoryDb } from './db/memory.js';
+import { startTriggerServer } from './trigger/server.js';
 import { log } from './utils/logger.js';
 import { PROJECT_DIR, RESTART_FLAG_FILE } from './core/constants.js';
 import type { MessageGateway } from './gateway/types.js';
@@ -56,6 +57,9 @@ await gateway.start((msg) => processMessage(gateway, msg, registry));
 
 // Reconcile cronjobs (schedules cron timers that fire later via gateway.sendMessage)
 reconcileOnStartup(registry, gateway);
+
+// Start internal trigger server (127.0.0.1 only — for local services like hikorea monitor)
+startTriggerServer(gateway, registry);
 
 // Handle restart flag (WhatsApp-specific but harmless for other gateways)
 if (existsSync(RESTART_FLAG_FILE)) {
