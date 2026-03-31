@@ -1,6 +1,7 @@
 import { tool } from "@anthropic-ai/claude-agent-sdk";
 import { z } from "zod";
 import type { MessageGateway } from '../gateway/types.js';
+import { log } from "../utils/logger.js";
 import { v4 as uuidv4 } from "uuid";
 import cron from "node-cron";
 import {
@@ -102,7 +103,7 @@ You can also create memory-triggered reminders, e.g., birthday reminders for con
         scheduleRecurringJob(cronCtx.registry, cronCtx.gateway, job);
       }
 
-      console.log(`[CRON] Created ${args.type} job ${jobId}: ${args.schedule_human}`);
+      log.debug(`[CRON] Created ${args.type} job ${jobId}: ${args.schedule_human}`);
 
       return {
         content: [{
@@ -152,7 +153,7 @@ You can also create memory-triggered reminders, e.g., birthday reminders for con
       updateCronjobStatus(args.job_id, CronjobStatuses.CANCELLED);
       unregisterCronTask(cronCtx.registry, args.job_id);
 
-      console.log(`[CRON] Cancelled job ${args.job_id}`);
+      log.debug(`[CRON] Cancelled job ${args.job_id}`);
 
       return {
         content: [{ type: "text", text: JSON.stringify({ success: true }) }],

@@ -1,3 +1,4 @@
+// TODO [ENHANCE]: Rename createMessageServer → createToolServer (it serves all tools, not just message)
 import { createSdkMcpServer } from "@anthropic-ai/claude-agent-sdk";
 import { createMessageTools, type MessageContext } from "./message.js";
 import { createCronjobTools, type CronContext } from "./cronjob.js";
