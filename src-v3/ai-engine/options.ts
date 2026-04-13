@@ -2,6 +2,7 @@
 
 import type { Options } from "@anthropic-ai/claude-agent-sdk";
 import { createMessageServer } from "./tools.js";
+import type { SendMessageHandler } from "./types.js";
 
 /** All built-in Claude Code tools — blocked to keep the AI focused on our MCP tools only */
 const allBuiltInTools = [
@@ -19,26 +20,34 @@ const allBuiltInTools = [
   'AskUserQuestion', 'ToolSearch',
 ];
 
+/** Fully resolved config — all fields required, merged by query.ts before calling this */
+export interface ResolvedConfig {
+  model: string;
+  systemPrompt: string;
+  maxTurns: number;
+  sessionId?: string;
+  onSendMessage?: SendMessageHandler;
+}
+
 /**
  * Build the Options object for the SDK query() call.
- *
- * @param sessionId - Optional session ID to resume a previous conversation
+ * Receives a fully resolved config — no defaults logic here.
  */
-export function createQueryOptions(sessionId?: string): Options {
+export function createQueryOptions(config: ResolvedConfig): Options {
   const options: Options = {
-    model: 'haiku', // TODO: read from env (CLAUDE_MODEL)
-    maxTurns: 3,
+    model: config.model,
+    maxTurns: config.maxTurns,
     permissionMode: 'bypassPermissions' as const,
     allowDangerouslySkipPermissions: true,
     disallowedTools: allBuiltInTools,
-    systemPrompt: 'You are a helpful assistant. Answer concisely.',
+    systemPrompt: config.systemPrompt,
     mcpServers: {
-      message: createMessageServer(),
+      message: createMessageServer(config.onSendMessage),
     },
   };
 
-  if (sessionId) {
-    options.resume = sessionId;
+  if (config.sessionId) {
+    options.resume = config.sessionId;
   }
 
   return options;
