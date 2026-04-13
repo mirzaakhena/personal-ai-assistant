@@ -7,3 +7,6 @@ docs/
 .wwebjs_cache/
 data/
 .worktrees/
+memory.db/
+fromserver/
+memory.db.json
