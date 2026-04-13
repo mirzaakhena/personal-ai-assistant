@@ -2,13 +2,14 @@
 
 import { createSdkMcpServer, tool } from "@anthropic-ai/claude-agent-sdk";
 import { z } from "zod";
+import type { SendMessageHandler } from "./types.js";
 
 /**
  * Create the send_message MCP tool.
- * For now, logs to console. The delivery mechanism will be
- * swapped via QueryCallbacks in a future iteration.
+ * If onSendMessage is provided, it handles delivery.
+ * Otherwise, falls back to console.log.
  */
-function createMessageTools() {
+function createMessageTools(onSendMessage?: SendMessageHandler) {
   const sendMessageTool = tool(
     "send_message",
     `Send one or multiple messages to user with realistic human-like timing.
@@ -36,8 +37,12 @@ Minimum pauseBeforeTyping is 1000ms for natural, realistic feel.`,
       })).min(1).describe("Array of messages to send sequentially"),
     },
     async (args) => {
-      for (const msg of args.messages) {
-        console.log(`[assistant]: ${msg.content}`);
+      if (onSendMessage) {
+        await onSendMessage(args.messages);
+      } else {
+        for (const msg of args.messages) {
+          console.log(`[assistant]: ${msg.content}`);
+        }
       }
       return {
         content: [{ type: "text" as const, text: JSON.stringify({ success: true, message_count: args.messages.length }) }]
@@ -50,11 +55,12 @@ Minimum pauseBeforeTyping is 1000ms for natural, realistic feel.`,
 
 /**
  * Create the message MCP server containing send_message tool.
+ * @param onSendMessage - Optional handler for message delivery. Falls back to console.log.
  */
-export function createMessageServer() {
+export function createMessageServer(onSendMessage?: SendMessageHandler) {
   return createSdkMcpServer({
     name: "message",
     version: "1.0.0",
-    tools: createMessageTools(),
+    tools: createMessageTools(onSendMessage),
   });
 }
