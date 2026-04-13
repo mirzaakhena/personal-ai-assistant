@@ -32,7 +32,7 @@ export function createAIEngine(config?: EngineConfig): AIEngine {
     systemPrompt: config?.systemPrompt ?? DEFAULT_SYSTEM_PROMPT,
     maxTurns: config?.maxTurns ?? 3,
     effort: config?.effort ?? 'low',
-    onSendMessage: config?.onSendMessage,
+    mcpServers: config?.mcpServers ?? {},
   };
 
   return {
@@ -43,7 +43,7 @@ export function createAIEngine(config?: EngineConfig): AIEngine {
         maxTurns: options?.maxTurns ?? defaults.maxTurns,
         effort: options?.effort ?? defaults.effort,
         sessionId: options?.sessionId,
-        onSendMessage: defaults.onSendMessage,
+        mcpServers: { ...defaults.mcpServers, ...options?.mcpServers },
       };
 
       const sdkOptions = createQueryOptions(resolved);
