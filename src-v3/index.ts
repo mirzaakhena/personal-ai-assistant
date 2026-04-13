@@ -4,6 +4,11 @@ import { createAIEngine } from './ai-engine/index.js';
 import { createMessageServer } from './tools/message.js';
 import { createMemoryServer } from './tools/memory.js';
 import { createCronjobServer, type CronjobInfo } from './tools/cronjob.js';
+import { log } from './utils/logger.js';
+import { buildUserPrompt } from './utils/prompt.js';
+import { incrementTurnCount, getTurnCount } from './utils/turns.js';
+import { updateStats, getStats } from './utils/stats.js';
+import { createSessionStore } from './db/sessions.js';
 
 // ── Simple in-memory stores for development ──────────────
 
@@ -12,6 +17,8 @@ const memoryStore = new Map<string, string>();
 const cronjobStore = new Map<string, CronjobInfo>();
 let jobCounter = 0;
 
+const sessions = createSessionStore(); // default: data/sessions.db
+
 // ── Create engine with all tools ─────────────────────────
 
 const engine = createAIEngine({
@@ -19,17 +26,17 @@ const engine = createAIEngine({
   mcpServers: {
     message: createMessageServer(async (messages) => {
       for (const msg of messages) {
-        console.log(`[send_message]: ${msg.content}`);
+        log.chat(`← ${msg.content}`);
       }
     }),
     memory: createMemoryServer({
       save: (key, value) => {
         memoryStore.set(key, value);
-        console.log(`[memory:save]: ${key} = ${value}`);
+        log.debug(`memory:save ${key} = ${value}`);
       },
       recall: (key) => {
         const value = memoryStore.get(key) ?? null;
-        console.log(`[memory:recall]: ${key} → ${value}`);
+        log.debug(`memory:recall ${key} → ${value}`);
         return value;
       },
     }),
@@ -43,49 +50,52 @@ const engine = createAIEngine({
           scheduleHuman: job.scheduleHuman,
           status: 'active',
         });
-        console.log(`[cronjob:create]: ${id} — ${job.scheduleHuman}`);
+        log.debug(`cronjob:create ${id} — ${job.scheduleHuman}`);
         return id;
       },
-      list: () => {
-        const jobs = [...cronjobStore.values()];
-        console.log(`[cronjob:list]: ${jobs.length} jobs`);
-        return jobs;
-      },
-      delete: (jobId) => {
-        const deleted = cronjobStore.delete(jobId);
-        console.log(`[cronjob:delete]: ${jobId} → ${deleted}`);
-        return deleted;
-      },
+      list: () => [...cronjobStore.values()],
+      delete: (jobId) => cronjobStore.delete(jobId),
     }),
   },
 });
 
 // ── Run a test query ─────────────────────────────────────
 
-const prompt = '[user]: Hello, who are you?';
+const userId = 'dev-user';
+const turn = incrementTurnCount(userId);
+const savedSessionId = sessions.get(userId);
 
-console.log(prompt);
-console.log('---');
+log.debug(`Turn ${turn}, saved session: ${savedSessionId ?? 'none'}`);
+
+const prompt = buildUserPrompt('Hello, who are you?');
+
+log.chat(`→ ${prompt.split('\n').pop()}`);
 
 const result = await engine.query(prompt, {
+  sessionId: savedSessionId,
   callbacks: {
-    onInit: (info) => console.log(`[init]: model=${info.model} tools=${info.tools.length}`),
-    onThinking: (text) => console.log(`[thinking]: ${text.slice(0, 100)}...`),
-    onMessage: (text) => console.log(`[message]: ${text.slice(0, 100)}...`),
-    onToolUse: (name) => console.log(`[tool]: ${name}`),
-    onSessionId: (id) => console.log(`[session]: ${id}`),
-    onRateLimit: (info) => console.log(`[rate_limit]: resets=${info.resetsAt}`),
-    onError: (err) => console.error(`[error]: [${err.level}] ${err.reason}: ${err.messages.join(', ')}`),
-    onFallback: (text) => console.warn(`[fallback]: send_message not called. text=${text.slice(0, 100)}`),
+    onInit: (info) => log.debug(`init: model=${info.model} tools=${info.tools.length}`),
+    onThinking: (text) => log.debug(`thinking: ${text.slice(0, 80)}...`),
+    onToolUse: (name) => log.debug(`tool: ${name}`),
+    onSessionId: (id) => log.debug(`session: ${id}`),
+    onError: (err) => log.error(`[${err.level}] ${err.reason}: ${err.messages.join(', ')}`),
+    onFallback: (text) => log.error(`send_message not called. text=${text.slice(0, 100)}`),
   },
 });
 
-console.log('---');
-console.log(`Session: ${result.sessionId}`);
-console.log(`Cost: $${result.costUsd.toFixed(4)}`);
-console.log(`Duration: ${result.durationMs}ms`);
-console.log(`Turns: ${result.numTurns}`);
-console.log(`sendMessageCalled: ${result.sendMessageCalled}`);
+// ── Post-query bookkeeping ───────────────────────────────
+
+sessions.save(userId, result.sessionId);
+updateStats(userId, result.sessionId, result.costUsd, result.durationMs, result.numTurns);
+
+const stats = getStats(userId);
+log.debug(`---`);
+log.debug(`Session: ${result.sessionId}`);
+log.debug(`Cost: $${result.costUsd.toFixed(4)} (accumulated: $${stats?.accumulated.costUsd.toFixed(4)})`);
+log.debug(`Duration: ${result.durationMs}ms`);
+log.debug(`Turns: ${result.numTurns} (total: ${stats?.accumulated.numTurns})`);
+log.debug(`Turn count: ${getTurnCount(userId)}`);
+log.debug(`sendMessageCalled: ${result.sendMessageCalled}`);
 if (result.error) {
-  console.error(`Error: [${result.error.level}] ${result.error.reason}`);
+  log.error(`Error: [${result.error.level}] ${result.error.reason}`);
 }
