@@ -78,9 +78,14 @@ export interface QueryCallbacks {
   onRateLimit?: (info: RateLimitInfo) => void;
   /** Called on errors (result-level or assistant-level) */
   onError?: (error: QueryErrorInfo) => void;
+  /** Called when query completes without send_message ever being invoked. Receives responseText if any. */
+  onFallback?: (responseText: string) => void;
 }
 
 // ── Config & Options ─────────────────────────────────────
+
+/** Effort level for the model */
+export type EffortLevel = 'low' | 'medium' | 'high';
 
 /** Engine-level configuration (factory defaults) */
 export interface EngineConfig {
@@ -90,6 +95,8 @@ export interface EngineConfig {
   systemPrompt?: string;
   /** Default max turns — overridable per-query */
   maxTurns?: number;
+  /** Default effort level — overridable per-query. Defaults to 'low' */
+  effort?: EffortLevel;
   /** Handler called when send_message tool is invoked. Falls back to console.log */
   onSendMessage?: SendMessageHandler;
 }
@@ -99,6 +106,7 @@ export interface QueryOptions {
   model?: string;
   systemPrompt?: string;
   maxTurns?: number;
+  effort?: EffortLevel;
   sessionId?: string;
   callbacks?: QueryCallbacks;
 }
@@ -121,6 +129,8 @@ export interface QueryResult {
   costUsd: number;
   durationMs: number;
   numTurns: number;
+  /** Whether send_message tool was called at least once */
+  sendMessageCalled: boolean;
   /** Present if the query ended with an error */
   error?: QueryErrorInfo;
 }

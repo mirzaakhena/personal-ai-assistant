@@ -6,7 +6,6 @@ import type {
   AIEngine,
   EngineConfig,
   QueryOptions,
-  QueryCallbacks,
   QueryResult,
   QueryErrorInfo,
   InitInfo,
@@ -32,6 +31,7 @@ export function createAIEngine(config?: EngineConfig): AIEngine {
     model: config?.model ?? 'haiku', // TODO: read from env (CLAUDE_MODEL)
     systemPrompt: config?.systemPrompt ?? DEFAULT_SYSTEM_PROMPT,
     maxTurns: config?.maxTurns ?? 3,
+    effort: config?.effort ?? 'low',
     onSendMessage: config?.onSendMessage,
   };
 
@@ -41,6 +41,7 @@ export function createAIEngine(config?: EngineConfig): AIEngine {
         model: options?.model ?? defaults.model,
         systemPrompt: options?.systemPrompt ?? defaults.systemPrompt,
         maxTurns: options?.maxTurns ?? defaults.maxTurns,
+        effort: options?.effort ?? defaults.effort,
         sessionId: options?.sessionId,
         onSendMessage: defaults.onSendMessage,
       };
@@ -55,6 +56,7 @@ export function createAIEngine(config?: EngineConfig): AIEngine {
       let durationMs = 0;
       let numTurns = 0;
       let error: QueryErrorInfo | undefined;
+      let sendMessageCalled = false;
 
       for await (const message of responses) {
         switch (message.type) {
@@ -112,6 +114,9 @@ export function createAIEngine(config?: EngineConfig): AIEngine {
               (block) => block.type === 'tool_use'
             ) as { type: 'tool_use'; name: string }[];
             for (const toolBlock of toolUseBlocks) {
+              if (toolBlock.name.endsWith('send_message')) {
+                sendMessageCalled = true;
+              }
               callbacks?.onToolUse?.(toolBlock.name);
             }
             break;
@@ -147,12 +152,18 @@ export function createAIEngine(config?: EngineConfig): AIEngine {
         }
       }
 
+      // Fallback detection: send_message was never called
+      if (!sendMessageCalled) {
+        callbacks?.onFallback?.(responseText);
+      }
+
       return {
         sessionId: resultSessionId,
         responseText,
         costUsd,
         durationMs,
         numTurns,
+        sendMessageCalled,
         ...(error ? { error } : {}),
       };
     },

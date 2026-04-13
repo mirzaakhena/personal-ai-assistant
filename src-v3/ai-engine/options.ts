@@ -2,7 +2,7 @@
 
 import type { Options } from "@anthropic-ai/claude-agent-sdk";
 import { createMessageServer } from "./tools.js";
-import type { SendMessageHandler } from "./types.js";
+import type { SendMessageHandler, EffortLevel } from "./types.js";
 
 /** All built-in Claude Code tools — blocked to keep the AI focused on our MCP tools only */
 const allBuiltInTools = [
@@ -25,6 +25,7 @@ export interface ResolvedConfig {
   model: string;
   systemPrompt: string;
   maxTurns: number;
+  effort: EffortLevel;
   sessionId?: string;
   onSendMessage?: SendMessageHandler;
 }
@@ -37,6 +38,7 @@ export function createQueryOptions(config: ResolvedConfig): Options {
   const options: Options = {
     model: config.model,
     maxTurns: config.maxTurns,
+    effort: config.effort,
     permissionMode: 'bypassPermissions' as const,
     allowDangerouslySkipPermissions: true,
     disallowedTools: allBuiltInTools,

@@ -14,4 +14,5 @@ export type {
   QueryErrorInfo,
   QueryErrorReason,
   AssistantError,
+  EffortLevel,
 } from './types.js';
