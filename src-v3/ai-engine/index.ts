@@ -1,4 +1,14 @@
 // src-v3/ai-engine/index.ts
 
-export { executeQuery } from './query.js';
-export type { QueryCallbacks, QueryResult } from './types.js';
+export { createAIEngine } from './query.js';
+export type {
+  AIEngine,
+  EngineConfig,
+  QueryOptions,
+  QueryCallbacks,
+  QueryResult,
+  SendMessageHandler,
+  SendMessageItem,
+  InitInfo,
+  RateLimitInfo,
+} from './types.js';
