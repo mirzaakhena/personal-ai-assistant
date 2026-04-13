@@ -29,6 +29,9 @@ export async function executeQuery(
   let numTurns = 0;
 
   for await (const message of responses) {
+    console.log('>>>');
+    console.log(JSON.stringify(message));
+    console.log('>>>');
     switch (message.type) {
       case 'assistant': {
         // Extract text blocks from the assistant message
