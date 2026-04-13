@@ -97,8 +97,8 @@ export interface EngineConfig {
   maxTurns?: number;
   /** Default effort level — overridable per-query. Defaults to 'low' */
   effort?: EffortLevel;
-  /** Handler called when send_message tool is invoked. Falls back to console.log */
-  onSendMessage?: SendMessageHandler;
+  /** MCP servers to register with the engine. Keys are server names. */
+  mcpServers?: Record<string, any>;
 }
 
 /** Per-query options (override engine defaults) */
@@ -109,6 +109,8 @@ export interface QueryOptions {
   effort?: EffortLevel;
   sessionId?: string;
   callbacks?: QueryCallbacks;
+  /** Additional MCP servers for this query (merged with engine defaults) */
+  mcpServers?: Record<string, any>;
 }
 
 // ── Engine interface ─────────────────────────────────────
