@@ -8,6 +8,7 @@ import type {
   QueryOptions,
   QueryCallbacks,
   QueryResult,
+  QueryErrorInfo,
   InitInfo,
   RateLimitInfo,
 } from "./types.js";
@@ -53,6 +54,7 @@ export function createAIEngine(config?: EngineConfig): AIEngine {
       let costUsd = 0;
       let durationMs = 0;
       let numTurns = 0;
+      let error: QueryErrorInfo | undefined;
 
       for await (const message of responses) {
         switch (message.type) {
@@ -76,6 +78,16 @@ export function createAIEngine(config?: EngineConfig): AIEngine {
           }
 
           case 'assistant': {
+            // Check for assistant-level errors (auth, billing, rate limit, etc.)
+            if (message.error) {
+              error = {
+                level: 'assistant',
+                reason: message.error,
+                messages: [`Assistant error: ${message.error}`],
+              };
+              callbacks?.onError?.(error);
+            }
+
             const contentBlocks = message.message.content as any[];
 
             // Handle thinking blocks
@@ -116,11 +128,19 @@ export function createAIEngine(config?: EngineConfig): AIEngine {
           }
 
           case 'result': {
-            if (message.subtype === 'success') {
-              costUsd = message.total_cost_usd;
-              durationMs = message.duration_ms;
-              numTurns = message.num_turns;
-              resultSessionId = message.session_id;
+            const resultMsg = message as any;
+            costUsd = resultMsg.total_cost_usd ?? 0;
+            durationMs = resultMsg.duration_ms ?? 0;
+            numTurns = resultMsg.num_turns ?? 0;
+            resultSessionId = resultMsg.session_id ?? resultSessionId;
+
+            if (message.subtype !== 'success') {
+              error = {
+                level: 'result',
+                reason: message.subtype as QueryErrorInfo['reason'],
+                messages: resultMsg.errors ?? [`Query ended with: ${message.subtype}`],
+              };
+              callbacks?.onError?.(error);
             }
             break;
           }
@@ -133,6 +153,7 @@ export function createAIEngine(config?: EngineConfig): AIEngine {
         costUsd,
         durationMs,
         numTurns,
+        ...(error ? { error } : {}),
       };
     },
   };

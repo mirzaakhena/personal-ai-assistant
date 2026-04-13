@@ -11,4 +11,7 @@ export type {
   SendMessageItem,
   InitInfo,
   RateLimitInfo,
+  QueryErrorInfo,
+  QueryErrorReason,
+  AssistantError,
 } from './types.js';

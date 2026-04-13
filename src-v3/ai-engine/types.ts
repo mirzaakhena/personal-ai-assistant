@@ -28,6 +28,35 @@ export interface RateLimitInfo {
   remaining: number;
 }
 
+// ── Error types ──────────────────────────────────────────
+
+/** Error reason from SDK result */
+export type QueryErrorReason =
+  | 'error_during_execution'
+  | 'error_max_turns'
+  | 'error_max_budget_usd'
+  | 'error_max_structured_output_retries';
+
+/** Error from assistant message (API-level) */
+export type AssistantError =
+  | 'authentication_failed'
+  | 'billing_error'
+  | 'rate_limit'
+  | 'invalid_request'
+  | 'server_error'
+  | 'unknown'
+  | 'max_output_tokens';
+
+/** Error info passed to onError callback and included in QueryResult */
+export interface QueryErrorInfo {
+  /** Which level: result-level or assistant-level */
+  level: 'result' | 'assistant';
+  /** Error reason/type */
+  reason: QueryErrorReason | AssistantError;
+  /** Human-readable error messages (from SDK errors[] array, or single message) */
+  messages: string[];
+}
+
 // ── Callbacks ────────────────────────────────────────────
 
 /**
@@ -47,6 +76,8 @@ export interface QueryCallbacks {
   onSessionId?: (id: string) => void;
   /** Called on rate limit events */
   onRateLimit?: (info: RateLimitInfo) => void;
+  /** Called on errors (result-level or assistant-level) */
+  onError?: (error: QueryErrorInfo) => void;
 }
 
 // ── Config & Options ─────────────────────────────────────
@@ -90,4 +121,6 @@ export interface QueryResult {
   costUsd: number;
   durationMs: number;
   numTurns: number;
+  /** Present if the query ended with an error */
+  error?: QueryErrorInfo;
 }
