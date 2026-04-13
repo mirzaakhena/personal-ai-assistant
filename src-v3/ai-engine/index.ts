@@ -7,8 +7,6 @@ export type {
   QueryOptions,
   QueryCallbacks,
   QueryResult,
-  SendMessageHandler,
-  SendMessageItem,
   InitInfo,
   RateLimitInfo,
   QueryErrorInfo,
