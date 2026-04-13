@@ -21,23 +21,23 @@ export function createSessionStore(dbPath: string = 'data/sessions.db'): Session
 
   db.exec(`
     CREATE TABLE IF NOT EXISTS sessions (
-      phone_number TEXT PRIMARY KEY,
+      user_id TEXT PRIMARY KEY,
       session_id TEXT NOT NULL,
       updated_at INTEGER NOT NULL
     )
   `);
 
   const stmtGet = db.prepare<[string], { session_id: string }>(
-    'SELECT session_id FROM sessions WHERE phone_number = ?'
+    'SELECT session_id FROM sessions WHERE user_id = ?'
   );
 
   const stmtUpsert = db.prepare(
-    `INSERT INTO sessions (phone_number, session_id, updated_at)
+    `INSERT INTO sessions (user_id, session_id, updated_at)
      VALUES (?, ?, ?)
-     ON CONFLICT(phone_number) DO UPDATE SET session_id = excluded.session_id, updated_at = excluded.updated_at`
+     ON CONFLICT(user_id) DO UPDATE SET session_id = excluded.session_id, updated_at = excluded.updated_at`
   );
 
-  const stmtDelete = db.prepare('DELETE FROM sessions WHERE phone_number = ?');
+  const stmtDelete = db.prepare('DELETE FROM sessions WHERE user_id = ?');
 
   return {
     get(userId: string): string | undefined {
