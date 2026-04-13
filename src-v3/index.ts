@@ -1,16 +1,30 @@
 // src-v3/index.ts
 
-import { executeQuery } from './ai-engine/index.js';
+import { createAIEngine } from './ai-engine/index.js';
+
+const engine = createAIEngine({
+  model: 'haiku',
+  onSendMessage: async (messages) => {
+    for (const msg of messages) {
+      console.log(`[send_message]: ${msg.content}`);
+    }
+  },
+});
 
 const prompt = '[user]: Hello, who are you?';
 
 console.log(prompt);
 console.log('---');
 
-const result = await executeQuery(prompt, {
-  onMessage: (text) => console.log(`[message]: ${text}`),
-  onToolUse: (name) => console.log(`[tool]: ${name}`),
-  onSessionId: (id) => console.log(`[session]: ${id}`),
+const result = await engine.query(prompt, {
+  callbacks: {
+    onInit: (info) => console.log(`[init]: model=${info.model} tools=${info.tools.length}`),
+    onThinking: (text) => console.log(`[thinking]: ${text.slice(0, 100)}...`),
+    onMessage: (text) => console.log(`[message]: ${text.slice(0, 100)}...`),
+    onToolUse: (name) => console.log(`[tool]: ${name}`),
+    onSessionId: (id) => console.log(`[session]: ${id}`),
+    onRateLimit: (info) => console.log(`[rate_limit]: resets=${info.resetsAt}`),
+  },
 });
 
 console.log('---');
