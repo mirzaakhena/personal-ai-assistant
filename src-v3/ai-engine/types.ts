@@ -1,16 +1,5 @@
 // src-v3/ai-engine/types.ts
 
-// ── send_message tool types ──────────────────────────────
-
-/** A single message from the send_message tool */
-export interface SendMessageItem {
-  content: string;
-  pauseBeforeTyping: number;
-}
-
-/** Handler for send_message tool invocations */
-export type SendMessageHandler = (messages: SendMessageItem[]) => Promise<void> | void;
-
 // ── Callback info types ──────────────────────────────────
 
 /** Info from system.init message */
