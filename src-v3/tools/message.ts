@@ -3,20 +3,28 @@
 import { createSdkMcpServer, tool } from "@anthropic-ai/claude-agent-sdk";
 import { z } from "zod";
 
-/** A single message from the send_message tool */
+/** A single message item from the send_message tool */
 export interface SendMessageItem {
   content: string;
   pauseBeforeTyping: number;
 }
 
-/** Handler for send_message tool invocations */
-export type SendMessageHandler = (messages: SendMessageItem[]) => Promise<void> | void;
+/**
+ * Delivery function — how a message reaches the user.
+ * Gateway implementations provide this; tool handler calls it per message.
+ */
+export type MessageDeliver = (userId: string, content: string) => Promise<void>;
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
 
 /**
- * Create a standalone MCP server for the send_message tool.
- * @param handler - Optional delivery handler. Falls back to console.log.
+ * Create a standalone MCP server for send_message.
+ * @param deliver - Function called to deliver each message
+ * @param userId - Bound at server creation; tool calls deliver(userId, content)
  */
-export function createMessageServer(handler?: SendMessageHandler) {
+export function createMessageServer(deliver: MessageDeliver, userId: string) {
   const sendMessageTool = tool(
     "send_message",
     `Send one or multiple messages to user with realistic human-like timing.
@@ -44,12 +52,9 @@ Minimum pauseBeforeTyping is 1000ms for natural, realistic feel.`,
       })).min(1).describe("Array of messages to send sequentially"),
     },
     async (args) => {
-      if (handler) {
-        await handler(args.messages);
-      } else {
-        for (const msg of args.messages) {
-          console.log(`[assistant]: ${msg.content}`);
-        }
+      for (const msg of args.messages) {
+        await sleep(msg.pauseBeforeTyping);
+        await deliver(userId, msg.content);
       }
       return {
         content: [{ type: "text" as const, text: JSON.stringify({ success: true, message_count: args.messages.length }) }]
