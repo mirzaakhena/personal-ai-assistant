@@ -56,7 +56,7 @@ export function createAIEngine(config?: EngineConfig): AIEngine {
   const defaults = {
     model: config?.model ?? 'haiku', // TODO: read from env (CLAUDE_MODEL)
     systemPrompt: config?.systemPrompt ?? DEFAULT_SYSTEM_PROMPT,
-    maxTurns: config?.maxTurns ?? 3,
+    maxTurns: config?.maxTurns ?? 10,
     effort: config?.effort ?? 'low',
     mcpServers: config?.mcpServers ?? {},
   };
