@@ -2,16 +2,27 @@
 
 const TIMEZONE = 'Asia/Jakarta';
 
-function getFormattedDateTime(): { dateStr: string; timeStr: string } {
-  const now = new Date();
+export type QuotedSender = 'user' | 'assistant';
 
+export interface QuotedInfo {
+  /** The text of the quoted message */
+  content: string;
+  /** Who sent the quoted message */
+  sender: QuotedSender;
+  /** When the quoted message was originally sent (optional) */
+  at?: Date;
+  /** True if the quoted message was originally forwarded from elsewhere */
+  forwarded?: boolean;
+}
+
+function formatDateTime(date: Date): { dateStr: string; timeStr: string } {
   const dateStr = new Intl.DateTimeFormat('en-US', {
     timeZone: TIMEZONE,
     weekday: 'long',
     year: 'numeric',
     month: 'long',
     day: 'numeric',
-  }).format(now);
+  }).format(date);
 
   const timeStr = new Intl.DateTimeFormat('en-US', {
     timeZone: TIMEZONE,
@@ -20,7 +31,7 @@ function getFormattedDateTime(): { dateStr: string; timeStr: string } {
     second: '2-digit',
     hour12: false,
     timeZoneName: 'short',
-  }).format(now);
+  }).format(date);
 
   return { dateStr, timeStr };
 }
@@ -29,16 +40,24 @@ function getFormattedDateTime(): { dateStr: string; timeStr: string } {
  * Format a user message with timestamp and optional quoted context.
  * Used when a real user sends a message via gateway.
  */
-export function buildUserPrompt(message: string, quotedMessage?: string): string {
-  const { dateStr, timeStr } = getFormattedDateTime();
+export function buildUserPrompt(message: string, quoted?: QuotedInfo): string {
+  const now = formatDateTime(new Date());
 
-  const quotedBlock = quotedMessage
-    ? `\n[REPLYING TO]\n${quotedMessage}\n`
-    : '';
+  let quotedBlock = '';
+  if (quoted) {
+    const senderLine = `From: ${quoted.sender}${quoted.forwarded ? ' (forwarded)' : ''}`;
+    const lines = ['', '[REPLYING TO]', senderLine];
+    if (quoted.at) {
+      const q = formatDateTime(quoted.at);
+      lines.push(`Timestamp: ${q.dateStr}, ${q.timeStr}`);
+    }
+    lines.push(quoted.content, '');
+    quotedBlock = lines.join('\n');
+  }
 
   return `[USER MESSAGE]
 
-Timestamp: ${dateStr}, ${timeStr}
+Timestamp: ${now.dateStr}, ${now.timeStr}
 ${quotedBlock}
 [MESSAGE]
 ${message}`;
@@ -49,7 +68,7 @@ ${message}`;
  * Used for automated messages that appear as if from the system.
  */
 export function buildSystemMessagePrompt(message: string): string {
-  const { dateStr, timeStr } = getFormattedDateTime();
+  const { dateStr, timeStr } = formatDateTime(new Date());
 
   return `[SYSTEM MESSAGE]
 
