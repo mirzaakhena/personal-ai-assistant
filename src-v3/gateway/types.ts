@@ -1,8 +1,11 @@
 // src-v3/gateway/types.ts
 
 /**
- * Common gateway interface.
- * All gateway implementations (console, whatsapp, webchat) implement this.
+ * Gateway is the conversation adapter — owns the input loop,
+ * AI query flow, and output delivery. Each gateway is self-contained.
+ *
+ * By design, only one gateway is active per runtime.
+ * Implementations: console (testing), webchat, whatsapp, telegram (future).
  */
 export interface Gateway {
   /** Start the gateway (enter input loop, listen for connections, etc.) */
