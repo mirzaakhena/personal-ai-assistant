@@ -96,18 +96,19 @@ export function createJournalStore(dbPath: string = 'data/journal.db'): JournalS
     END;
   `);
 
-  // One-time populate FTS5 from existing messages (first run after FTS5 upgrade)
+  // One-time populate FTS5 index from existing messages (first run after FTS5 upgrade).
+  // For external-content FTS5, `messages_fts` row count mirrors the joined source table.
+  // The actual index state lives in shadow table `messages_fts_docsize` — one row per
+  // indexed document. When it's empty but source has rows, the index is uninitialized.
   const counts = db.prepare(`
     SELECT
       (SELECT COUNT(*) FROM messages WHERE body IS NOT NULL) AS m,
-      (SELECT COUNT(*) FROM messages_fts) AS f
-  `).get() as { m: number; f: number };
+      (SELECT COUNT(*) FROM messages_fts_docsize) AS d
+  `).get() as { m: number; d: number };
 
-  if (counts.m > 0 && counts.f === 0) {
-    db.exec(`
-      INSERT INTO messages_fts(rowid, body)
-      SELECT rowid, body FROM messages WHERE body IS NOT NULL
-    `);
+  if (counts.m > 0 && counts.d === 0) {
+    // Build the inverted index by scanning the source table and tokenizing properly.
+    db.exec(`INSERT INTO messages_fts(messages_fts) VALUES('rebuild')`);
   }
 
   const stmtInsert = db.prepare(`
