@@ -3,22 +3,86 @@
 import * as readline from 'readline/promises';
 import { stdin, stdout } from 'process';
 import type { Gateway } from './types.js';
-import type { AIEngine } from '../ai-engine/index.js';
-import type { SessionStore } from '../db/sessions.js';
+import { createAIEngine } from '../ai-engine/index.js';
+import { createMessageServer, type MessageDeliver } from '../tools/message.js';
+import { createMemoryServer, type MemoryHandlers } from '../tools/memory.js';
+import { createCronjobServer, type CronjobHandlers, type CronjobInfo } from '../tools/cronjob.js';
+import { createSessionStore } from '../db/sessions.js';
 import { log } from '../utils/logger.js';
 import { buildUserPrompt } from '../utils/prompt.js';
 import { incrementTurnCount, getTurnCount, clearTurnCount } from '../utils/turns.js';
 import { updateStats, getStats, clearStats } from '../utils/stats.js';
 
 export interface ConsoleGatewayConfig {
-  engine: AIEngine;
-  sessions: SessionStore;
+  /** Session DB path, default 'data/sessions.db' */
+  sessionDbPath?: string;
+  /** AI model, default 'haiku' */
+  model?: string;
+  /** Memory handlers, default in-memory Map */
+  memoryHandlers?: MemoryHandlers;
+  /** Cronjob handlers, default in-memory Map */
+  cronjobHandlers?: CronjobHandlers;
+  /** User ID for the console session, default 'console-user' */
   userId?: string;
 }
 
-export function createConsoleGateway(config: ConsoleGatewayConfig): Gateway {
-  const { engine, sessions } = config;
-  const userId = config.userId ?? 'console-user';
+function defaultMemoryHandlers(): MemoryHandlers {
+  const store = new Map<string, string>();
+  return {
+    save: (key, value) => {
+      store.set(key, value);
+      log.debug(`memory:save ${key} = ${value}`);
+    },
+    recall: (key) => {
+      const value = store.get(key) ?? null;
+      log.debug(`memory:recall ${key} → ${value}`);
+      return value;
+    },
+  };
+}
+
+function defaultCronjobHandlers(): CronjobHandlers {
+  const store = new Map<string, CronjobInfo>();
+  let counter = 0;
+  return {
+    create: (job) => {
+      const id = `job_${++counter}`;
+      store.set(id, {
+        id,
+        type: job.type,
+        message: job.message,
+        scheduleHuman: job.scheduleHuman,
+        status: 'active',
+      });
+      log.debug(`cronjob:create ${id} — ${job.scheduleHuman}`);
+      return id;
+    },
+    list: () => [...store.values()],
+    delete: (id) => store.delete(id),
+  };
+}
+
+export function createConsoleGateway(config?: ConsoleGatewayConfig): Gateway {
+  const userId = config?.userId ?? 'console-user';
+  const model = config?.model ?? 'haiku';
+  const memoryHandlers = config?.memoryHandlers ?? defaultMemoryHandlers();
+  const cronjobHandlers = config?.cronjobHandlers ?? defaultCronjobHandlers();
+
+  const sessions = createSessionStore(config?.sessionDbPath);
+
+  const engine = createAIEngine({
+    model,
+    mcpServers: {
+      memory: createMemoryServer(memoryHandlers),
+      cronjob: createCronjobServer(cronjobHandlers),
+    },
+  });
+
+  // Internal delivery — how this gateway sends messages to the user
+  const deliver: MessageDeliver = async (_uid, content) => {
+    console.log(`\n${content}\n`);
+  };
+
   let rl: readline.Interface | null = null;
   let running = false;
 
@@ -60,6 +124,9 @@ export function createConsoleGateway(config: ConsoleGatewayConfig): Gateway {
 
     const result = await engine.query(prompt, {
       sessionId,
+      mcpServers: {
+        message: createMessageServer(deliver, userId),
+      },
       callbacks: {
         onInit: (info) => log.debug(`model=${info.model} tools=${info.tools.length}`),
         onThinking: (text) => log.debug(`thinking: ${text.slice(0, 80)}...`),
@@ -99,7 +166,6 @@ export function createConsoleGateway(config: ConsoleGatewayConfig): Gateway {
         try {
           input = await rl.question('you > ');
         } catch {
-          // readline closed (Ctrl+C or Ctrl+D)
           break;
         }
 

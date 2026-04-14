@@ -24,11 +24,9 @@ const sessions = createSessionStore(); // default: data/sessions.db
 const engine = createAIEngine({
   model: 'haiku',
   mcpServers: {
-    message: createMessageServer(async (messages) => {
-      for (const msg of messages) {
-        log.chat(`← ${msg.content}`);
-      }
-    }),
+    message: createMessageServer(async (_uid, content) => {
+      log.chat(`← ${content}`);
+    }, 'dev-user'),
     memory: createMemoryServer({
       save: (key, value) => {
         memoryStore.set(key, value);
