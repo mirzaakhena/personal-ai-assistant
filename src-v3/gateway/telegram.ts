@@ -4,6 +4,11 @@ import { Bot } from 'grammy';
 import type { Gateway } from './types.js';
 import { createAIEngine } from '../ai-engine/index.js';
 import type { QueryResult, ContentBlock } from '../ai-engine/index.js';
+import {
+  validateAndBuildBlock,
+  formatValidationError,
+  type MediaContentBlock,
+} from '../utils/media.js';
 import { createMessageServer, type MessageDeliver } from '../tools/message.js';
 import { createMemoryServer, type MemoryHandlers } from '../tools/memory.js';
 import { createCronjobServer, type CronjobHandlers } from '../tools/cronjob.js';
@@ -122,6 +127,16 @@ export function createTelegramGateway(config: TelegramGatewayConfig): Gateway {
 
   const bot = new Bot(config.token);
 
+  async function downloadTelegramFile(fileId: string): Promise<string> {
+    const file = await bot.api.getFile(fileId);
+    if (!file.file_path) throw new Error('file_path missing from getFile response');
+    const url = `https://api.telegram.org/file/bot${config.token}/${file.file_path}`;
+    const response = await fetch(url);
+    if (!response.ok) throw new Error(`download failed: ${response.status}`);
+    const arrayBuffer = await response.arrayBuffer();
+    return Buffer.from(arrayBuffer).toString('base64');
+  }
+
   // Internal delivery — how this gateway sends messages to the user
   const deliver: MessageDeliver = async (userId, content, options) => {
     const chatId = Number(userId);
@@ -229,12 +244,14 @@ export function createTelegramGateway(config: TelegramGatewayConfig): Gateway {
       });
 
   // Message handler — wire before bot.start()
-  bot.on('message:text', async (ctx) => {
+  bot.on(['message:text', ':photo', ':document'], async (ctx) => {
     const chatId = ctx.chat.id;
     if (!whitelist.has(chatId)) {
       log.debug(`[TG] blocked chat: ${chatId}`);
       return;
     }
+
+    if (!ctx.message) return;
 
     // Dedup guard
     const msgKey = `${chatId}:${ctx.message.message_id}`;
@@ -243,51 +260,102 @@ export function createTelegramGateway(config: TelegramGatewayConfig): Gateway {
       return;
     }
 
-    const text = ctx.message.text.trim();
-    if (!text) return;
-
+    const text = (ctx.message.text ?? ctx.message.caption ?? '').trim();
     const userId = String(chatId);
 
-    // Commands
-    if (text === '/start') {
-      await bot.api.sendMessage(chatId, 'Hi! Aku asisten pribadimu. Ada yang bisa aku bantu?');
-      return;
-    }
-    if (text === '/new') {
-      sessions.delete(userId);
-      clearTurnCount(userId);
-      clearStats(userId);
-      await bot.api.sendMessage(chatId, 'Session cleared. Starting fresh.');
-      return;
-    }
-    if (text === '/status') {
-      const sessionId = sessions.get(userId);
-      const turnCount = getTurnCount(userId);
-      const stats = getStats(userId);
-      const lines = [
-        `Session: ${sessionId ?? 'none'}`,
-        `Turns: ${turnCount}`,
-      ];
-      if (stats) {
-        lines.push(
-          `Cost: $${stats.accumulated.costUsd.toFixed(4)} (last: $${stats.lastQuery.costUsd.toFixed(4)})`,
-          `Duration: ${stats.accumulated.durationMs}ms (last: ${stats.lastQuery.durationMs}ms)`,
-          `AI Turns: ${stats.accumulated.numTurns} (last: ${stats.lastQuery.numTurns})`,
-        );
-      } else {
-        lines.push('Stats: no queries yet');
+    // Process media (if any) BEFORE commands — media messages never carry commands
+    const mediaBlocks: MediaContentBlock[] = [];
+
+    if (ctx.message.photo && ctx.message.photo.length > 0) {
+      const largest = ctx.message.photo[ctx.message.photo.length - 1];
+      try {
+        const data = await downloadTelegramFile(largest.file_id);
+        const validation = validateAndBuildBlock({ data, mimetype: 'image/jpeg' });
+        if (!validation.ok) {
+          await bot.api.sendMessage(chatId, `⚠️ ${formatValidationError(validation.error)}`);
+          return;
+        }
+        mediaBlocks.push(validation.block);
+      } catch (err) {
+        log.error(`[TG] photo download failed`, err);
+        await bot.api.sendMessage(chatId, '⚠️ Gagal memuat foto. Coba kirim ulang.');
+        return;
       }
-      await bot.api.sendMessage(chatId, lines.join('\n'));
-      return;
     }
 
-    // Regular message → engine, with quoted context if user replied to something
+    if (ctx.message.document) {
+      const doc = ctx.message.document;
+      try {
+        const data = await downloadTelegramFile(doc.file_id);
+        const validation = validateAndBuildBlock({
+          data,
+          mimetype: doc.mime_type ?? 'application/octet-stream',
+          filename: doc.file_name,
+        });
+        if (!validation.ok) {
+          await bot.api.sendMessage(chatId, `⚠️ ${formatValidationError(validation.error)}`);
+          return;
+        }
+        mediaBlocks.push(validation.block);
+      } catch (err) {
+        log.error(`[TG] document download failed`, err);
+        await bot.api.sendMessage(chatId, '⚠️ Gagal memuat dokumen. Coba kirim ulang.');
+        return;
+      }
+    }
+
+    // Skip entirely empty messages (no text AND no media)
+    if (!text && mediaBlocks.length === 0) return;
+
+    // Commands only apply to text-only messages (no media)
+    if (mediaBlocks.length === 0) {
+      if (text === '/start') {
+        await bot.api.sendMessage(chatId, 'Hi! Aku asisten pribadimu. Ada yang bisa aku bantu?');
+        return;
+      }
+      if (text === '/new') {
+        sessions.delete(userId);
+        clearTurnCount(userId);
+        clearStats(userId);
+        await bot.api.sendMessage(chatId, 'Session cleared. Starting fresh.');
+        return;
+      }
+      if (text === '/status') {
+        const sessionId = sessions.get(userId);
+        const turnCount = getTurnCount(userId);
+        const stats = getStats(userId);
+        const lines = [
+          `Session: ${sessionId ?? 'none'}`,
+          `Turns: ${turnCount}`,
+        ];
+        if (stats) {
+          lines.push(
+            `Cost: $${stats.accumulated.costUsd.toFixed(4)} (last: $${stats.lastQuery.costUsd.toFixed(4)})`,
+            `Duration: ${stats.accumulated.durationMs}ms (last: ${stats.lastQuery.durationMs}ms)`,
+            `AI Turns: ${stats.accumulated.numTurns} (last: ${stats.lastQuery.numTurns})`,
+          );
+        } else {
+          lines.push('Stats: no queries yet');
+        }
+        await bot.api.sendMessage(chatId, lines.join('\n'));
+        return;
+      }
+    }
+
+    // Build prompt — may return string or ContentBlock[]
     const quoted = extractQuoted(ctx.message.reply_to_message as RawReplyToMessage | undefined);
+    const prompt = buildUserPrompt(
+      text,
+      quoted,
+      mediaBlocks.length > 0 ? mediaBlocks : undefined
+    );
+
     const turn = incrementTurnCount(userId);
-    log.chat(`${chatId} → ${text.slice(0, 80)}`);
-    log.debug(`[TG] turn ${turn}${quoted ? ` (replying to ${quoted.sender}${quoted.forwarded ? '/forwarded' : ''})` : ''}`);
+    const mediaLog = mediaBlocks.length > 0 ? ` [+${mediaBlocks.length} media]` : '';
+    log.chat(`${chatId} → ${text.slice(0, 80)}${mediaLog}`);
+    log.debug(`[TG] turn ${turn}${quoted ? ` (replying to ${quoted.sender}${quoted.forwarded ? '/forwarded' : ''})` : ''}${mediaLog}`);
     try {
-      const result = await runQuery(userId, buildUserPrompt(text, quoted));
+      const result = await runQuery(userId, prompt);
       updateStats(userId, result.sessionId, result.costUsd, result.durationMs, result.numTurns);
     } catch (err) {
       log.error(`[TG] runQuery failed for ${chatId}`, err);
