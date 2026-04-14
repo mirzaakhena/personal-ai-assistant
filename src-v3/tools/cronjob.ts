@@ -26,6 +26,7 @@ export interface CronjobHandlers {
   create: (job: CronjobInput) => Promise<string> | string;
   list: () => Promise<CronjobInfo[]> | CronjobInfo[];
   delete: (jobId: string) => Promise<boolean> | boolean;
+  update: (jobId: string, patch: { message?: string }) => Promise<boolean> | boolean;
 }
 
 /**
@@ -107,9 +108,32 @@ Always provide schedule_human: a plain-language description (e.g. "Every day at 
     }
   );
 
+  const updateCronjobTool = tool(
+    "update_cronjob",
+    `Update the content of a scheduled reminder without changing its schedule.
+Currently only the "message" field can be updated. To change the schedule time,
+delete the existing job and create a new one.`,
+    {
+      job_id: z.string().min(1).describe("The ID of the cronjob to update"),
+      message: z.string().min(1).optional().describe("New message content for the reminder"),
+    },
+    async (args) => {
+      try {
+        const updated = await handlers.update(args.job_id, { message: args.message });
+        return {
+          content: [{ type: "text" as const, text: JSON.stringify({ success: updated }) }],
+        };
+      } catch (err) {
+        return {
+          content: [{ type: "text" as const, text: JSON.stringify({ success: false, error: String(err) }) }],
+        };
+      }
+    }
+  );
+
   return createSdkMcpServer({
     name: "cronjob",
     version: "1.0.0",
-    tools: [createCronjobTool, listCronjobsTool, deleteCronjobTool],
+    tools: [createCronjobTool, listCronjobsTool, deleteCronjobTool, updateCronjobTool],
   });
 }
