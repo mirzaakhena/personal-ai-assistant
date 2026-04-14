@@ -13,70 +13,80 @@ import { buildUserPrompt } from '../utils/prompt.js';
 import { incrementTurnCount, getTurnCount, clearTurnCount } from '../utils/turns.js';
 import { updateStats, getStats, clearStats } from '../utils/stats.js';
 
+/** Factory that returns handlers scoped to a specific userId */
+export type MemoryHandlersFactory = (userId: string) => MemoryHandlers;
+export type CronjobHandlersFactory = (userId: string) => CronjobHandlers;
+
 export interface ConsoleGatewayConfig {
   /** Session DB path, default 'data/sessions.db' */
   sessionDbPath?: string;
   /** AI model, default 'haiku' */
   model?: string;
-  /** Memory handlers, default in-memory Map */
-  memoryHandlers?: MemoryHandlers;
-  /** Cronjob handlers, default in-memory Map */
-  cronjobHandlers?: CronjobHandlers;
+  /** Memory handlers factory, default in-memory Map keyed by userId */
+  memoryHandlers?: MemoryHandlersFactory;
+  /** Cronjob handlers factory, default in-memory Map keyed by userId */
+  cronjobHandlers?: CronjobHandlersFactory;
   /** User ID for the console session, default 'console-user' */
   userId?: string;
 }
 
-function defaultMemoryHandlers(): MemoryHandlers {
-  const store = new Map<string, string>();
-  return {
+/** Default in-memory backend — shared Map, keyed by `${userId}:${key}` */
+function defaultMemoryHandlersFactory(): MemoryHandlersFactory {
+  const backend = new Map<string, string>();
+  return (userId: string) => ({
     save: (key, value) => {
-      store.set(key, value);
-      log.debug(`memory:save ${key} = ${value}`);
+      backend.set(`${userId}:${key}`, value);
+      log.debug(`memory:save [${userId}] ${key} = ${value}`);
     },
     recall: (key) => {
-      const value = store.get(key) ?? null;
-      log.debug(`memory:recall ${key} → ${value}`);
+      const value = backend.get(`${userId}:${key}`) ?? null;
+      log.debug(`memory:recall [${userId}] ${key} → ${value}`);
       return value;
     },
-  };
+  });
 }
 
-function defaultCronjobHandlers(): CronjobHandlers {
-  const store = new Map<string, CronjobInfo>();
+/** Default in-memory cronjob backend — shared Map, each entry tagged with userId */
+function defaultCronjobHandlersFactory(): CronjobHandlersFactory {
+  interface StoredJob extends CronjobInfo { userId: string; }
+  const backend = new Map<string, StoredJob>();
   let counter = 0;
-  return {
+  return (userId: string) => ({
     create: (job) => {
       const id = `job_${++counter}`;
-      store.set(id, {
+      backend.set(id, {
         id,
+        userId,
         type: job.type,
         message: job.message,
         scheduleHuman: job.scheduleHuman,
         status: 'active',
       });
-      log.debug(`cronjob:create ${id} — ${job.scheduleHuman}`);
+      log.debug(`cronjob:create [${userId}] ${id} — ${job.scheduleHuman}`);
       return id;
     },
-    list: () => [...store.values()],
-    delete: (id) => store.delete(id),
-  };
+    list: () =>
+      [...backend.values()]
+        .filter((j) => j.userId === userId)
+        .map(({ userId: _uid, ...info }) => info),
+    delete: (id) => {
+      const job = backend.get(id);
+      if (!job || job.userId !== userId) return false;
+      return backend.delete(id);
+    },
+  });
 }
 
 export function createConsoleGateway(config?: ConsoleGatewayConfig): Gateway {
   const userId = config?.userId ?? 'console-user';
   const model = config?.model ?? 'haiku';
-  const memoryHandlers = config?.memoryHandlers ?? defaultMemoryHandlers();
-  const cronjobHandlers = config?.cronjobHandlers ?? defaultCronjobHandlers();
+  const memoryHandlersFactory = config?.memoryHandlers ?? defaultMemoryHandlersFactory();
+  const cronjobHandlersFactory = config?.cronjobHandlers ?? defaultCronjobHandlersFactory();
 
   const sessions = createSessionStore(config?.sessionDbPath);
 
-  const engine = createAIEngine({
-    model,
-    mcpServers: {
-      memory: createMemoryServer(memoryHandlers),
-      cronjob: createCronjobServer(cronjobHandlers),
-    },
-  });
+  // Engine has NO MCP servers at creation — all servers bind userId per-query
+  const engine = createAIEngine({ model });
 
   // Internal delivery — how this gateway sends messages to the user
   const deliver: MessageDeliver = async (_uid, content) => {
@@ -126,6 +136,8 @@ export function createConsoleGateway(config?: ConsoleGatewayConfig): Gateway {
       sessionId,
       mcpServers: {
         message: createMessageServer(deliver, userId),
+        memory: createMemoryServer(memoryHandlersFactory(userId)),
+        cronjob: createCronjobServer(cronjobHandlersFactory(userId)),
       },
       callbacks: {
         onInit: (info) => log.debug(`model=${info.model} tools=${info.tools.length}`),
