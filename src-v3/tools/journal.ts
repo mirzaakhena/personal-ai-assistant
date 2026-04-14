@@ -13,7 +13,7 @@ export interface JournalSearchFilter {
   gateway?: string;
   hasMedia?: boolean;
   limit?: number;
-  order?: 'newest' | 'oldest';
+  order?: 'newest' | 'oldest' | 'relevant';
 }
 
 export interface MessageSearchResult {
@@ -64,11 +64,17 @@ Timestamps in args use ISO 8601 format; timestamps in results are ISO 8601 with 
       from_time: z.string().optional().describe("ISO 8601 start of time range (inclusive)"),
       to_time: z.string().optional().describe("ISO 8601 end of time range (exclusive)"),
       sender: z.enum(['user', 'assistant', 'system']).optional().describe("Filter by who sent the message"),
-      query: z.string().optional().describe("Keyword to search within message body (case-insensitive substring match)"),
+      query: z.string().optional().describe(
+        "Search text. Uses SQLite FTS5 (unicode61, case-insensitive). Syntax: " +
+        "'koper' (simple keyword), 'koper pilox' (implicit AND), '\"koper pilox\"' (exact phrase), " +
+        "'koper*' (prefix match), 'koper OR ransel' (boolean), 'koper NOT hitam' (exclude)."
+      ),
       gateway: z.string().optional().describe("Filter by source gateway: 'telegram', 'whatsapp', 'console'"),
       has_media: z.boolean().optional().describe("Only messages with (true) or without (false) media attachments"),
       limit: z.number().int().min(1).max(100).optional().describe("Max results (default 20, max 100)"),
-      order: z.enum(['newest', 'oldest']).optional().describe("Sort order (default 'newest')"),
+      order: z.enum(['newest', 'oldest', 'relevant']).optional().describe(
+        "Sort order. Default 'relevant' when query is present (BM25 ranking), else 'newest'."
+      ),
     },
     async (args) => {
       try {
