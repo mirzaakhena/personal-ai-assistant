@@ -12,7 +12,7 @@ import { createCronScheduler } from '../cron/scheduler.js';
 import { createTriggerServer } from '../trigger/server.js';
 import type { TriggerServer } from '../trigger/types.js';
 import { log } from '../utils/logger.js';
-import { buildUserPrompt, buildSystemMessagePrompt } from '../utils/prompt.js';
+import { buildUserPrompt, buildSystemMessagePrompt, type QuotedInfo } from '../utils/prompt.js';
 import { incrementTurnCount, getTurnCount, clearTurnCount } from '../utils/turns.js';
 import { updateStats, getStats, clearStats } from '../utils/stats.js';
 import { enqueue } from '../utils/queue.js';
@@ -35,6 +35,41 @@ function calcTypingDuration(content: string): number {
 
 function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+// --- Incoming message dedup ---
+const DEDUP_CAP = 1000;
+const DEDUP_KEEP = 500;
+const processedIncomingIds = new Set<string>();
+
+function isDuplicateIncoming(key: string): boolean {
+  if (processedIncomingIds.has(key)) return true;
+  processedIncomingIds.add(key);
+  if (processedIncomingIds.size > DEDUP_CAP) {
+    const keep = [...processedIncomingIds].slice(-DEDUP_KEEP);
+    processedIncomingIds.clear();
+    for (const id of keep) processedIncomingIds.add(id);
+  }
+  return false;
+}
+
+// --- Quoted message extraction ---
+interface RawReplyToMessage {
+  text?: string;
+  date?: number;
+  from?: { is_bot?: boolean };
+  forward_origin?: unknown;
+}
+
+function extractQuoted(reply: RawReplyToMessage | undefined): QuotedInfo | undefined {
+  if (!reply) return undefined;
+  if (typeof reply.text !== 'string') return undefined;  // only text quotes supported
+  return {
+    content: reply.text,
+    sender: reply.from?.is_bot ? 'assistant' : 'user',
+    at: typeof reply.date === 'number' ? new Date(reply.date * 1000) : undefined,
+    forwarded: Boolean(reply.forward_origin),
+  };
 }
 
 export interface TelegramGatewayConfig {
@@ -201,6 +236,13 @@ export function createTelegramGateway(config: TelegramGatewayConfig): Gateway {
       return;
     }
 
+    // Dedup guard
+    const msgKey = `${chatId}:${ctx.message.message_id}`;
+    if (isDuplicateIncoming(msgKey)) {
+      log.debug(`[TG] dedup: skipping duplicate incoming ${msgKey}`);
+      return;
+    }
+
     const text = ctx.message.text.trim();
     if (!text) return;
 
@@ -239,12 +281,13 @@ export function createTelegramGateway(config: TelegramGatewayConfig): Gateway {
       return;
     }
 
-    // Regular message → engine
+    // Regular message → engine, with quoted context if user replied to something
+    const quoted = extractQuoted(ctx.message.reply_to_message as RawReplyToMessage | undefined);
     const turn = incrementTurnCount(userId);
     log.chat(`${chatId} → ${text.slice(0, 80)}`);
-    log.debug(`[TG] turn ${turn}`);
+    log.debug(`[TG] turn ${turn}${quoted ? ` (replying to ${quoted.sender}${quoted.forwarded ? '/forwarded' : ''})` : ''}`);
     try {
-      const result = await runQuery(userId, buildUserPrompt(text));
+      const result = await runQuery(userId, buildUserPrompt(text, quoted));
       updateStats(userId, result.sessionId, result.costUsd, result.durationMs, result.numTurns);
     } catch (err) {
       log.error(`[TG] runQuery failed for ${chatId}`, err);
