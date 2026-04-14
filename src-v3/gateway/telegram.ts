@@ -23,6 +23,8 @@ export type MemoryHandlersFactory = (userId: string) => MemoryHandlers;
 const TYPING_MS_PER_CHAR = 30;
 const MIN_TYPING_DURATION_MS = 1000;
 const MAX_TYPING_DURATION_MS = 8000;
+// Telegram's typing indicator auto-expires after ~5s; refresh before that
+const TYPING_REFRESH_INTERVAL_MS = 4000;
 
 function calcTypingDuration(content: string): number {
   return Math.min(
@@ -94,13 +96,19 @@ export function createTelegramGateway(config: TelegramGatewayConfig): Gateway {
       await sleep(pause);
     }
 
-    try {
-      await bot.api.sendChatAction(chatId, 'typing');
-    } catch (err) {
-      log.debug(`[TG] sendChatAction failed: ${err}`);
+    // Keep typing indicator alive for the full duration.
+    // Telegram auto-expires typing after ~5s, so we refresh every 4s.
+    const end = Date.now() + calcTypingDuration(content);
+    while (Date.now() < end) {
+      try {
+        await bot.api.sendChatAction(chatId, 'typing');
+      } catch (err) {
+        log.debug(`[TG] sendChatAction failed: ${err}`);
+      }
+      const remaining = end - Date.now();
+      if (remaining <= 0) break;
+      await sleep(Math.min(TYPING_REFRESH_INTERVAL_MS, remaining));
     }
-
-    await sleep(calcTypingDuration(content));
 
     try {
       await bot.api.sendMessage(chatId, content);
