@@ -113,7 +113,8 @@ export function createJournalStore(dbPath: string = 'data/journal.db'): JournalS
       params.push(filter.sender);
     }
     if (filter.query !== undefined && filter.query.length > 0) {
-      conditions.push("body LIKE '%' || ? || '%'");
+      // Case-insensitive search via LOWER() on both sides; handles Unicode better than default LIKE
+      conditions.push("LOWER(body) LIKE LOWER('%' || ? || '%')");
       params.push(filter.query);
     }
     if (filter.gateway !== undefined) {
