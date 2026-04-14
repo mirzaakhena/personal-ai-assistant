@@ -53,6 +53,7 @@ const engine = createAIEngine({
       },
       list: () => [...cronjobStore.values()],
       delete: (jobId) => cronjobStore.delete(jobId),
+      update: () => false,
     }),
   },
 });

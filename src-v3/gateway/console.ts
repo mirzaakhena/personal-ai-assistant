@@ -4,33 +4,35 @@ import * as readline from 'readline/promises';
 import { stdin, stdout } from 'process';
 import type { Gateway } from './types.js';
 import { createAIEngine } from '../ai-engine/index.js';
+import type { QueryResult } from '../ai-engine/index.js';
 import { createMessageServer, type MessageDeliver } from '../tools/message.js';
 import { createMemoryServer, type MemoryHandlers } from '../tools/memory.js';
-import { createCronjobServer, type CronjobHandlers, type CronjobInfo } from '../tools/cronjob.js';
+import { createCronjobServer, type CronjobHandlers } from '../tools/cronjob.js';
 import { createSessionStore } from '../db/sessions.js';
+import { createCronScheduler } from '../cron/scheduler.js';
 import { log } from '../utils/logger.js';
-import { buildUserPrompt } from '../utils/prompt.js';
+import { buildUserPrompt, buildSystemMessagePrompt } from '../utils/prompt.js';
 import { incrementTurnCount, getTurnCount, clearTurnCount } from '../utils/turns.js';
 import { updateStats, getStats, clearStats } from '../utils/stats.js';
+import { enqueue } from '../utils/queue.js';
 
 /** Factory that returns handlers scoped to a specific userId */
 export type MemoryHandlersFactory = (userId: string) => MemoryHandlers;
-export type CronjobHandlersFactory = (userId: string) => CronjobHandlers;
 
 export interface ConsoleGatewayConfig {
   /** Session DB path, default 'data/sessions.db' */
   sessionDbPath?: string;
+  /** Cronjob DB path, default 'data/cronjobs.db' */
+  cronDbPath?: string;
   /** AI model, default 'haiku' */
   model?: string;
   /** Memory handlers factory, default in-memory Map keyed by userId */
   memoryHandlers?: MemoryHandlersFactory;
-  /** Cronjob handlers factory, default in-memory Map keyed by userId */
-  cronjobHandlers?: CronjobHandlersFactory;
   /** User ID for the console session, default 'console-user' */
   userId?: string;
 }
 
-/** Default in-memory backend — shared Map, keyed by `${userId}:${key}` */
+/** Default in-memory memory backend — shared Map, keyed by `${userId}:${key}` */
 function defaultMemoryHandlersFactory(): MemoryHandlersFactory {
   const backend = new Map<string, string>();
   return (userId: string) => ({
@@ -46,42 +48,10 @@ function defaultMemoryHandlersFactory(): MemoryHandlersFactory {
   });
 }
 
-/** Default in-memory cronjob backend — shared Map, each entry tagged with userId */
-function defaultCronjobHandlersFactory(): CronjobHandlersFactory {
-  interface StoredJob extends CronjobInfo { userId: string; }
-  const backend = new Map<string, StoredJob>();
-  let counter = 0;
-  return (userId: string) => ({
-    create: (job) => {
-      const id = `job_${++counter}`;
-      backend.set(id, {
-        id,
-        userId,
-        type: job.type,
-        message: job.message,
-        scheduleHuman: job.scheduleHuman,
-        status: 'active',
-      });
-      log.debug(`cronjob:create [${userId}] ${id} — ${job.scheduleHuman}`);
-      return id;
-    },
-    list: () =>
-      [...backend.values()]
-        .filter((j) => j.userId === userId)
-        .map(({ userId: _uid, ...info }) => info),
-    delete: (id) => {
-      const job = backend.get(id);
-      if (!job || job.userId !== userId) return false;
-      return backend.delete(id);
-    },
-  });
-}
-
 export function createConsoleGateway(config?: ConsoleGatewayConfig): Gateway {
   const userId = config?.userId ?? 'console-user';
   const model = config?.model ?? 'haiku';
   const memoryHandlersFactory = config?.memoryHandlers ?? defaultMemoryHandlersFactory();
-  const cronjobHandlersFactory = config?.cronjobHandlers ?? defaultCronjobHandlersFactory();
 
   const sessions = createSessionStore(config?.sessionDbPath);
 
@@ -92,6 +62,60 @@ export function createConsoleGateway(config?: ConsoleGatewayConfig): Gateway {
   const deliver: MessageDeliver = async (_uid, content) => {
     console.log(`\n${content}\n`);
   };
+
+  // Cronjob handlers factory — delegates to scheduler
+  const cronjobHandlersFactory = (userId: string): CronjobHandlers => ({
+    create: (job) => scheduler.schedule(userId, job),
+    list: () => scheduler.list(userId),
+    delete: (jobId) => scheduler.delete(userId, jobId),
+    update: (jobId, patch) => scheduler.update(userId, jobId, patch),
+  });
+
+  /** Shared query execution — used by both user input and cron fire */
+  async function runQuery(queryUserId: string, prompt: string): Promise<QueryResult> {
+    const sessionId = sessions.get(queryUserId);
+
+    const result = await engine.query(prompt, {
+      sessionId,
+      mcpServers: {
+        message: createMessageServer(deliver, queryUserId),
+        memory: createMemoryServer(memoryHandlersFactory(queryUserId)),
+        cronjob: createCronjobServer(cronjobHandlersFactory(queryUserId)),
+      },
+      callbacks: {
+        onInit: (info) => log.debug(`model=${info.model} tools=${info.tools.length}`),
+        onThinking: (text) => log.debug(`thinking: ${text.slice(0, 80)}...`),
+        onToolUse: (name) => log.debug(`tool: ${name}`),
+        onSessionId: (id) => log.debug(`session: ${id}`),
+        onError: (err) => log.error(`[${err.level}] ${err.reason}: ${err.messages.join(', ')}`),
+        onFallback: (text) => {
+          log.debug('send_message not called (possibly not relevant)');
+          if (text) console.log(`\n${text}\n`);
+        },
+      },
+    });
+
+    sessions.save(queryUserId, result.sessionId);
+    return result;
+  }
+
+  // Cron scheduler — fires wrapped in queue to serialize per-user
+  const scheduler = createCronScheduler({
+    cronDbPath: config?.cronDbPath,
+    onFire: (job) => new Promise<void>((resolve, reject) => {
+      enqueue(job.userId, async () => {
+        try {
+          log.debug(`cron:${job.id} firing — ${job.scheduleHuman}`);
+          const prompt = buildSystemMessagePrompt(job.message);
+          await runQuery(job.userId, prompt);
+          resolve();
+        } catch (err) {
+          log.error(`cron:${job.id} failed`, err);
+          reject(err);
+        }
+      });
+    }),
+  });
 
   let rl: readline.Interface | null = null;
   let running = false;
@@ -127,40 +151,20 @@ export function createConsoleGateway(config?: ConsoleGatewayConfig): Gateway {
 
   async function handleMessage(input: string): Promise<void> {
     const turn = incrementTurnCount(userId);
-    const sessionId = getSessionId();
+    log.debug(`turn ${turn}`);
+
     const prompt = buildUserPrompt(input);
-
-    log.debug(`turn ${turn}, session: ${sessionId ?? 'new'}`);
-
-    const result = await engine.query(prompt, {
-      sessionId,
-      mcpServers: {
-        message: createMessageServer(deliver, userId),
-        memory: createMemoryServer(memoryHandlersFactory(userId)),
-        cronjob: createCronjobServer(cronjobHandlersFactory(userId)),
-      },
-      callbacks: {
-        onInit: (info) => log.debug(`model=${info.model} tools=${info.tools.length}`),
-        onThinking: (text) => log.debug(`thinking: ${text.slice(0, 80)}...`),
-        onToolUse: (name) => log.debug(`tool: ${name}`),
-        onSessionId: (id) => log.debug(`session: ${id}`),
-        onError: (err) => log.error(`[${err.level}] ${err.reason}: ${err.messages.join(', ')}`),
-        onFallback: (text) => {
-          log.error('send_message not called');
-          if (text) {
-            console.log(`\n${text}\n`);
-          }
-        },
-      },
-    });
-
-    sessions.save(userId, result.sessionId);
+    const result = await runQuery(userId, prompt);
     updateStats(userId, result.sessionId, result.costUsd, result.durationMs, result.numTurns);
   }
 
   return {
     async start(): Promise<void> {
       running = true;
+
+      // Start cron scheduler first — reconciles DB and starts ticking
+      await scheduler.start();
+
       rl = readline.createInterface({ input: stdin, output: stdout });
 
       console.log('');
@@ -209,6 +213,7 @@ export function createConsoleGateway(config?: ConsoleGatewayConfig): Gateway {
         rl.close();
         rl = null;
       }
+      await scheduler.stop();
       console.log('\nGoodbye!\n');
     },
   };
