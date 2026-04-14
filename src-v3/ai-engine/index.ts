@@ -13,4 +13,9 @@ export type {
   QueryErrorReason,
   AssistantError,
   EffortLevel,
+  ContentBlock,
+  TextContentBlock,
+  MediaContentBlock,
+  ImageContentBlock,
+  DocumentContentBlock,
 } from './types.js';

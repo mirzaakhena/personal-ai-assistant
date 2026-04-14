@@ -4,7 +4,7 @@ import * as readline from 'readline/promises';
 import { stdin, stdout } from 'process';
 import type { Gateway } from './types.js';
 import { createAIEngine } from '../ai-engine/index.js';
-import type { QueryResult } from '../ai-engine/index.js';
+import type { QueryResult, ContentBlock } from '../ai-engine/index.js';
 import { createMessageServer, type MessageDeliver } from '../tools/message.js';
 import { createMemoryServer, type MemoryHandlers } from '../tools/memory.js';
 import { createCronjobServer, type CronjobHandlers } from '../tools/cronjob.js';
@@ -81,7 +81,7 @@ export function createConsoleGateway(config?: ConsoleGatewayConfig): Gateway {
   });
 
   /** Shared query execution — used by both user input and cron fire */
-  async function runQuery(queryUserId: string, prompt: string): Promise<QueryResult> {
+  async function runQuery(queryUserId: string, prompt: string | ContentBlock[]): Promise<QueryResult> {
     const sessionId = sessions.get(queryUserId);
 
     const result = await engine.query(prompt, {

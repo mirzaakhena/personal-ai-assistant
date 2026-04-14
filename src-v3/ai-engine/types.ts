@@ -1,5 +1,7 @@
 // src-v3/ai-engine/types.ts
 
+import type { ContentBlock } from '../utils/media.js';
+
 // ── Callback info types ──────────────────────────────────
 
 /** Info from system.init message */
@@ -106,8 +108,16 @@ export interface QueryOptions {
 
 /** The engine instance returned by createAIEngine */
 export interface AIEngine {
-  query: (prompt: string, options?: QueryOptions) => Promise<QueryResult>;
+  query: (prompt: string | ContentBlock[], options?: QueryOptions) => Promise<QueryResult>;
 }
+
+export type {
+  ContentBlock,
+  TextContentBlock,
+  MediaContentBlock,
+  ImageContentBlock,
+  DocumentContentBlock,
+} from '../utils/media.js';
 
 // ── Result ───────────────────────────────────────────────
 

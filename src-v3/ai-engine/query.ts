@@ -1,7 +1,9 @@
 // src-v3/ai-engine/query.ts
 
 import { query as sdkQuery } from "@anthropic-ai/claude-agent-sdk";
+import type { SDKUserMessage } from "@anthropic-ai/claude-agent-sdk";
 import { createQueryOptions } from "./options.js";
+import type { ContentBlock } from "../utils/media.js";
 import type {
   AIEngine,
   EngineConfig,
@@ -52,7 +54,7 @@ export function createAIEngine(config?: EngineConfig): AIEngine {
   };
 
   return {
-    async query(prompt: string, options?: QueryOptions): Promise<QueryResult> {
+    async query(prompt: string | ContentBlock[], options?: QueryOptions): Promise<QueryResult> {
       const resolved = {
         model: options?.model ?? defaults.model,
         systemPrompt: options?.systemPrompt ?? defaults.systemPrompt,
@@ -63,7 +65,19 @@ export function createAIEngine(config?: EngineConfig): AIEngine {
       };
 
       const sdkOptions = createQueryOptions(resolved);
-      const responses = sdkQuery({ prompt, options: sdkOptions });
+
+      const sdkPrompt: string | AsyncIterable<SDKUserMessage> = typeof prompt === 'string'
+        ? prompt
+        : (async function* (): AsyncGenerator<SDKUserMessage> {
+            yield {
+              type: 'user' as const,
+              message: { role: 'user' as const, content: prompt as any },
+              parent_tool_use_id: null,
+              session_id: resolved.sessionId ?? '',
+            };
+          })();
+
+      const responses = sdkQuery({ prompt: sdkPrompt, options: sdkOptions });
       const callbacks = options?.callbacks;
 
       let responseText = '';

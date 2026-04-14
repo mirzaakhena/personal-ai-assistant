@@ -68,7 +68,7 @@ log.debug(`Turn ${turn}, saved session: ${savedSessionId ?? 'none'}`);
 
 const prompt = buildUserPrompt('Hello, who are you?');
 
-log.chat(`→ ${prompt.split('\n').pop()}`);
+log.chat(`→ ${typeof prompt === 'string' ? prompt.split('\n').pop() : '[media+text]'}`);
 
 const result = await engine.query(prompt, {
   sessionId: savedSessionId,
