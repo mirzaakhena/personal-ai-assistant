@@ -10,6 +10,8 @@ import { createMemoryServer, type MemoryHandlers } from '../tools/memory.js';
 import { createCronjobServer, type CronjobHandlers } from '../tools/cronjob.js';
 import { createSessionStore } from '../db/sessions.js';
 import { createCronScheduler } from '../cron/scheduler.js';
+import { createTriggerServer } from '../trigger/server.js';
+import type { TriggerServer } from '../trigger/types.js';
 import { log } from '../utils/logger.js';
 import { buildUserPrompt, buildSystemMessagePrompt } from '../utils/prompt.js';
 import { incrementTurnCount, getTurnCount, clearTurnCount } from '../utils/turns.js';
@@ -30,6 +32,13 @@ export interface ConsoleGatewayConfig {
   memoryHandlers?: MemoryHandlersFactory;
   /** User ID for the console session, default 'console-user' */
   userId?: string;
+  /**
+   * Trigger server host. Default '127.0.0.1'.
+   * Set to `null` to disable the trigger server entirely.
+   */
+  triggerHost?: string | null;
+  /** Trigger server port. Default 3100. */
+  triggerPort?: number;
 }
 
 /** Default in-memory memory backend — shared Map, keyed by `${userId}:${key}` */
@@ -117,6 +126,27 @@ export function createConsoleGateway(config?: ConsoleGatewayConfig): Gateway {
     }),
   });
 
+  // Trigger server — optional, disabled if triggerHost === null
+  const triggerServer: TriggerServer | null = config?.triggerHost === null
+    ? null
+    : createTriggerServer({
+        host: config?.triggerHost ?? '127.0.0.1',
+        port: config?.triggerPort ?? 3100,
+        onTrigger: ({ userId, message }) => new Promise<void>((resolve, reject) => {
+          enqueue(userId, async () => {
+            try {
+              log.debug(`trigger:${userId} — ${message.slice(0, 60)}`);
+              const prompt = buildSystemMessagePrompt(message);
+              await runQuery(userId, prompt);
+              resolve();
+            } catch (err) {
+              log.error(`trigger:${userId} failed`, err);
+              reject(err);
+            }
+          });
+        }),
+      });
+
   let rl: readline.Interface | null = null;
   let running = false;
 
@@ -164,6 +194,7 @@ export function createConsoleGateway(config?: ConsoleGatewayConfig): Gateway {
 
       // Start cron scheduler first — reconciles DB and starts ticking
       await scheduler.start();
+      if (triggerServer) await triggerServer.start();
 
       rl = readline.createInterface({ input: stdin, output: stdout });
 
@@ -213,6 +244,7 @@ export function createConsoleGateway(config?: ConsoleGatewayConfig): Gateway {
         rl.close();
         rl = null;
       }
+      if (triggerServer) await triggerServer.stop();
       await scheduler.stop();
       console.log('\nGoodbye!\n');
     },
