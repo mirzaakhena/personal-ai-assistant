@@ -1,0 +1,580 @@
+// src-v3/db/memory.ts
+
+import Database from 'better-sqlite3';
+import { mkdirSync } from 'fs';
+import { dirname } from 'path';
+import { v4 as uuidv4 } from 'uuid';
+
+// ── Types ────────────────────────────────────────────────
+
+export type Layer = 'L2' | 'L3';
+export type JournalType = 'emotion' | 'life_context' | 'problem' | 'event' | 'trait_observation' | 'conversation_summary';
+export type JournalStatus = 'ongoing' | 'resolved' | null;
+export type Intensity = 'low' | 'medium' | 'high' | null;
+export type TraitType = 'trait' | 'habit';
+export type GoalStatus = 'active' | 'completed' | 'abandoned';
+export type EventOutcome = 'done' | 'missed' | null;
+
+export interface ProfileRecord {
+  id: string;
+  user_id: string;
+  category: string;
+  layer: Layer;
+  key: string;
+  value: string;
+  confidence: number | null;
+  source_session_id: string | null;
+  source_msg_id: string | null;
+  last_updated: number;
+  created_at: number;
+}
+
+export interface JournalRecord {
+  id: string;
+  user_id: string;
+  type: JournalType;
+  content: string;
+  status: JournalStatus;
+  intensity: Intensity;
+  recurrence_count: number;
+  related_ids: string[] | null;
+  event_date: string | null;
+  event_outcome: EventOutcome;
+  follow_up_needed: number;
+  inferred_trait: string | null;
+  confidence: number | null;
+  promoted_to_trait_id: string | null;
+  session_id: string | null;
+  source_msg_id: string | null;
+  created_at: number;
+  resolved_at: number | null;
+}
+
+export interface TraitRecord {
+  id: string;
+  user_id: string;
+  type: TraitType;
+  label: string;
+  confidence: number;
+  evidence_count: number;
+  source_obs_ids: string[] | null;
+  first_seen: number;
+  last_confirmed: number;
+}
+
+export interface RelationshipRecord {
+  id: string;
+  user_id: string;
+  name: string;
+  role: string;
+  dynamic: string | null;
+  related_ids: string[] | null;
+  source_session_id: string | null;
+  last_mentioned: number;
+  created_at: number;
+}
+
+export interface GoalRecord {
+  id: string;
+  user_id: string;
+  title: string;
+  category: string | null;
+  status: GoalStatus;
+  target_date: string | null;
+  related_ids: string[] | null;
+  source_session_id: string | null;
+  created_at: number;
+  last_updated: number;
+}
+
+export interface JournalSearchFilter {
+  userId: string;
+  query?: string;
+  type?: JournalType;
+  status?: JournalStatus;
+  fromTime?: number;
+  toTime?: number;
+  limit?: number;
+  order?: 'newest' | 'oldest' | 'relevant';
+}
+
+export interface AlwaysBundle {
+  profile: ProfileRecord[];
+  traits: TraitRecord[];
+  ongoing: JournalRecord[];
+}
+
+export interface MemoryStore {
+  upsertProfile(rec: Omit<ProfileRecord, 'id' | 'created_at' | 'last_updated'>): ProfileRecord;
+  getProfile(userId: string, category: string, key: string): ProfileRecord | undefined;
+  listProfile(userId: string, opts?: { layer?: Layer; category?: string }): ProfileRecord[];
+
+  insertJournal(rec: Omit<JournalRecord, 'id' | 'created_at'> & { id?: string; created_at?: number }): JournalRecord;
+  getJournal(id: string): JournalRecord | undefined;
+  searchJournal(filter: JournalSearchFilter): JournalRecord[];
+  resolveJournal(id: string, outcome?: EventOutcome): boolean;
+  listOngoing(userId: string): JournalRecord[];
+
+  upsertTrait(rec: Omit<TraitRecord, 'id' | 'first_seen' | 'last_confirmed'>): TraitRecord;
+  listTraits(userId: string): TraitRecord[];
+  getTraitByLabel(userId: string, type: TraitType, label: string): TraitRecord | undefined;
+
+  upsertRelationship(rec: Omit<RelationshipRecord, 'id' | 'created_at' | 'last_mentioned'>): RelationshipRecord;
+  listRelationships(userId: string): RelationshipRecord[];
+  getRelationshipByName(userId: string, name: string): RelationshipRecord | undefined;
+
+  insertGoal(rec: Omit<GoalRecord, 'id' | 'created_at' | 'last_updated'>): GoalRecord;
+  updateGoalStatus(id: string, status: GoalStatus): boolean;
+  listGoals(userId: string, opts?: { status?: GoalStatus }): GoalRecord[];
+
+  loadAlwaysBundle(userId: string): AlwaysBundle;
+}
+
+// ── Helpers ──────────────────────────────────────────────
+
+const DEFAULT_LIMIT = 20;
+const MAX_LIMIT = 100;
+
+function nowMs(): number {
+  return Date.now();
+}
+
+function toJsonArray(v: string[] | null | undefined): string | null {
+  if (!v || v.length === 0) return null;
+  return JSON.stringify(v);
+}
+
+function fromJsonArray(v: string | null | undefined): string[] | null {
+  if (!v) return null;
+  try {
+    const parsed = JSON.parse(v);
+    return Array.isArray(parsed) ? parsed : null;
+  } catch {
+    return null;
+  }
+}
+
+// DB row types differ from logical types in JSON array columns (stored as TEXT)
+type ProfileRow = Omit<ProfileRecord, never>;
+type JournalRow = Omit<JournalRecord, 'related_ids'> & { related_ids: string | null };
+type TraitRow = Omit<TraitRecord, 'source_obs_ids'> & { source_obs_ids: string | null };
+type RelationshipRow = Omit<RelationshipRecord, 'related_ids'> & { related_ids: string | null };
+type GoalRow = Omit<GoalRecord, 'related_ids'> & { related_ids: string | null };
+
+function journalRowToRecord(r: JournalRow): JournalRecord {
+  return { ...r, related_ids: fromJsonArray(r.related_ids) };
+}
+function traitRowToRecord(r: TraitRow): TraitRecord {
+  return { ...r, source_obs_ids: fromJsonArray(r.source_obs_ids) };
+}
+function relationshipRowToRecord(r: RelationshipRow): RelationshipRecord {
+  return { ...r, related_ids: fromJsonArray(r.related_ids) };
+}
+function goalRowToRecord(r: GoalRow): GoalRecord {
+  return { ...r, related_ids: fromJsonArray(r.related_ids) };
+}
+
+// ── Factory ──────────────────────────────────────────────
+
+export function createMemoryStore(dbPath: string = 'data/memory.db'): MemoryStore {
+  mkdirSync(dirname(dbPath), { recursive: true });
+
+  const db = new Database(dbPath);
+
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS profile (
+      id                 TEXT PRIMARY KEY,
+      user_id            TEXT NOT NULL,
+      category           TEXT NOT NULL,
+      layer              TEXT NOT NULL,
+      key                TEXT NOT NULL,
+      value              TEXT NOT NULL,
+      confidence         REAL,
+      source_session_id  TEXT,
+      source_msg_id      TEXT,
+      last_updated       INTEGER NOT NULL,
+      created_at         INTEGER NOT NULL,
+      UNIQUE(user_id, category, key)
+    );
+    CREATE INDEX IF NOT EXISTS idx_profile_user_layer ON profile(user_id, layer);
+
+    CREATE TABLE IF NOT EXISTS journal (
+      id                     TEXT PRIMARY KEY,
+      user_id                TEXT NOT NULL,
+      type                   TEXT NOT NULL,
+      content                TEXT NOT NULL,
+      status                 TEXT,
+      intensity              TEXT,
+      recurrence_count       INTEGER NOT NULL DEFAULT 1,
+      related_ids            TEXT,
+      event_date             TEXT,
+      event_outcome          TEXT,
+      follow_up_needed       INTEGER NOT NULL DEFAULT 0,
+      inferred_trait         TEXT,
+      confidence             REAL,
+      promoted_to_trait_id   TEXT,
+      session_id             TEXT,
+      source_msg_id          TEXT,
+      created_at             INTEGER NOT NULL,
+      resolved_at            INTEGER
+    );
+    CREATE INDEX IF NOT EXISTS idx_journal_user_status ON journal(user_id, status);
+    CREATE INDEX IF NOT EXISTS idx_journal_user_type ON journal(user_id, type);
+    CREATE INDEX IF NOT EXISTS idx_journal_inferred_trait ON journal(user_id, inferred_trait);
+
+    CREATE VIRTUAL TABLE IF NOT EXISTS journal_fts USING fts5(
+      content,
+      inferred_trait,
+      content='journal',
+      content_rowid='rowid',
+      tokenize='unicode61'
+    );
+    CREATE TRIGGER IF NOT EXISTS journal_fts_ai AFTER INSERT ON journal BEGIN
+      INSERT INTO journal_fts(rowid, content, inferred_trait) VALUES (new.rowid, new.content, new.inferred_trait);
+    END;
+    CREATE TRIGGER IF NOT EXISTS journal_fts_ad AFTER DELETE ON journal BEGIN
+      INSERT INTO journal_fts(journal_fts, rowid, content, inferred_trait) VALUES ('delete', old.rowid, old.content, old.inferred_trait);
+    END;
+    CREATE TRIGGER IF NOT EXISTS journal_fts_au AFTER UPDATE ON journal BEGIN
+      INSERT INTO journal_fts(journal_fts, rowid, content, inferred_trait) VALUES ('delete', old.rowid, old.content, old.inferred_trait);
+      INSERT INTO journal_fts(rowid, content, inferred_trait) VALUES (new.rowid, new.content, new.inferred_trait);
+    END;
+
+    CREATE TABLE IF NOT EXISTS traits (
+      id              TEXT PRIMARY KEY,
+      user_id         TEXT NOT NULL,
+      type            TEXT NOT NULL,
+      label           TEXT NOT NULL,
+      confidence      REAL NOT NULL,
+      evidence_count  INTEGER NOT NULL DEFAULT 1,
+      source_obs_ids  TEXT,
+      first_seen      INTEGER NOT NULL,
+      last_confirmed  INTEGER NOT NULL,
+      UNIQUE(user_id, type, label)
+    );
+    CREATE INDEX IF NOT EXISTS idx_traits_user ON traits(user_id);
+
+    CREATE TABLE IF NOT EXISTS relationships (
+      id                 TEXT PRIMARY KEY,
+      user_id            TEXT NOT NULL,
+      name               TEXT NOT NULL,
+      role               TEXT NOT NULL,
+      dynamic            TEXT,
+      related_ids        TEXT,
+      source_session_id  TEXT,
+      last_mentioned     INTEGER NOT NULL,
+      created_at         INTEGER NOT NULL,
+      UNIQUE(user_id, name)
+    );
+    CREATE INDEX IF NOT EXISTS idx_relationships_user ON relationships(user_id);
+
+    CREATE TABLE IF NOT EXISTS goals (
+      id                 TEXT PRIMARY KEY,
+      user_id            TEXT NOT NULL,
+      title              TEXT NOT NULL,
+      category           TEXT,
+      status             TEXT NOT NULL DEFAULT 'active',
+      target_date        TEXT,
+      related_ids        TEXT,
+      source_session_id  TEXT,
+      created_at         INTEGER NOT NULL,
+      last_updated       INTEGER NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS idx_goals_user_status ON goals(user_id, status);
+  `);
+
+  // FTS5 auto-populate on first run — detect via journal_fts_docsize shadow table count
+  const fCounts = db.prepare(`
+    SELECT
+      (SELECT COUNT(*) FROM journal WHERE content IS NOT NULL) AS m,
+      (SELECT COUNT(*) FROM journal_fts_docsize) AS d
+  `).get() as { m: number; d: number };
+  if (fCounts.m > 0 && fCounts.d === 0) {
+    db.exec(`INSERT INTO journal_fts(journal_fts) VALUES('rebuild')`);
+  }
+
+  // ── Profile ──────────────────────────────────────────
+
+  const stmtGetProfile = db.prepare<[string, string, string], ProfileRow>(`
+    SELECT * FROM profile WHERE user_id = ? AND category = ? AND key = ?
+  `);
+
+  const stmtInsertProfile = db.prepare(`
+    INSERT INTO profile (id, user_id, category, layer, key, value, confidence, source_session_id, source_msg_id, last_updated, created_at)
+    VALUES (@id, @user_id, @category, @layer, @key, @value, @confidence, @source_session_id, @source_msg_id, @last_updated, @created_at)
+  `);
+
+  const stmtUpdateProfile = db.prepare(`
+    UPDATE profile SET value = @value, layer = @layer, confidence = @confidence,
+      source_session_id = @source_session_id, source_msg_id = @source_msg_id, last_updated = @last_updated
+    WHERE user_id = @user_id AND category = @category AND key = @key
+  `);
+
+  function upsertProfile(rec: Omit<ProfileRecord, 'id' | 'created_at' | 'last_updated'>): ProfileRecord {
+    const existing = stmtGetProfile.get(rec.user_id, rec.category, rec.key);
+    const now = nowMs();
+    if (existing) {
+      stmtUpdateProfile.run({ ...rec, last_updated: now });
+      const updated = stmtGetProfile.get(rec.user_id, rec.category, rec.key);
+      return updated!;
+    }
+    const id = uuidv4();
+    const full: ProfileRecord = { ...rec, id, last_updated: now, created_at: now };
+    stmtInsertProfile.run(full);
+    return full;
+  }
+
+  const stmtListProfileByLayer = db.prepare<[string, Layer], ProfileRow>(`
+    SELECT * FROM profile WHERE user_id = ? AND layer = ?
+  `);
+  const stmtListProfileByCategory = db.prepare<[string, string], ProfileRow>(`
+    SELECT * FROM profile WHERE user_id = ? AND category = ?
+  `);
+  const stmtListProfileByLayerAndCategory = db.prepare<[string, Layer, string], ProfileRow>(`
+    SELECT * FROM profile WHERE user_id = ? AND layer = ? AND category = ?
+  `);
+  const stmtListProfileAll = db.prepare<[string], ProfileRow>(`
+    SELECT * FROM profile WHERE user_id = ?
+  `);
+
+  function listProfile(userId: string, opts?: { layer?: Layer; category?: string }): ProfileRecord[] {
+    if (opts?.layer && opts?.category) return stmtListProfileByLayerAndCategory.all(userId, opts.layer, opts.category);
+    if (opts?.layer) return stmtListProfileByLayer.all(userId, opts.layer);
+    if (opts?.category) return stmtListProfileByCategory.all(userId, opts.category);
+    return stmtListProfileAll.all(userId);
+  }
+
+  function getProfile(userId: string, category: string, key: string): ProfileRecord | undefined {
+    return stmtGetProfile.get(userId, category, key);
+  }
+
+  // ── Journal ──────────────────────────────────────────
+
+  const stmtInsertJournal = db.prepare(`
+    INSERT INTO journal (
+      id, user_id, type, content, status, intensity, recurrence_count, related_ids,
+      event_date, event_outcome, follow_up_needed, inferred_trait, confidence,
+      promoted_to_trait_id, session_id, source_msg_id, created_at, resolved_at
+    ) VALUES (
+      @id, @user_id, @type, @content, @status, @intensity, @recurrence_count, @related_ids,
+      @event_date, @event_outcome, @follow_up_needed, @inferred_trait, @confidence,
+      @promoted_to_trait_id, @session_id, @source_msg_id, @created_at, @resolved_at
+    )
+  `);
+
+  const stmtGetJournal = db.prepare<[string], JournalRow>(`SELECT * FROM journal WHERE id = ?`);
+
+  const stmtResolveJournal = db.prepare(`
+    UPDATE journal SET status = 'resolved', resolved_at = @resolved_at, event_outcome = @event_outcome WHERE id = @id
+  `);
+
+  const stmtListOngoing = db.prepare<[string], JournalRow>(`
+    SELECT * FROM journal WHERE user_id = ? AND status = 'ongoing' ORDER BY created_at DESC
+  `);
+
+  function insertJournal(rec: Omit<JournalRecord, 'id' | 'created_at'> & { id?: string; created_at?: number }): JournalRecord {
+    const id = rec.id ?? uuidv4();
+    const created_at = rec.created_at ?? nowMs();
+    const row = {
+      ...rec,
+      id,
+      created_at,
+      related_ids: toJsonArray(rec.related_ids),
+    };
+    stmtInsertJournal.run(row);
+    const saved = stmtGetJournal.get(id)!;
+    return journalRowToRecord(saved);
+  }
+
+  function getJournal(id: string): JournalRecord | undefined {
+    const row = stmtGetJournal.get(id);
+    return row ? journalRowToRecord(row) : undefined;
+  }
+
+  function resolveJournal(id: string, outcome: EventOutcome = null): boolean {
+    const res = stmtResolveJournal.run({ id, resolved_at: nowMs(), event_outcome: outcome });
+    return res.changes > 0;
+  }
+
+  function listOngoing(userId: string): JournalRecord[] {
+    return stmtListOngoing.all(userId).map(journalRowToRecord);
+  }
+
+  function searchJournal(filter: JournalSearchFilter): JournalRecord[] {
+    const conditions: string[] = ['j.user_id = ?'];
+    const params: unknown[] = [filter.userId];
+    let joinFts = false;
+
+    if (filter.fromTime !== undefined) { conditions.push('j.created_at >= ?'); params.push(filter.fromTime); }
+    if (filter.toTime !== undefined) { conditions.push('j.created_at < ?'); params.push(filter.toTime); }
+    if (filter.type !== undefined) { conditions.push('j.type = ?'); params.push(filter.type); }
+    if (filter.status !== undefined) {
+      if (filter.status === null) {
+        conditions.push('j.status IS NULL');
+      } else {
+        conditions.push('j.status = ?');
+        params.push(filter.status);
+      }
+    }
+
+    const hasQuery = filter.query !== undefined && filter.query.length > 0;
+    if (hasQuery) {
+      joinFts = true;
+      conditions.push('fts.content MATCH ?');
+      params.push(filter.query);
+    }
+
+    const defaultOrder: 'newest' | 'oldest' | 'relevant' = hasQuery ? 'relevant' : 'newest';
+    const order = filter.order ?? defaultOrder;
+    let orderClause: string;
+    if (order === 'relevant' && joinFts) orderClause = 'ORDER BY rank';
+    else if (order === 'oldest') orderClause = 'ORDER BY j.created_at ASC';
+    else orderClause = 'ORDER BY j.created_at DESC';
+
+    const rawLimit = filter.limit ?? DEFAULT_LIMIT;
+    const limit = Math.max(1, Math.min(MAX_LIMIT, Math.floor(rawLimit)));
+
+    const from = joinFts
+      ? 'FROM journal j JOIN journal_fts fts ON j.rowid = fts.rowid'
+      : 'FROM journal j';
+
+    const sql = `SELECT j.* ${from} WHERE ${conditions.join(' AND ')} ${orderClause} LIMIT ${limit}`;
+    const stmt = db.prepare<unknown[], JournalRow>(sql);
+    return stmt.all(...params).map(journalRowToRecord);
+  }
+
+  // ── Traits ───────────────────────────────────────────
+
+  const stmtGetTrait = db.prepare<[string, TraitType, string], TraitRow>(`
+    SELECT * FROM traits WHERE user_id = ? AND type = ? AND label = ?
+  `);
+  const stmtInsertTrait = db.prepare(`
+    INSERT INTO traits (id, user_id, type, label, confidence, evidence_count, source_obs_ids, first_seen, last_confirmed)
+    VALUES (@id, @user_id, @type, @label, @confidence, @evidence_count, @source_obs_ids, @first_seen, @last_confirmed)
+  `);
+  const stmtUpdateTrait = db.prepare(`
+    UPDATE traits SET confidence = @confidence, evidence_count = @evidence_count,
+      source_obs_ids = @source_obs_ids, last_confirmed = @last_confirmed
+    WHERE user_id = @user_id AND type = @type AND label = @label
+  `);
+  const stmtListTraits = db.prepare<[string], TraitRow>(`SELECT * FROM traits WHERE user_id = ?`);
+
+  function upsertTrait(rec: Omit<TraitRecord, 'id' | 'first_seen' | 'last_confirmed'>): TraitRecord {
+    const existing = stmtGetTrait.get(rec.user_id, rec.type, rec.label);
+    const now = nowMs();
+    if (existing) {
+      stmtUpdateTrait.run({
+        ...rec,
+        source_obs_ids: toJsonArray(rec.source_obs_ids),
+        last_confirmed: now,
+      });
+      return traitRowToRecord(stmtGetTrait.get(rec.user_id, rec.type, rec.label)!);
+    }
+    const id = uuidv4();
+    const full = { ...rec, id, first_seen: now, last_confirmed: now, source_obs_ids: toJsonArray(rec.source_obs_ids) };
+    stmtInsertTrait.run(full);
+    return traitRowToRecord(stmtGetTrait.get(rec.user_id, rec.type, rec.label)!);
+  }
+
+  function listTraits(userId: string): TraitRecord[] {
+    return stmtListTraits.all(userId).map(traitRowToRecord);
+  }
+  function getTraitByLabel(userId: string, type: TraitType, label: string): TraitRecord | undefined {
+    const row = stmtGetTrait.get(userId, type, label);
+    return row ? traitRowToRecord(row) : undefined;
+  }
+
+  // ── Relationships ────────────────────────────────────
+
+  const stmtGetRelByName = db.prepare<[string, string], RelationshipRow>(`
+    SELECT * FROM relationships WHERE user_id = ? AND name = ?
+  `);
+  const stmtInsertRel = db.prepare(`
+    INSERT INTO relationships (id, user_id, name, role, dynamic, related_ids, source_session_id, last_mentioned, created_at)
+    VALUES (@id, @user_id, @name, @role, @dynamic, @related_ids, @source_session_id, @last_mentioned, @created_at)
+  `);
+  const stmtUpdateRel = db.prepare(`
+    UPDATE relationships SET role = @role, dynamic = @dynamic, related_ids = @related_ids,
+      source_session_id = @source_session_id, last_mentioned = @last_mentioned
+    WHERE user_id = @user_id AND name = @name
+  `);
+  const stmtListRel = db.prepare<[string], RelationshipRow>(`SELECT * FROM relationships WHERE user_id = ?`);
+
+  function upsertRelationship(rec: Omit<RelationshipRecord, 'id' | 'created_at' | 'last_mentioned'>): RelationshipRecord {
+    const existing = stmtGetRelByName.get(rec.user_id, rec.name);
+    const now = nowMs();
+    if (existing) {
+      stmtUpdateRel.run({
+        ...rec,
+        related_ids: toJsonArray(rec.related_ids),
+        last_mentioned: now,
+      });
+      return relationshipRowToRecord(stmtGetRelByName.get(rec.user_id, rec.name)!);
+    }
+    const id = uuidv4();
+    const full = { ...rec, id, created_at: now, last_mentioned: now, related_ids: toJsonArray(rec.related_ids) };
+    stmtInsertRel.run(full);
+    return relationshipRowToRecord(stmtGetRelByName.get(rec.user_id, rec.name)!);
+  }
+
+  function listRelationships(userId: string): RelationshipRecord[] {
+    return stmtListRel.all(userId).map(relationshipRowToRecord);
+  }
+  function getRelationshipByName(userId: string, name: string): RelationshipRecord | undefined {
+    const row = stmtGetRelByName.get(userId, name);
+    return row ? relationshipRowToRecord(row) : undefined;
+  }
+
+  // ── Goals ────────────────────────────────────────────
+
+  const stmtInsertGoal = db.prepare(`
+    INSERT INTO goals (id, user_id, title, category, status, target_date, related_ids, source_session_id, created_at, last_updated)
+    VALUES (@id, @user_id, @title, @category, @status, @target_date, @related_ids, @source_session_id, @created_at, @last_updated)
+  `);
+  const stmtUpdateGoalStatus = db.prepare(`UPDATE goals SET status = @status, last_updated = @last_updated WHERE id = @id`);
+  const stmtListGoalsAll = db.prepare<[string], GoalRow>(`SELECT * FROM goals WHERE user_id = ?`);
+  const stmtListGoalsByStatus = db.prepare<[string, GoalStatus], GoalRow>(`SELECT * FROM goals WHERE user_id = ? AND status = ?`);
+
+  function insertGoal(rec: Omit<GoalRecord, 'id' | 'created_at' | 'last_updated'>): GoalRecord {
+    const id = uuidv4();
+    const now = nowMs();
+    const full = { ...rec, id, created_at: now, last_updated: now, related_ids: toJsonArray(rec.related_ids) };
+    stmtInsertGoal.run(full);
+    return goalRowToRecord({ ...full });
+  }
+
+  function updateGoalStatus(id: string, status: GoalStatus): boolean {
+    const res = stmtUpdateGoalStatus.run({ id, status, last_updated: nowMs() });
+    return res.changes > 0;
+  }
+
+  function listGoals(userId: string, opts?: { status?: GoalStatus }): GoalRecord[] {
+    const rows = opts?.status
+      ? stmtListGoalsByStatus.all(userId, opts.status)
+      : stmtListGoalsAll.all(userId);
+    return rows.map(goalRowToRecord);
+  }
+
+  // ── Bundle ───────────────────────────────────────────
+
+  function loadAlwaysBundle(userId: string): AlwaysBundle {
+    const l3 = stmtListProfileByLayer.all(userId, 'L3');
+    const l2Distilled = db.prepare<[string, Layer], ProfileRow>(
+      `SELECT * FROM profile WHERE user_id = ? AND layer = ? AND category IN ('value_belief','cognitive_style')`
+    ).all(userId, 'L2');
+    return {
+      profile: [...l3, ...l2Distilled],
+      traits: listTraits(userId),
+      ongoing: listOngoing(userId),
+    };
+  }
+
+  return {
+    upsertProfile, getProfile, listProfile,
+    insertJournal, getJournal, searchJournal, resolveJournal, listOngoing,
+    upsertTrait, listTraits, getTraitByLabel,
+    upsertRelationship, listRelationships, getRelationshipByName,
+    insertGoal, updateGoalStatus, listGoals,
+    loadAlwaysBundle,
+  };
+}
