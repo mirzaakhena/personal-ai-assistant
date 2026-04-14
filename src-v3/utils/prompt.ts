@@ -1,5 +1,7 @@
 // src-v3/utils/prompt.ts
 
+import type { ContentBlock, MediaContentBlock } from './media.js';
+
 const TIMEZONE = 'Asia/Jakarta';
 
 export type QuotedSender = 'user' | 'assistant';
@@ -37,10 +39,10 @@ function formatDateTime(date: Date): { dateStr: string; timeStr: string } {
 }
 
 /**
- * Format a user message with timestamp and optional quoted context.
- * Used when a real user sends a message via gateway.
+ * Build the [USER MESSAGE] text block content (the structured text part).
+ * Used internally whether we return a plain string or a ContentBlock[] with text as last block.
  */
-export function buildUserPrompt(message: string, quoted?: QuotedInfo): string {
+function buildUserMessageText(message: string, quoted?: QuotedInfo, hasMedia?: boolean): string {
   const now = formatDateTime(new Date());
 
   let quotedBlock = '';
@@ -55,17 +57,40 @@ export function buildUserPrompt(message: string, quoted?: QuotedInfo): string {
     quotedBlock = lines.join('\n');
   }
 
+  const messageText = message.length > 0 ? message : (hasMedia ? '(no caption)' : '');
+
   return `[USER MESSAGE]
 
 Timestamp: ${now.dateStr}, ${now.timeStr}
 ${quotedBlock}
 [MESSAGE]
-${message}`;
+${messageText}`;
+}
+
+/**
+ * Format a user message with timestamp, optional quoted context, and optional media.
+ * - No media → returns a plain string (backward compatible with console gateway etc.).
+ * - With media → returns ContentBlock[] where media blocks come first, then a text block.
+ */
+export function buildUserPrompt(
+  message: string,
+  quoted?: QuotedInfo,
+  mediaBlocks?: MediaContentBlock[]
+): string | ContentBlock[] {
+  if (!mediaBlocks || mediaBlocks.length === 0) {
+    return buildUserMessageText(message, quoted, false);
+  }
+
+  const textBlock: ContentBlock = {
+    type: 'text',
+    text: buildUserMessageText(message, quoted, true),
+  };
+  return [...mediaBlocks, textBlock];
 }
 
 /**
  * Format a system-triggered message (cron, trigger) with timestamp.
- * Used for automated messages that appear as if from the system.
+ * System messages remain string-only.
  */
 export function buildSystemMessagePrompt(message: string): string {
   const { dateStr, timeStr } = formatDateTime(new Date());
