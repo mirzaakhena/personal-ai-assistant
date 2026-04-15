@@ -11,7 +11,8 @@ import {
   type MediaContentBlock,
 } from '../utils/media.js';
 import { createMessageServer, type MessageDeliver } from '../tools/message.js';
-import { createMemoryServer, type MemoryHandlers } from '../tools/memory.js';
+import { createMemoryServer, buildMemoryHandlers, type MemoryHandlers } from '../tools/memory.js';
+import { createMemoryStore, type MemoryStore } from '../db/memory.js';
 import { createCronjobServer, type CronjobHandlers } from '../tools/cronjob.js';
 import { createSessionStore } from '../db/sessions.js';
 import { createCronScheduler } from '../cron/scheduler.js';
@@ -25,8 +26,6 @@ import { enqueue } from '../utils/queue.js';
 import { createMessageStore, type MessageRecord } from '../db/message.js';
 import { createMessageHistoryServer, type MessageHandlers, type MessageSearchResult } from '../tools/message-history.js';
 
-/** Factory that returns handlers scoped to a specific userId */
-export type MemoryHandlersFactory = (userId: string) => MemoryHandlers;
 
 const TYPING_MS_PER_CHAR = 30;
 const MIN_TYPING_DURATION_MS = 1000;
@@ -91,8 +90,8 @@ export interface TelegramGatewayConfig {
   cronDbPath?: string;
   /** AI model, default 'haiku' */
   model?: string;
-  /** Memory handlers factory, default in-memory Map keyed by userId */
-  memoryHandlers?: MemoryHandlersFactory;
+  /** Memory DB path, default 'data/memory.db' */
+  memoryDbPath?: string;
   /** Trigger server host. Default '127.0.0.1'. Set to null to disable. */
   triggerHost?: string | null;
   /** Trigger server port. Default 3100. */
@@ -101,21 +100,6 @@ export interface TelegramGatewayConfig {
   messageDbPath?: string;
 }
 
-/** Default in-memory memory backend — shared Map, keyed by `${userId}:${key}` */
-function defaultMemoryHandlersFactory(): MemoryHandlersFactory {
-  const backend = new Map<string, string>();
-  return (userId: string) => ({
-    save: (key, value) => {
-      backend.set(`${userId}:${key}`, value);
-      log.debug(`memory:save [${userId}] ${key} = ${value}`);
-    },
-    recall: (key) => {
-      const value = backend.get(`${userId}:${key}`) ?? null;
-      log.debug(`memory:recall [${userId}] ${key} → ${value}`);
-      return value;
-    },
-  });
-}
 
 export function createTelegramGateway(config: TelegramGatewayConfig): Gateway {
   if (!config.token) {
@@ -123,7 +107,7 @@ export function createTelegramGateway(config: TelegramGatewayConfig): Gateway {
   }
 
   const model = config.model ?? 'haiku';
-  const memoryHandlersFactory = config.memoryHandlers ?? defaultMemoryHandlersFactory();
+  const memoryStore = createMemoryStore(config.memoryDbPath);
   const whitelist = new Set(config.whitelist);
 
   const sessions = createSessionStore(config.sessionDbPath);
@@ -226,7 +210,7 @@ export function createTelegramGateway(config: TelegramGatewayConfig): Gateway {
       sessionId,
       mcpServers: {
         message: createMessageServer(deliver, queryUserId),
-        memory: createMemoryServer(memoryHandlersFactory(queryUserId)),
+        memory: createMemoryServer(buildMemoryHandlers(memoryStore, queryUserId, sessionId ?? null)),
         cronjob: createCronjobServer(cronjobHandlersFactory(queryUserId)),
         messages: createMessageHistoryServer(messageHandlersFactory(queryUserId)),
       },
