@@ -5,18 +5,33 @@ import type { EffortLevel } from "./types.js";
 
 /** All built-in Claude Code tools — blocked to keep the AI focused on our MCP tools only */
 const allBuiltInTools = [
+  // Code/filesystem
   'Task',            'Bash',
   'Glob',            'Grep',
-  'ExitPlanMode',    'Read',
-  'Edit',            'Write',
-  'NotebookEdit',    'WebFetch',
-  'TodoWrite',       'WebSearch',
+  'Read',            'Edit',
+  'Write',           'NotebookEdit',
   'BashOutput',      'KillShell',
+  // Web
+  'WebFetch',        'WebSearch',
+  // Planning
+  'ExitPlanMode',    'EnterPlanMode',
+  // Worktree
+  'EnterWorktree',   'ExitWorktree',
+  // Skills / slash / diagnostics
   'Skill',           'SlashCommand',
-  'EnterPlanMode',   'getDiagnostics',
-  'executeCode',     'AgentOutputTool',
+  'getDiagnostics',  'executeCode',
+  'TodoWrite',
+  // Agent / task spawning
+  'Agent',
+  'AgentOutputTool', 'AskUserQuestion',
+  'TaskCreate',      'TaskGet',
+  'TaskList',        'TaskUpdate',
   'TaskOutput',      'TaskStop',
-  'AskUserQuestion', 'ToolSearch',
+  'ToolSearch',
+  // Cron / scheduling / triggers (we use our own MCP cronjob tools)
+  'CronCreate',      'CronDelete',
+  'CronList',        'RemoteTrigger',
+  'Monitor',         'ScheduleWakeup',
 ];
 
 /** Fully resolved config — all fields required, merged by query.ts before calling this */

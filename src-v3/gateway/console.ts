@@ -79,7 +79,7 @@ export function createConsoleGateway(config?: ConsoleGatewayConfig): Gateway {
       },
       callbacks: {
         onInit: (info) => log.debug(`model=${info.model} tools=${info.tools.length}`),
-        onThinking: (text) => log.debug(`thinking: ${text.slice(0, 80)}...`),
+        onThinking: (text) => log.debug(`thinking: ${text}`),
         onToolUse: (name) => log.debug(`tool: ${name}`),
         onSessionId: (id) => log.debug(`session: ${id}`),
         onError: (err) => log.error(`[${err.level}] ${err.reason}: ${err.messages.join(', ')}`),

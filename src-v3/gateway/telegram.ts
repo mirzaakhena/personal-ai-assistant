@@ -219,7 +219,7 @@ export function createTelegramGateway(config: TelegramGatewayConfig): Gateway {
       },
       callbacks: {
         onInit: (info) => log.debug(`[TG] model=${info.model} tools=${info.tools.length}`),
-        onThinking: (text) => log.debug(`[TG] thinking: ${text.slice(0, 80)}...`),
+        onThinking: (text) => log.debug(`[TG] thinking: ${text}`),
         onToolUse: (name) => log.debug(`[TG] tool: ${name}`),
         onSessionId: (id) => log.debug(`[TG] session: ${id}`),
         onError: (err) => log.error(`[TG] [${err.level}] ${err.reason}: ${err.messages.join(', ')}`),
