@@ -15,7 +15,8 @@
     "test:memory-m2": "tsx scripts/test-memory-m2.ts",
     "test:m3-prompt": "tsx scripts/test-m3-prompt.ts",
     "test:user-db": "tsx scripts/test-user-db.ts",
-    "test:user-db-cache": "tsx scripts/test-user-db-cache.ts"
+    "test:user-db-cache": "tsx scripts/test-user-db-cache.ts",
+    "migrate:per-user-db": "tsx scripts/migrate-to-per-user-db.ts"
   },
   "keywords": [],
   "author": "",
