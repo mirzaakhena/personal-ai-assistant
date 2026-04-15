@@ -7,10 +7,9 @@ import { createAIEngine } from '../ai-engine/index.js';
 import type { QueryResult, ContentBlock } from '../ai-engine/index.js';
 import { createMessageServer, type MessageDeliver } from '../tools/message.js';
 import { createMemoryServer, buildMemoryHandlers } from '../tools/memory.js';
-import { createMemoryStore } from '../db/memory.js';
 import { createCronjobServer, type CronjobHandlers } from '../tools/cronjob.js';
-import { createSessionStore } from '../db/sessions.js';
 import { createCronScheduler } from '../cron/scheduler.js';
+import { createUserDbCache } from '../db/user-db-cache.js';
 import { createTriggerServer } from '../trigger/server.js';
 import type { TriggerServer } from '../trigger/types.js';
 import { log } from '../utils/logger.js';
@@ -21,14 +20,10 @@ import { updateStats, getStats, clearStats } from '../utils/stats.js';
 import { enqueue } from '../utils/queue.js';
 
 export interface ConsoleGatewayConfig {
-  /** Session DB path, default 'data/sessions.db' */
-  sessionDbPath?: string;
-  /** Cronjob DB path, default 'data/cronjobs.db' */
-  cronDbPath?: string;
+  /** Base directory for per-user DB folders, default 'data/users' */
+  usersBaseDir?: string;
   /** AI model, default 'haiku' */
   model?: string;
-  /** Memory DB path, default 'data/memory.db' */
-  memoryDbPath?: string;
   /** User ID for the console session, default 'console-user' */
   userId?: string;
   /**
@@ -43,9 +38,7 @@ export interface ConsoleGatewayConfig {
 export function createConsoleGateway(config?: ConsoleGatewayConfig): Gateway {
   const userId = config?.userId ?? 'console-user';
   const model = config?.model ?? 'haiku';
-  const memoryStore = createMemoryStore(config?.memoryDbPath);
-
-  const sessions = createSessionStore(config?.sessionDbPath);
+  const userDbCache = createUserDbCache(config?.usersBaseDir);
 
   // Engine has NO MCP servers at creation — all servers bind userId per-query
   const engine = createAIEngine({ model });
@@ -65,12 +58,13 @@ export function createConsoleGateway(config?: ConsoleGatewayConfig): Gateway {
 
   /** Shared query execution — used by both user input and cron fire */
   async function runQuery(queryUserId: string, prompt: string | ContentBlock[]): Promise<QueryResult> {
-    const sessionId = sessions.get(queryUserId);
+    const userDb = userDbCache.get(queryUserId);
+    const sessionId = userDb.sessions.get();
     const isFresh = sessionId === undefined;
 
     let systemPrompt: string | undefined;
     if (isFresh) {
-      const bundle = memoryStore.loadAlwaysBundle(queryUserId);
+      const bundle = userDb.memory.loadAlwaysBundle();
       systemPrompt = buildSystemPromptWithMemory(bundle);
       log.debug(`fresh session for ${queryUserId} — injecting memory bundle (profile=${bundle.profile.length}, traits=${bundle.traits.length}, ongoing=${bundle.ongoing.length})`);
     }
@@ -80,7 +74,7 @@ export function createConsoleGateway(config?: ConsoleGatewayConfig): Gateway {
       systemPrompt,
       mcpServers: {
         message: createMessageServer(deliver, queryUserId),
-        memory: createMemoryServer(buildMemoryHandlers(memoryStore, queryUserId, sessionId ?? null)),
+        memory: createMemoryServer(buildMemoryHandlers(userDb.memory, sessionId ?? null)),
         cronjob: createCronjobServer(cronjobHandlersFactory(queryUserId)),
       },
       callbacks: {
@@ -96,13 +90,13 @@ export function createConsoleGateway(config?: ConsoleGatewayConfig): Gateway {
       },
     });
 
-    sessions.save(queryUserId, result.sessionId);
+    userDb.sessions.save(result.sessionId);
     return result;
   }
 
   // Cron scheduler — fires wrapped in queue to serialize per-user
   const scheduler = createCronScheduler({
-    cronDbPath: config?.cronDbPath,
+    userDbCache,
     onFire: (job) => new Promise<void>((resolve, reject) => {
       enqueue(job.userId, async () => {
         try {
@@ -143,11 +137,11 @@ export function createConsoleGateway(config?: ConsoleGatewayConfig): Gateway {
   let running = false;
 
   function getSessionId(): string | undefined {
-    return sessions.get(userId);
+    return userDbCache.get(userId).sessions.get();
   }
 
   function handleNew(): void {
-    sessions.delete(userId);
+    userDbCache.get(userId).sessions.delete();
     clearTurnCount(userId);
     clearStats(userId);
     console.log('\nSession cleared. Starting fresh.\n');
@@ -238,6 +232,7 @@ export function createConsoleGateway(config?: ConsoleGatewayConfig): Gateway {
       }
       if (triggerServer) await triggerServer.stop();
       await scheduler.stop();
+      userDbCache.closeAll();
       console.log('\nGoodbye!\n');
     },
   };

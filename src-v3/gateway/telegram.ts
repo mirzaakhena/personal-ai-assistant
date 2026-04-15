@@ -12,10 +12,11 @@ import {
 } from '../utils/media.js';
 import { createMessageServer, type MessageDeliver } from '../tools/message.js';
 import { createMemoryServer, buildMemoryHandlers } from '../tools/memory.js';
-import { createMemoryStore } from '../db/memory.js';
 import { createCronjobServer, type CronjobHandlers } from '../tools/cronjob.js';
-import { createSessionStore } from '../db/sessions.js';
 import { createCronScheduler } from '../cron/scheduler.js';
+import { createUserDbCache } from '../db/user-db-cache.js';
+import type { MessageRecord } from '../db/message.js';
+import { createMessageHistoryServer, type MessageHandlers, type MessageSearchResult } from '../tools/message-history.js';
 import { createTriggerServer } from '../trigger/server.js';
 import type { TriggerServer } from '../trigger/types.js';
 import { log } from '../utils/logger.js';
@@ -24,8 +25,6 @@ import { incrementTurnCount, getTurnCount, clearTurnCount } from '../utils/turns
 import { updateStats, getStats, clearStats } from '../utils/stats.js';
 import { buildSystemPromptWithMemory } from '../utils/system-prompt.js';
 import { enqueue } from '../utils/queue.js';
-import { createMessageStore, type MessageRecord } from '../db/message.js';
-import { createMessageHistoryServer, type MessageHandlers, type MessageSearchResult } from '../tools/message-history.js';
 
 
 const TYPING_MS_PER_CHAR = 30;
@@ -85,20 +84,14 @@ export interface TelegramGatewayConfig {
   token: string;
   /** Allowed Telegram chat IDs (numeric). Empty array = no one allowed. */
   whitelist: number[];
-  /** Session DB path, default 'data/sessions.db' */
-  sessionDbPath?: string;
-  /** Cronjob DB path, default 'data/cronjobs.db' */
-  cronDbPath?: string;
+  /** Base directory for per-user DB folders, default 'data/users' */
+  usersBaseDir?: string;
   /** AI model, default 'haiku' */
   model?: string;
-  /** Memory DB path, default 'data/memory.db' */
-  memoryDbPath?: string;
   /** Trigger server host. Default '127.0.0.1'. Set to null to disable. */
   triggerHost?: string | null;
   /** Trigger server port. Default 3100. */
   triggerPort?: number;
-  /** Message store DB path, default 'data/message.db' */
-  messageDbPath?: string;
 }
 
 
@@ -108,11 +101,8 @@ export function createTelegramGateway(config: TelegramGatewayConfig): Gateway {
   }
 
   const model = config.model ?? 'haiku';
-  const memoryStore = createMemoryStore(config.memoryDbPath);
+  const userDbCache = createUserDbCache(config.usersBaseDir);
   const whitelist = new Set(config.whitelist);
-
-  const sessions = createSessionStore(config.sessionDbPath);
-  const messageStore = createMessageStore(config.messageDbPath);
 
   const engine = createAIEngine({ model });
 
@@ -153,11 +143,11 @@ export function createTelegramGateway(config: TelegramGatewayConfig): Gateway {
 
     try {
       const sent = await bot.api.sendMessage(chatId, content);
-      messageStore.insert({
+      const assistantUserDb = userDbCache.get(String(chatId));
+      assistantUserDb.messages.insert({
         id: `${chatId}:${sent.message_id}`,
-        user_id: String(chatId),
         gateway: 'telegram',
-        session_id: sessions.get(String(chatId)) ?? null,
+        session_id: assistantUserDb.sessions.get() ?? null,
         sender: 'assistant',
         timestamp: Date.now(),
         type: 'text',
@@ -197,20 +187,23 @@ export function createTelegramGateway(config: TelegramGatewayConfig): Gateway {
     };
   }
 
-  const messageHandlersFactory = (uid: string): MessageHandlers => ({
-    search: (filter) =>
-      messageStore.search({ ...filter, userId: uid }).map(toSearchResult),
-    count: () => messageStore.count(uid),
-  });
+  const messageHandlersFactory = (uid: string): MessageHandlers => {
+    const store = userDbCache.get(uid).messages;
+    return {
+      search: (filter) => store.search(filter).map(toSearchResult),
+      count: () => store.count(),
+    };
+  };
 
   /** Shared query execution — used by message handler, cron fire, and trigger */
   async function runQuery(queryUserId: string, prompt: string | ContentBlock[]): Promise<QueryResult> {
-    const sessionId = sessions.get(queryUserId);
+    const userDb = userDbCache.get(queryUserId);
+    const sessionId = userDb.sessions.get();
     const isFresh = sessionId === undefined;
 
     let systemPrompt: string | undefined;
     if (isFresh) {
-      const bundle = memoryStore.loadAlwaysBundle(queryUserId);
+      const bundle = userDb.memory.loadAlwaysBundle();
       systemPrompt = buildSystemPromptWithMemory(bundle);
       log.debug(`[TG] fresh session for ${queryUserId} — injecting memory bundle (profile=${bundle.profile.length}, traits=${bundle.traits.length}, ongoing=${bundle.ongoing.length})`);
     }
@@ -220,7 +213,7 @@ export function createTelegramGateway(config: TelegramGatewayConfig): Gateway {
       systemPrompt,
       mcpServers: {
         message: createMessageServer(deliver, queryUserId),
-        memory: createMemoryServer(buildMemoryHandlers(memoryStore, queryUserId, sessionId ?? null)),
+        memory: createMemoryServer(buildMemoryHandlers(userDb.memory, sessionId ?? null)),
         cronjob: createCronjobServer(cronjobHandlersFactory(queryUserId)),
         messages: createMessageHistoryServer(messageHandlersFactory(queryUserId)),
       },
@@ -236,22 +229,22 @@ export function createTelegramGateway(config: TelegramGatewayConfig): Gateway {
       },
     });
 
-    sessions.save(queryUserId, result.sessionId);
+    userDb.sessions.save(result.sessionId);
     return result;
   }
 
   // Cron scheduler — fires wrapped in queue to serialize per-user
   const scheduler = createCronScheduler({
-    cronDbPath: config.cronDbPath,
+    userDbCache,
     onFire: (job) => new Promise<void>((resolve, reject) => {
       enqueue(job.userId, async () => {
         try {
           log.debug(`[TG] cron:${job.id} firing — ${job.scheduleHuman}`);
-          messageStore.insert({
+          const userDb = userDbCache.get(job.userId);
+          userDb.messages.insert({
             id: `system:cron:${uuidv4()}`,
-            user_id: job.userId,
             gateway: 'telegram',
-            session_id: sessions.get(job.userId) ?? null,
+            session_id: userDb.sessions.get() ?? null,
             sender: 'system',
             timestamp: Date.now(),
             type: 'text',
@@ -286,11 +279,11 @@ export function createTelegramGateway(config: TelegramGatewayConfig): Gateway {
           enqueue(userId, async () => {
             try {
               log.debug(`[TG] trigger:${userId} — ${message.slice(0, 60)}`);
-              messageStore.insert({
+              const userDb = userDbCache.get(userId);
+              userDb.messages.insert({
                 id: `system:trigger:${uuidv4()}`,
-                user_id: userId,
                 gateway: 'telegram',
-                session_id: sessions.get(userId) ?? null,
+                session_id: userDb.sessions.get() ?? null,
                 sender: 'system',
                 timestamp: Date.now(),
                 type: 'text',
@@ -396,11 +389,11 @@ export function createTelegramGateway(config: TelegramGatewayConfig): Gateway {
       const mediaSize = photoMeta?.file_size ?? docMeta?.file_size ?? null;
       const mediaFilename = docMeta?.file_name ?? null;
 
-      messageStore.insert({
+      const userDb = userDbCache.get(userId);
+      userDb.messages.insert({
         id: msgKey,
-        user_id: userId,
         gateway: 'telegram',
-        session_id: sessions.get(userId) ?? null,
+        session_id: userDb.sessions.get() ?? null,
         sender: 'user',
         timestamp: (ctx.message.date ?? Math.floor(Date.now() / 1000)) * 1000,
         type: messageType,
@@ -427,7 +420,7 @@ export function createTelegramGateway(config: TelegramGatewayConfig): Gateway {
       }
       if (text === '/new') {
         log.chat(`${chatId} → /new`);
-        sessions.delete(userId);
+        userDbCache.get(userId).sessions.delete();
         clearTurnCount(userId);
         clearStats(userId);
         await bot.api.sendMessage(chatId, 'Session cleared. Starting fresh.');
@@ -435,7 +428,7 @@ export function createTelegramGateway(config: TelegramGatewayConfig): Gateway {
       }
       if (text === '/status') {
         log.chat(`${chatId} → /status`);
-        const sessionId = sessions.get(userId);
+        const sessionId = userDbCache.get(userId).sessions.get();
         const turnCount = getTurnCount(userId);
         const stats = getStats(userId);
         const lines = [
@@ -491,6 +484,7 @@ export function createTelegramGateway(config: TelegramGatewayConfig): Gateway {
       await bot.stop();
       if (triggerServer) await triggerServer.stop();
       await scheduler.stop();
+      userDbCache.closeAll();
       log.debug('[TG] stopped');
     },
   };
