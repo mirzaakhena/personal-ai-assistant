@@ -12,6 +12,7 @@ export type Intensity = 'low' | 'medium' | 'high' | null;
 export type TraitType = 'trait' | 'habit';
 export type GoalStatus = 'active' | 'completed' | 'abandoned';
 export type EventOutcome = 'done' | 'missed' | null;
+export type Importance = 'critical' | 'normal' | null;
 
 export interface ProfileRecord {
   id: string;
@@ -22,6 +23,7 @@ export interface ProfileRecord {
   confidence: number | null;
   source_session_id: string | null;
   source_msg_id: string | null;
+  importance: Importance;
   last_updated: number;
   created_at: number;
 }
@@ -90,16 +92,10 @@ export interface JournalSearchFilter {
   order?: 'newest' | 'oldest' | 'relevant';
 }
 
-export interface AlwaysBundle {
-  profile: ProfileRecord[];
-  traits: TraitRecord[];
-  ongoing: JournalRecord[];
-}
-
 export interface MemoryStore {
-  upsertProfile(rec: Omit<ProfileRecord, 'id' | 'created_at' | 'last_updated'>): ProfileRecord;
+  upsertProfile(rec: Omit<ProfileRecord, 'id' | 'created_at' | 'last_updated' | 'importance'> & { importance?: Importance }): ProfileRecord;
   getProfile(category: string, key: string): ProfileRecord | undefined;
-  listProfile(opts?: { layer?: Layer; category?: string }): ProfileRecord[];
+  listProfile(opts?: { layer?: Layer; category?: string; importance?: Importance }): ProfileRecord[];
 
   insertJournal(rec: Omit<JournalRecord, 'id' | 'created_at'> & { id?: string; created_at?: number }): JournalRecord;
   getJournal(id: string): JournalRecord | undefined;
@@ -119,8 +115,6 @@ export interface MemoryStore {
   insertGoal(rec: Omit<GoalRecord, 'id' | 'created_at' | 'last_updated'>): GoalRecord;
   updateGoalStatus(id: string, status: GoalStatus): boolean;
   listGoals(opts?: { status?: GoalStatus }): GoalRecord[];
-
-  loadAlwaysBundle(): AlwaysBundle;
 }
 
 // ── Helpers ──────────────────────────────────────────────
@@ -175,6 +169,7 @@ export function createMemoryStore(db: Database.Database): MemoryStore {
       confidence         REAL,
       source_session_id  TEXT,
       source_msg_id      TEXT,
+      importance         TEXT,
       last_updated       INTEGER NOT NULL,
       created_at         INTEGER NOT NULL,
       UNIQUE(category, key)
@@ -259,6 +254,12 @@ export function createMemoryStore(db: Database.Database): MemoryStore {
     CREATE INDEX IF NOT EXISTS idx_goals_status ON goals(status);
   `);
 
+  // M5 migration: add importance column to existing pre-M5 DBs (idempotent)
+  const profileCols = db.prepare("PRAGMA table_info(profile)").all() as { name: string }[];
+  if (!profileCols.some(c => c.name === 'importance')) {
+    db.exec(`ALTER TABLE profile ADD COLUMN importance TEXT`);
+  }
+
   // FTS5 auto-populate on first run
   const fCounts = db.prepare(`
     SELECT
@@ -275,38 +276,49 @@ export function createMemoryStore(db: Database.Database): MemoryStore {
     SELECT * FROM profile WHERE category = ? AND key = ?
   `);
   const stmtInsertProfile = db.prepare(`
-    INSERT INTO profile (id, category, layer, key, value, confidence, source_session_id, source_msg_id, last_updated, created_at)
-    VALUES (@id, @category, @layer, @key, @value, @confidence, @source_session_id, @source_msg_id, @last_updated, @created_at)
+    INSERT INTO profile (id, category, layer, key, value, confidence, source_session_id, source_msg_id, importance, last_updated, created_at)
+    VALUES (@id, @category, @layer, @key, @value, @confidence, @source_session_id, @source_msg_id, @importance, @last_updated, @created_at)
   `);
   const stmtUpdateProfile = db.prepare(`
     UPDATE profile SET value = @value, layer = @layer, confidence = @confidence,
-      source_session_id = @source_session_id, source_msg_id = @source_msg_id, last_updated = @last_updated
+      source_session_id = @source_session_id, source_msg_id = @source_msg_id,
+      importance = @importance, last_updated = @last_updated
     WHERE category = @category AND key = @key
   `);
 
-  function upsertProfile(rec: Omit<ProfileRecord, 'id' | 'created_at' | 'last_updated'>): ProfileRecord {
+  function upsertProfile(rec: Omit<ProfileRecord, 'id' | 'created_at' | 'last_updated' | 'importance'> & { importance?: Importance }): ProfileRecord {
     const existing = stmtGetProfile.get(rec.category, rec.key);
     const now = nowMs();
+    const importance: Importance = rec.importance ?? null;
     if (existing) {
-      stmtUpdateProfile.run({ ...rec, last_updated: now });
+      stmtUpdateProfile.run({ ...rec, importance, last_updated: now });
       return stmtGetProfile.get(rec.category, rec.key)!;
     }
     const id = uuidv4();
-    const full: ProfileRecord = { ...rec, id, last_updated: now, created_at: now };
+    const full: ProfileRecord = { ...rec, importance, id, last_updated: now, created_at: now };
     stmtInsertProfile.run(full);
     return full;
   }
 
-  const stmtListProfileAll = db.prepare<[], ProfileRow>(`SELECT * FROM profile`);
-  const stmtListProfileByLayer = db.prepare<[Layer], ProfileRow>(`SELECT * FROM profile WHERE layer = ?`);
-  const stmtListProfileByCategory = db.prepare<[string], ProfileRow>(`SELECT * FROM profile WHERE category = ?`);
-  const stmtListProfileByBoth = db.prepare<[Layer, string], ProfileRow>(`SELECT * FROM profile WHERE layer = ? AND category = ?`);
+  function listProfile(opts?: { layer?: Layer; category?: string; importance?: Importance }): ProfileRecord[] {
+    const conditions: string[] = [];
+    const params: unknown[] = [];
 
-  function listProfile(opts?: { layer?: Layer; category?: string }): ProfileRecord[] {
-    if (opts?.layer && opts?.category) return stmtListProfileByBoth.all(opts.layer, opts.category);
-    if (opts?.layer) return stmtListProfileByLayer.all(opts.layer);
-    if (opts?.category) return stmtListProfileByCategory.all(opts.category);
-    return stmtListProfileAll.all();
+    if (opts?.layer) { conditions.push('layer = ?'); params.push(opts.layer); }
+    if (opts?.category) { conditions.push('category = ?'); params.push(opts.category); }
+    if (opts?.importance !== undefined) {
+      if (opts.importance === null) {
+        conditions.push('importance IS NULL');
+      } else {
+        conditions.push('importance = ?');
+        params.push(opts.importance);
+      }
+    }
+
+    const whereClause = conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : '';
+    const sql = `SELECT * FROM profile ${whereClause}`;
+    const stmt = db.prepare<unknown[], ProfileRow>(sql);
+    return stmt.all(...params);
   }
 
   function getProfile(category: string, key: string): ProfileRecord | undefined {
@@ -331,7 +343,7 @@ export function createMemoryStore(db: Database.Database): MemoryStore {
     UPDATE journal SET status = 'resolved', resolved_at = @resolved_at, event_outcome = @event_outcome WHERE id = @id
   `);
   const stmtListOngoing = db.prepare<[], JournalRow>(`
-    SELECT * FROM journal WHERE status = 'ongoing' ORDER BY created_at DESC
+    SELECT * FROM journal WHERE status = 'ongoing' ORDER BY created_at DESC LIMIT 10
   `);
 
   function insertJournal(rec: Omit<JournalRecord, 'id' | 'created_at'> & { id?: string; created_at?: number }): JournalRecord {
@@ -510,26 +522,11 @@ export function createMemoryStore(db: Database.Database): MemoryStore {
     return rows.map(goalRowToRecord);
   }
 
-  // ── Bundle ───────────────────────────────────────────
-
-  function loadAlwaysBundle(): AlwaysBundle {
-    const l3 = stmtListProfileByLayer.all('L3');
-    const l2Distilled = db.prepare<[Layer], ProfileRow>(
-      `SELECT * FROM profile WHERE layer = ? AND category IN ('value_belief','cognitive_style')`
-    ).all('L2');
-    return {
-      profile: [...l3, ...l2Distilled],
-      traits: listTraits(),
-      ongoing: listOngoing(),
-    };
-  }
-
   return {
     upsertProfile, getProfile, listProfile,
     insertJournal, getJournal, searchJournal, resolveJournal, listOngoing,
     upsertTrait, listTraits, getTraitByLabel, linkObservationsToTrait,
     upsertRelationship, listRelationships, getRelationshipByName,
     insertGoal, updateGoalStatus, listGoals,
-    loadAlwaysBundle,
   };
 }
