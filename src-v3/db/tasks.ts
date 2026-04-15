@@ -239,26 +239,30 @@ export function createTaskStore(db: Database.Database): TaskStore {
       if (!filter.query || filter.query.length === 0) {
         return this.list({ status: filter.status, cap: filter.cap });
       }
-      const conditions: string[] = ['fts.title MATCH ? OR fts.notes MATCH ? OR fts.trigger_keywords MATCH ?'];
-      const params: unknown[] = [filter.query, filter.query, filter.query];
-
-      if (filter.status) {
-        conditions.push('t.status = ?');
-        params.push(filter.status);
-      }
-
       const rawCap = filter.cap ?? DEFAULT_CAP;
       const cap = Math.max(1, Math.min(MAX_CAP, Math.floor(rawCap)));
+
+      if (filter.status) {
+        const sql = `
+          SELECT t.* FROM tasks t
+          JOIN tasks_fts fts ON t.rowid = fts.rowid
+          WHERE tasks_fts MATCH ? AND t.status = ?
+          ORDER BY rank
+          LIMIT ${cap}
+        `;
+        const stmt = db.prepare<unknown[], TaskRow>(sql);
+        return stmt.all(filter.query, filter.status).map(rowToRecord);
+      }
 
       const sql = `
         SELECT t.* FROM tasks t
         JOIN tasks_fts fts ON t.rowid = fts.rowid
-        WHERE ${conditions.join(' AND ')}
+        WHERE tasks_fts MATCH ?
         ORDER BY rank
         LIMIT ${cap}
       `;
       const stmt = db.prepare<unknown[], TaskRow>(sql);
-      return stmt.all(...params).map(rowToRecord);
+      return stmt.all(filter.query).map(rowToRecord);
     },
 
     listPending(opts) {

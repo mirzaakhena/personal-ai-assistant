@@ -16,6 +16,9 @@
     "test:m3-prompt": "tsx scripts/test-m3-prompt.ts",
     "test:user-db": "tsx scripts/test-user-db.ts",
     "test:user-db-cache": "tsx scripts/test-user-db-cache.ts",
+    "test:tasks": "tsx scripts/test-tasks.ts",
+    "test:habits": "tsx scripts/test-habits.ts",
+    "test:rules-bundle": "tsx scripts/test-rules-bundle.ts",
     "migrate:per-user-db": "tsx scripts/migrate-to-per-user-db.ts"
   },
   "keywords": [],
