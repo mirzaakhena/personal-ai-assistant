@@ -1,6 +1,9 @@
 // src-v3/utils/system-prompt.ts
 
-import type { AlwaysBundle, ProfileRecord, TraitRecord, JournalRecord } from '../db/memory.js';
+import type { ProfileRecord, TraitRecord, JournalRecord } from '../db/memory.js';
+import type { TaskRecord } from '../db/tasks.js';
+import type { HabitStatusInfo } from '../db/habits.js';
+import type { AlwaysBundle } from '../db/user-db.js';
 
 /**
  * Default system prompt for the AI assistant.
@@ -158,13 +161,63 @@ When new info contradicts existing (e.g., user moves to new city):
 
 <transparency>
 - User asks "apa yang kamu tahu tentang saya?" / "list X tentang saya"
-  → call list_profile + list_traits + list_relationships + list_goals (or specific subset)
+  → call list_profile + list_traits + list_relationships + list_goals + list_tasks + list_habits
+  (or specific subset based on what user asked)
 - User says "lupakan X" / "hapus X"
-  → no hard delete. Offer alternatives:
-    • For ongoing problems/events: resolve_journal
-    • For goals: update_goal_status status="abandoned"
-    • For profile/relationships/traits: explain not removable, suggest update instead
+  → no hard delete (except delete_task for accidental creates). Offer alternatives:
+    • Tasks → cancel_task or complete_task
+    • Habits → update_habit status='archived'
+    • Goals → update_goal_status status='abandoned'
+    • Profile/relationships/traits → explain not removable, suggest update
 </transparency>
+
+<task_management>
+When user mentions an action item they need to do:
+- One-shot, potentially with trigger → save_task
+  - "beli sabun kalau ke pasar" → save_task type='errand' trigger_keywords=['pasar', 'belanja']
+  - "titip kunci sebelum pulang kantor" → save_task type='errand' due_date=today
+  - Pre-travel checklist → save_task × N type='routine_item' trigger_keywords=['travel', 'berangkat']
+
+When user mentions relevant context ("aku mau ke pasar"):
+- search_tasks(query="pasar") — surface pending tasks with matching keywords
+- Naturally weave into reply ("eh btw, kamu tadi bilang mau beli sabun — sekalian ya?")
+
+When user indicates completion ("udah beli sabun", "selesai"):
+- search_tasks first to find matching task → complete_task(id)
+- Don't re-ask; infer from context
+
+Task priority: high = urgent/deadline today, medium = default, low = someday/maybe.
+</task_management>
+
+<habit_tracking>
+User wants to build a habit (recurring with completion tracking):
+- Daily slots ("sholat 5 waktu") → save_habit cadence_type='slot' config={slots:[...], period:'day'}
+- Count ("olahraga 3x/minggu") → cadence_type='count' config={target:3, period:'week'}
+- Quantity ("minum 2L air/hari") → cadence_type='quantity' config={target:2000, unit:'ml', period:'day'}
+- Boolean ("baca al-Quran tiap hari") → cadence_type='boolean' config={period:'day'}
+- Duration ("coding 1 jam/hari") → cadence_type='duration' config={target:60, unit:'min', period:'day'}
+
+When user reports doing a habit ("tadi udah sholat Dzuhur", "olahraga 30 menit tadi"):
+- log_habit_completion({habit_id, slot?, value?})
+- Acknowledge + show progress ("mantap, sisa 1 lagi minggu ini")
+
+When user asks about habit status:
+- get_habit_status(id) → progress + streak
+- Frame motivationally — don't shame missed streaks
+</habit_tracking>
+
+<rules_handling>
+When user states a standing preference, policy, or condition-action rule:
+- save_profile category='rule', layer='L3' for safety-critical (allergies, meds),
+  layer='L2' for preferences
+- importance='critical' for anything safety-related (allergies, medical, legal)
+- key: trigger-descriptor (e.g., 'before_leaving_home', 'allergy_food', 'when_buying_tissue')
+- value: policy text
+
+When user context matches a rule's key pattern:
+- Proactively surface relevant rules (allergies FIRST, always)
+- Use as decision-support, not just info dump
+</rules_handling>
 </memory_usage>
 
 <message_history>
@@ -246,6 +299,41 @@ function ongoingToYaml(r: JournalRecord): string {
   return `  - {${parts.join(', ')}}`;
 }
 
+function taskToYaml(t: TaskRecord): string {
+  const parts = [
+    `id: ${yamlScalar(t.id)}`,
+    `type: ${t.type}`,
+    `title: ${yamlScalar(t.title)}`,
+  ];
+  if (t.priority) parts.push(`priority: ${t.priority}`);
+  if (t.trigger_keywords && t.trigger_keywords.length > 0) {
+    parts.push(`trigger_keywords: [${t.trigger_keywords.map(k => yamlScalar(k)).join(', ')}]`);
+  }
+  if (t.due_date) parts.push(`due_date: ${yamlScalar(t.due_date)}`);
+  return `  - {${parts.join(', ')}}`;
+}
+
+function habitToYaml(s: HabitStatusInfo): string {
+  const h = s.habit;
+  const cfg = h.cadence_config;
+  const cadence = cfg.period
+    ? `${h.cadence_type}/${cfg.period}`
+    : h.cadence_type;
+
+  let progress: string;
+  if (h.cadence_type === 'boolean') {
+    progress = s.done_this_period > 0 ? 'done this period' : 'not yet this period';
+  } else if (s.target !== null) {
+    const unit = cfg.unit ? ` ${cfg.unit}` : '';
+    progress = `${s.done_this_period}/${s.target}${unit} this ${cfg.period}`;
+  } else {
+    progress = `${s.done_this_period} this ${cfg.period}`;
+  }
+
+  const streakText = s.streak_periods > 0 ? `, streak: ${s.streak_periods}` : '';
+  return `  - {id: ${yamlScalar(h.id)}, title: ${yamlScalar(h.title)}, cadence: "${cadence}", progress: "${progress}${streakText}"}`;
+}
+
 /**
  * Render the memory bundle as YAML inside <memory_context> XML wrapper.
  * Empty bundle → onboarding guidance block.
@@ -255,7 +343,9 @@ export function renderMemoryContext(bundle: AlwaysBundle): string {
   const isEmpty =
     bundle.profile.length === 0 &&
     bundle.traits.length === 0 &&
-    bundle.ongoing.length === 0;
+    bundle.ongoing.length === 0 &&
+    bundle.tasks.length === 0 &&
+    bundle.habits.length === 0;
 
   if (isEmpty) return EMPTY_BUNDLE_TEXT;
 
@@ -272,6 +362,14 @@ export function renderMemoryContext(bundle: AlwaysBundle): string {
   if (bundle.ongoing.length > 0) {
     lines.push('ongoing:');
     for (const o of bundle.ongoing) lines.push(ongoingToYaml(o));
+  }
+  if (bundle.tasks.length > 0) {
+    lines.push('tasks:');
+    for (const t of bundle.tasks) lines.push(taskToYaml(t));
+  }
+  if (bundle.habits.length > 0) {
+    lines.push('habits:');
+    for (const h of bundle.habits) lines.push(habitToYaml(h));
   }
 
   lines.push('</memory_context>');
