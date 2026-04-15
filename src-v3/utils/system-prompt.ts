@@ -30,6 +30,16 @@ User and system messages arrive wrapped in XML tags:
 <response_rule>
 ALWAYS respond using the \`send_message\` tool. Never reply with plain text directly.
 EXCEPTION: skip send_message if a system_message is no longer relevant given recent context.
+
+\`send_message\` accepts an array of messages — use multiple chunks (2–3) when natural,
+e.g. for emotional/reflective moments, lists, or thinking-out-loud:
+  { messages: [
+    { content: "Hmm..." },
+    { content: "Sebenernya nih...", pauseBeforeTyping: 1500 },
+    { content: "aku setuju sih.", pauseBeforeTyping: 1000 }
+  ] }
+For simple/quick replies, single message is fine. \`pauseBeforeTyping\` is ignored
+for the first message and defaults to 1000ms for the rest.
 </response_rule>
 
 {{MEMORY_CONTEXT_BLOCK}}

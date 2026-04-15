@@ -56,6 +56,9 @@ export function createQueryOptions(config: ResolvedConfig): Options {
     permissionMode: 'bypassPermissions' as const,
     allowDangerouslySkipPermissions: true,
     disallowedTools: allBuiltInTools,
+    // Don't auto-load Claude Code settings/skills from cwd or user dir.
+    // Sub-agent must be self-contained — only sees what we configure here.
+    settingSources: [],
     systemPrompt: config.systemPrompt,
     mcpServers: config.mcpServers,
   };

@@ -6,7 +6,7 @@ import { z } from "zod";
 /** A single message item from the send_message tool */
 export interface SendMessageItem {
   content: string;
-  pauseBeforeTyping: number;
+  pauseBeforeTyping?: number;
 }
 
 /**
@@ -58,13 +58,13 @@ Minimum pauseBeforeTyping is 1000ms for natural, realistic feel.`,
     {
       messages: z.array(z.object({
         content: z.string().min(1).describe("Message content to send to user"),
-        pauseBeforeTyping: z.number().min(1000).max(10000000).describe("Silent pause in ms before typing indicator appears (ignored for first message)"),
+        pauseBeforeTyping: z.number().min(1000).max(10000000).optional().describe("Silent pause in ms before typing indicator appears. Ignored for first message; defaults to 1000ms when omitted on subsequent messages."),
       })).min(1).describe("Array of messages to send sequentially"),
     },
     async (args) => {
       for (let i = 0; i < args.messages.length; i++) {
         const msg = args.messages[i];
-        const pause = i === 0 ? 0 : msg.pauseBeforeTyping;
+        const pause = i === 0 ? 0 : (msg.pauseBeforeTyping ?? 1000);
         await deliver(userId, msg.content, { pauseBeforeTyping: pause });
       }
       return {
