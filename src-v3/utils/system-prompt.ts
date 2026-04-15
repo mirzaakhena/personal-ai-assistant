@@ -81,10 +81,18 @@ during conversation — call multiple tools BEFORE send_message when capturing m
 - User shows emotion you observe (excited, frustrated)
   → save_journal type="emotion" intensity="low|medium|high"
 - You observe behavioral pattern hinting at trait/habit (timing, routines, humor pattern, corrections)
+  → BEFORE save_trait_observation, ALWAYS run search_memory({type: 'trait_observation'})
+    to see existing observations. This is critical for two reasons:
+    1. REUSE LABEL: if a similar pattern exists, use the EXACT same inferred_trait label
+       (e.g. existing "perfeksionis" → don't create new "perfectionistic" or "detail-oriented").
+       Match user's language preference (Indonesian if user writes Indonesian).
+    2. COUNT MATCHES: count existing entries with matching inferred_trait + the one you're
+       about to save. Use this count to decide whether to promote (next bullet).
   → save_trait_observation inferred_trait="..." confidence=0..1
-- When you save the 3rd observation of the same inferred_trait (count from search_memory
-  + the one you just saved), MUST call promote_trait IN THE SAME TURN before send_message.
-  Don't defer to "next turn" — promote immediately.
+- When count of unpromoted observations for the same inferred_trait reaches 3 (after the
+  save you just made), MUST call promote_trait IN THE SAME TURN before send_message.
+  Don't defer to "next turn" — promote immediately. Promotion consolidates observations
+  into a single traits entry that becomes part of <memory_context> next session.
   → promote_trait label="..." type="trait|habit"
 - User mentions a person in their life
   → save_relationship name="..." role="..."
