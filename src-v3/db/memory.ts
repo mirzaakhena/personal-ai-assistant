@@ -118,6 +118,8 @@ export interface MemoryStore {
   upsertTrait(rec: Omit<TraitRecord, 'id' | 'first_seen' | 'last_confirmed'>): TraitRecord;
   listTraits(userId: string): TraitRecord[];
   getTraitByLabel(userId: string, type: TraitType, label: string): TraitRecord | undefined;
+  // Link observations to a promoted trait (for promote_trait orchestration)
+  linkObservationsToTrait(obsIds: string[], traitId: string): number;  // returns count updated
 
   upsertRelationship(rec: Omit<RelationshipRecord, 'id' | 'created_at' | 'last_mentioned'>): RelationshipRecord;
   listRelationships(userId: string): RelationshipRecord[];
@@ -484,6 +486,23 @@ export function createMemoryStore(dbPath: string = 'data/memory.db'): MemoryStor
     return row ? traitRowToRecord(row) : undefined;
   }
 
+  const stmtLinkObsToTrait = db.prepare(`
+    UPDATE journal SET promoted_to_trait_id = @traitId WHERE id = @id
+  `);
+
+  function linkObservationsToTrait(obsIds: string[], traitId: string): number {
+    if (obsIds.length === 0) return 0;
+    const txn = db.transaction((ids: string[]) => {
+      let n = 0;
+      for (const id of ids) {
+        const res = stmtLinkObsToTrait.run({ id, traitId });
+        n += res.changes;
+      }
+      return n;
+    });
+    return txn(obsIds);
+  }
+
   // ── Relationships ────────────────────────────────────
 
   const stmtGetRelByName = db.prepare<[string, string], RelationshipRow>(`
@@ -572,7 +591,7 @@ export function createMemoryStore(dbPath: string = 'data/memory.db'): MemoryStor
   return {
     upsertProfile, getProfile, listProfile,
     insertJournal, getJournal, searchJournal, resolveJournal, listOngoing,
-    upsertTrait, listTraits, getTraitByLabel,
+    upsertTrait, listTraits, getTraitByLabel, linkObservationsToTrait,
     upsertRelationship, listRelationships, getRelationshipByName,
     insertGoal, updateGoalStatus, listGoals,
     loadAlwaysBundle,

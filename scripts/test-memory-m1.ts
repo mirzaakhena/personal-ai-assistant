@@ -165,4 +165,11 @@ mem.insertJournal({
 const bundle2 = mem.loadAlwaysBundle(USER);
 console.log('\n9. After adding ongoing problem — ongoing count:', bundle2.ongoing.length, '(should be 1)');
 
+// 10. linkObservationsToTrait
+const linked = mem.linkObservationsToTrait([j2.id], t1.id);
+console.log('\n10. linkObservationsToTrait linked:', linked, '(should be 1)');
+const j2After = mem.getJournal(j2.id);
+console.log('   j2 promoted_to_trait_id:', j2After?.promoted_to_trait_id, '(should equal t1.id)');
+console.log('   match t1.id?', j2After?.promoted_to_trait_id === t1.id);
+
 console.log('\n=== All checks passed ===');
