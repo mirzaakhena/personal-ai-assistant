@@ -15,6 +15,7 @@ import { createTriggerServer } from '../trigger/server.js';
 import type { TriggerServer } from '../trigger/types.js';
 import { log } from '../utils/logger.js';
 import { buildUserPrompt, buildSystemMessagePrompt } from '../utils/prompt.js';
+import { buildSystemPromptWithMemory } from '../utils/system-prompt.js';
 import { incrementTurnCount, getTurnCount, clearTurnCount } from '../utils/turns.js';
 import { updateStats, getStats, clearStats } from '../utils/stats.js';
 import { enqueue } from '../utils/queue.js';
@@ -65,9 +66,18 @@ export function createConsoleGateway(config?: ConsoleGatewayConfig): Gateway {
   /** Shared query execution — used by both user input and cron fire */
   async function runQuery(queryUserId: string, prompt: string | ContentBlock[]): Promise<QueryResult> {
     const sessionId = sessions.get(queryUserId);
+    const isFresh = sessionId === undefined;
+
+    let systemPrompt: string | undefined;
+    if (isFresh) {
+      const bundle = memoryStore.loadAlwaysBundle(queryUserId);
+      systemPrompt = buildSystemPromptWithMemory(bundle);
+      log.debug(`fresh session for ${queryUserId} — injecting memory bundle (profile=${bundle.profile.length}, traits=${bundle.traits.length}, ongoing=${bundle.ongoing.length})`);
+    }
 
     const result = await engine.query(prompt, {
       sessionId,
+      systemPrompt,
       mcpServers: {
         message: createMessageServer(deliver, queryUserId),
         memory: createMemoryServer(buildMemoryHandlers(memoryStore, queryUserId, sessionId ?? null)),
