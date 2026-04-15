@@ -22,6 +22,7 @@ import { log } from '../utils/logger.js';
 import { buildUserPrompt, buildSystemMessagePrompt, type QuotedInfo } from '../utils/prompt.js';
 import { incrementTurnCount, getTurnCount, clearTurnCount } from '../utils/turns.js';
 import { updateStats, getStats, clearStats } from '../utils/stats.js';
+import { buildSystemPromptWithMemory } from '../utils/system-prompt.js';
 import { enqueue } from '../utils/queue.js';
 import { createMessageStore, type MessageRecord } from '../db/message.js';
 import { createMessageHistoryServer, type MessageHandlers, type MessageSearchResult } from '../tools/message-history.js';
@@ -205,9 +206,18 @@ export function createTelegramGateway(config: TelegramGatewayConfig): Gateway {
   /** Shared query execution — used by message handler, cron fire, and trigger */
   async function runQuery(queryUserId: string, prompt: string | ContentBlock[]): Promise<QueryResult> {
     const sessionId = sessions.get(queryUserId);
+    const isFresh = sessionId === undefined;
+
+    let systemPrompt: string | undefined;
+    if (isFresh) {
+      const bundle = memoryStore.loadAlwaysBundle(queryUserId);
+      systemPrompt = buildSystemPromptWithMemory(bundle);
+      log.debug(`[TG] fresh session for ${queryUserId} — injecting memory bundle (profile=${bundle.profile.length}, traits=${bundle.traits.length}, ongoing=${bundle.ongoing.length})`);
+    }
 
     const result = await engine.query(prompt, {
       sessionId,
+      systemPrompt,
       mcpServers: {
         message: createMessageServer(deliver, queryUserId),
         memory: createMemoryServer(buildMemoryHandlers(memoryStore, queryUserId, sessionId ?? null)),
