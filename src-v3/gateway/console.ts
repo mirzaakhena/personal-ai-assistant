@@ -6,7 +6,8 @@ import type { Gateway } from './types.js';
 import { createAIEngine } from '../ai-engine/index.js';
 import type { QueryResult, ContentBlock } from '../ai-engine/index.js';
 import { createMessageServer, type MessageDeliver } from '../tools/message.js';
-import { createMemoryServer, type MemoryHandlers } from '../tools/memory.js';
+import { createMemoryServer, buildMemoryHandlers, type MemoryHandlers } from '../tools/memory.js';
+import { createMemoryStore, type MemoryStore } from '../db/memory.js';
 import { createCronjobServer, type CronjobHandlers } from '../tools/cronjob.js';
 import { createSessionStore } from '../db/sessions.js';
 import { createCronScheduler } from '../cron/scheduler.js';
@@ -18,9 +19,6 @@ import { incrementTurnCount, getTurnCount, clearTurnCount } from '../utils/turns
 import { updateStats, getStats, clearStats } from '../utils/stats.js';
 import { enqueue } from '../utils/queue.js';
 
-/** Factory that returns handlers scoped to a specific userId */
-export type MemoryHandlersFactory = (userId: string) => MemoryHandlers;
-
 export interface ConsoleGatewayConfig {
   /** Session DB path, default 'data/sessions.db' */
   sessionDbPath?: string;
@@ -28,8 +26,8 @@ export interface ConsoleGatewayConfig {
   cronDbPath?: string;
   /** AI model, default 'haiku' */
   model?: string;
-  /** Memory handlers factory, default in-memory Map keyed by userId */
-  memoryHandlers?: MemoryHandlersFactory;
+  /** Memory DB path, default 'data/memory.db' */
+  memoryDbPath?: string;
   /** User ID for the console session, default 'console-user' */
   userId?: string;
   /**
@@ -41,26 +39,10 @@ export interface ConsoleGatewayConfig {
   triggerPort?: number;
 }
 
-/** Default in-memory memory backend — shared Map, keyed by `${userId}:${key}` */
-function defaultMemoryHandlersFactory(): MemoryHandlersFactory {
-  const backend = new Map<string, string>();
-  return (userId: string) => ({
-    save: (key, value) => {
-      backend.set(`${userId}:${key}`, value);
-      log.debug(`memory:save [${userId}] ${key} = ${value}`);
-    },
-    recall: (key) => {
-      const value = backend.get(`${userId}:${key}`) ?? null;
-      log.debug(`memory:recall [${userId}] ${key} → ${value}`);
-      return value;
-    },
-  });
-}
-
 export function createConsoleGateway(config?: ConsoleGatewayConfig): Gateway {
   const userId = config?.userId ?? 'console-user';
   const model = config?.model ?? 'haiku';
-  const memoryHandlersFactory = config?.memoryHandlers ?? defaultMemoryHandlersFactory();
+  const memoryStore = createMemoryStore(config?.memoryDbPath);
 
   const sessions = createSessionStore(config?.sessionDbPath);
 
@@ -88,7 +70,7 @@ export function createConsoleGateway(config?: ConsoleGatewayConfig): Gateway {
       sessionId,
       mcpServers: {
         message: createMessageServer(deliver, queryUserId),
-        memory: createMemoryServer(memoryHandlersFactory(queryUserId)),
+        memory: createMemoryServer(buildMemoryHandlers(memoryStore, queryUserId, sessionId ?? null)),
         cronjob: createCronjobServer(cronjobHandlersFactory(queryUserId)),
       },
       callbacks: {
