@@ -2,10 +2,11 @@
 
 import cron from 'node-cron';
 import { v4 as uuidv4 } from 'uuid';
-import { createCronjobStore, type CronjobRecord } from '../db/cronjobs.js';
+import type { CronjobRecord, CronjobStore } from '../db/cronjobs.js';
 import { createCronRegistry } from './registry.js';
 import { computeMissedExecutionTimes } from './utils.js';
 import type { CronjobInput, CronjobInfo } from '../tools/cronjob.js';
+import type { UserDbCache } from '../db/user-db-cache.js';
 import { log } from '../utils/logger.js';
 
 const TIMEZONE = 'Asia/Jakarta';
@@ -22,8 +23,8 @@ export interface ScheduledJob {
 }
 
 export interface CronSchedulerConfig {
-  /** Path to cronjobs DB file. Default: 'data/cronjobs.db' */
-  cronDbPath?: string;
+  /** User DB cache for resolving per-user cronjob stores */
+  userDbCache: UserDbCache;
   /** Called when a cron fires. Consumer decides what to do. */
   onFire: (job: ScheduledJob) => Promise<void>;
 }
@@ -39,10 +40,10 @@ export interface CronScheduler {
 
 const TERMINAL_STATUSES = new Set(['CANCELLED', 'COMPLETED', 'EXECUTED', 'FAILED', 'MISSED']);
 
-function recordToScheduledJob(r: CronjobRecord): ScheduledJob {
+function recordToScheduledJob(r: CronjobRecord, userId: string): ScheduledJob {
   return {
     id: r.id,
-    userId: r.user_id,
+    userId,
     type: r.type,
     message: r.message,
     scheduleHuman: r.schedule_human,
@@ -78,11 +79,17 @@ function timestampToCronExpr(ms: number): string {
 }
 
 export function createCronScheduler(config: CronSchedulerConfig): CronScheduler {
-  const store = createCronjobStore(config.cronDbPath);
+  const userDbCache = config.userDbCache;
   const registry = createCronRegistry();
 
+  /** Resolve the cronjob store for a given user. */
+  function getStoreFor(userId: string): CronjobStore {
+    return userDbCache.get(userId).cronjobs;
+  }
+
   /** Fire handler — executes onFire + updates DB */
-  async function fire(job: CronjobRecord): Promise<void> {
+  async function fire(job: CronjobRecord, userId: string): Promise<void> {
+    const store = getStoreFor(userId);
     const executionId = uuidv4();
     const scheduledAt = job.scheduled_at ?? Date.now();
     store.insertExecution({
@@ -95,7 +102,7 @@ export function createCronScheduler(config: CronSchedulerConfig): CronScheduler 
     });
 
     try {
-      await config.onFire(recordToScheduledJob(job));
+      await config.onFire(recordToScheduledJob(job, userId));
       store.updateExecutionStatus(executionId, 'EXECUTED', Date.now());
 
       if (job.type === 'once') {
@@ -108,7 +115,7 @@ export function createCronScheduler(config: CronSchedulerConfig): CronScheduler 
         }
       }
     } catch (err) {
-      log.error(`[CRON] job ${job.id} failed`, err);
+      log.error(`[CRON] job ${job.id} (${userId}) failed`, err);
       store.updateExecutionStatus(executionId, 'FAILED', Date.now());
       if (job.type === 'once') {
         store.updateJobStatus(job.id, 'FAILED');
@@ -118,15 +125,15 @@ export function createCronScheduler(config: CronSchedulerConfig): CronScheduler 
   }
 
   /** Register a once-type job with node-cron */
-  function registerOnceTask(job: CronjobRecord): void {
+  function registerOnceTask(job: CronjobRecord, userId: string): void {
     if (!job.scheduled_at) return;
     const cronExpr = timestampToCronExpr(job.scheduled_at);
-    log.debug(`[CRON] register once ${job.id} — ${job.schedule_human} (${cronExpr})`);
+    log.debug(`[CRON] register once ${job.id} (${userId}) — ${job.schedule_human} (${cronExpr})`);
     const task = cron.schedule(
       cronExpr,
       () => {
         task.stop();
-        void fire(job);
+        void fire(job, userId);
       },
       { timezone: TIMEZONE }
     );
@@ -134,18 +141,19 @@ export function createCronScheduler(config: CronSchedulerConfig): CronScheduler 
   }
 
   /** Register a recurring job with node-cron */
-  function registerRecurringTask(job: CronjobRecord): void {
+  function registerRecurringTask(job: CronjobRecord, userId: string): void {
     if (!job.schedule_cron) return;
-    log.debug(`[CRON] register recurring ${job.id} — ${job.schedule_human} (${job.schedule_cron})`);
+    log.debug(`[CRON] register recurring ${job.id} (${userId}) — ${job.schedule_human} (${job.schedule_cron})`);
     const task = cron.schedule(
       job.schedule_cron,
       () => {
+        const store = getStoreFor(userId);
         if (job.end_date && Date.now() >= job.end_date) {
           store.updateJobStatus(job.id, 'COMPLETED');
           registry.unregister(job.id);
           return;
         }
-        void fire(job);
+        void fire(job, userId);
       },
       { timezone: TIMEZONE }
     );
@@ -154,6 +162,8 @@ export function createCronScheduler(config: CronSchedulerConfig): CronScheduler 
 
   return {
     async schedule(userId, input) {
+      const store = getStoreFor(userId);
+
       if (input.type === 'recurring') {
         if (!input.scheduleCron) throw new Error('schedule_cron is required for recurring jobs');
         if (!cron.validate(input.scheduleCron)) throw new Error(`Invalid cron expression: ${input.scheduleCron}`);
@@ -171,7 +181,6 @@ export function createCronScheduler(config: CronSchedulerConfig): CronScheduler 
 
       const record: CronjobRecord = {
         id: jobId,
-        user_id: userId,
         message: input.message,
         type: input.type,
         schedule_cron: input.scheduleCron ?? null,
@@ -186,9 +195,9 @@ export function createCronScheduler(config: CronSchedulerConfig): CronScheduler 
       store.insertJob(record);
 
       if (input.type === 'once') {
-        registerOnceTask(record);
+        registerOnceTask(record, userId);
       } else {
-        registerRecurringTask(record);
+        registerRecurringTask(record, userId);
       }
 
       log.debug(`[CRON] scheduled ${input.type} ${jobId} for ${userId}: ${input.scheduleHuman}`);
@@ -196,13 +205,14 @@ export function createCronScheduler(config: CronSchedulerConfig): CronScheduler 
     },
 
     async list(userId) {
-      return store.getJobsByUser(userId, true).map(recordToInfo);
+      const store = getStoreFor(userId);
+      return store.getJobs(true).map(recordToInfo);
     },
 
     async delete(userId, jobId) {
+      const store = getStoreFor(userId);
       const job = store.getJobById(jobId);
       if (!job) return false;
-      if (job.user_id !== userId) return false;
       if (TERMINAL_STATUSES.has(job.status)) return false;
       store.updateJobStatus(jobId, 'CANCELLED');
       registry.unregister(jobId);
@@ -211,9 +221,9 @@ export function createCronScheduler(config: CronSchedulerConfig): CronScheduler 
     },
 
     async update(userId, jobId, patch) {
+      const store = getStoreFor(userId);
       const job = store.getJobById(jobId);
       if (!job) return false;
-      if (job.user_id !== userId) return false;
       if (TERMINAL_STATUSES.has(job.status)) return false;
       if (patch.message) {
         store.updateJobMessage(jobId, patch.message);
@@ -224,60 +234,68 @@ export function createCronScheduler(config: CronSchedulerConfig): CronScheduler 
 
     async start() {
       const now = Date.now();
+      const userIds = userDbCache.listKnownUsers();
+      let totalOnce = 0;
+      let totalRecurring = 0;
 
-      const onceJobs = store.getPendingOnceJobs();
-      const recurringJobs = store.getActiveRecurringJobs();
+      for (const userId of userIds) {
+        const store = getStoreFor(userId);
+        const onceJobs = store.getPendingOnceJobs();
+        const recurringJobs = store.getActiveRecurringJobs();
 
-      log.debug(`[CRON] startup — ${onceJobs.length} once, ${recurringJobs.length} recurring`);
+        for (const job of onceJobs) {
+          if (!job.scheduled_at) continue;
+          if (job.scheduled_at <= now) {
+            log.debug(`[CRON] missed once ${job.id} (${userId})`);
+            store.updateJobStatus(job.id, 'MISSED');
+            store.insertExecution({
+              id: uuidv4(),
+              cronjob_id: job.id,
+              scheduled_at: job.scheduled_at,
+              executed_at: null,
+              status: 'MISSED',
+              created_at: now,
+            });
+          } else {
+            registerOnceTask(job, userId);
+            totalOnce++;
+          }
+        }
 
-      for (const job of onceJobs) {
-        if (!job.scheduled_at) continue;
-        if (job.scheduled_at <= now) {
-          log.debug(`[CRON] missed once ${job.id}`);
-          store.updateJobStatus(job.id, 'MISSED');
-          store.insertExecution({
-            id: uuidv4(),
-            cronjob_id: job.id,
-            scheduled_at: job.scheduled_at,
-            executed_at: null,
-            status: 'MISSED',
-            created_at: now,
-          });
-        } else {
-          registerOnceTask(job);
+        for (const job of recurringJobs) {
+          if (!job.schedule_cron) continue;
+
+          if (job.end_date && now >= job.end_date) {
+            log.debug(`[CRON] recurring ${job.id} (${userId}) past end_date`);
+            store.updateJobStatus(job.id, 'COMPLETED');
+            continue;
+          }
+
+          const lastExecution = store.getLastExecutionForJob(job.id);
+          const fromTime = lastExecution?.scheduled_at ?? job.created_at;
+          const missedTimes = computeMissedExecutionTimes(job.schedule_cron, fromTime, now);
+
+          if (missedTimes.length > 0) {
+            log.debug(`[CRON] ${job.id} (${userId}) missed ${missedTimes.length} execution(s)`);
+          }
+
+          for (const missedAt of missedTimes) {
+            store.insertExecution({
+              id: uuidv4(),
+              cronjob_id: job.id,
+              scheduled_at: missedAt,
+              executed_at: null,
+              status: 'MISSED',
+              created_at: now,
+            });
+          }
+
+          registerRecurringTask(job, userId);
+          totalRecurring++;
         }
       }
 
-      for (const job of recurringJobs) {
-        if (!job.schedule_cron) continue;
-
-        if (job.end_date && now >= job.end_date) {
-          log.debug(`[CRON] recurring ${job.id} past end_date`);
-          store.updateJobStatus(job.id, 'COMPLETED');
-          continue;
-        }
-
-        const lastExecution = store.getLastExecutionForJob(job.id);
-        const fromTime = lastExecution?.scheduled_at ?? job.created_at;
-        const missedTimes = computeMissedExecutionTimes(job.schedule_cron, fromTime, now);
-
-        if (missedTimes.length > 0) {
-          log.debug(`[CRON] ${job.id} missed ${missedTimes.length} execution(s)`);
-        }
-
-        for (const missedAt of missedTimes) {
-          store.insertExecution({
-            id: uuidv4(),
-            cronjob_id: job.id,
-            scheduled_at: missedAt,
-            executed_at: null,
-            status: 'MISSED',
-            created_at: now,
-          });
-        }
-
-        registerRecurringTask(job);
-      }
+      log.debug(`[CRON] startup — ${totalOnce} once, ${totalRecurring} recurring (across ${userIds.length} user${userIds.length === 1 ? '' : 's'})`);
     },
 
     async stop() {
