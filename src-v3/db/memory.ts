@@ -1,8 +1,6 @@
 // src-v3/db/memory.ts
 
 import Database from 'better-sqlite3';
-import { mkdirSync } from 'fs';
-import { dirname } from 'path';
 import { v4 as uuidv4 } from 'uuid';
 
 // ── Types ────────────────────────────────────────────────
@@ -17,7 +15,6 @@ export type EventOutcome = 'done' | 'missed' | null;
 
 export interface ProfileRecord {
   id: string;
-  user_id: string;
   category: string;
   layer: Layer;
   key: string;
@@ -31,7 +28,6 @@ export interface ProfileRecord {
 
 export interface JournalRecord {
   id: string;
-  user_id: string;
   type: JournalType;
   content: string;
   status: JournalStatus;
@@ -52,7 +48,6 @@ export interface JournalRecord {
 
 export interface TraitRecord {
   id: string;
-  user_id: string;
   type: TraitType;
   label: string;
   confidence: number;
@@ -64,7 +59,6 @@ export interface TraitRecord {
 
 export interface RelationshipRecord {
   id: string;
-  user_id: string;
   name: string;
   role: string;
   dynamic: string | null;
@@ -76,7 +70,6 @@ export interface RelationshipRecord {
 
 export interface GoalRecord {
   id: string;
-  user_id: string;
   title: string;
   category: string | null;
   status: GoalStatus;
@@ -88,7 +81,6 @@ export interface GoalRecord {
 }
 
 export interface JournalSearchFilter {
-  userId: string;
   query?: string;
   type?: JournalType;
   status?: JournalStatus;
@@ -106,30 +98,29 @@ export interface AlwaysBundle {
 
 export interface MemoryStore {
   upsertProfile(rec: Omit<ProfileRecord, 'id' | 'created_at' | 'last_updated'>): ProfileRecord;
-  getProfile(userId: string, category: string, key: string): ProfileRecord | undefined;
-  listProfile(userId: string, opts?: { layer?: Layer; category?: string }): ProfileRecord[];
+  getProfile(category: string, key: string): ProfileRecord | undefined;
+  listProfile(opts?: { layer?: Layer; category?: string }): ProfileRecord[];
 
   insertJournal(rec: Omit<JournalRecord, 'id' | 'created_at'> & { id?: string; created_at?: number }): JournalRecord;
   getJournal(id: string): JournalRecord | undefined;
   searchJournal(filter: JournalSearchFilter): JournalRecord[];
   resolveJournal(id: string, outcome?: EventOutcome): boolean;
-  listOngoing(userId: string): JournalRecord[];
+  listOngoing(): JournalRecord[];
 
   upsertTrait(rec: Omit<TraitRecord, 'id' | 'first_seen' | 'last_confirmed'>): TraitRecord;
-  listTraits(userId: string): TraitRecord[];
-  getTraitByLabel(userId: string, type: TraitType, label: string): TraitRecord | undefined;
-  // Link observations to a promoted trait (for promote_trait orchestration)
-  linkObservationsToTrait(obsIds: string[], traitId: string): number;  // returns count updated
+  listTraits(): TraitRecord[];
+  getTraitByLabel(type: TraitType, label: string): TraitRecord | undefined;
+  linkObservationsToTrait(obsIds: string[], traitId: string): number;
 
   upsertRelationship(rec: Omit<RelationshipRecord, 'id' | 'created_at' | 'last_mentioned'>): RelationshipRecord;
-  listRelationships(userId: string): RelationshipRecord[];
-  getRelationshipByName(userId: string, name: string): RelationshipRecord | undefined;
+  listRelationships(): RelationshipRecord[];
+  getRelationshipByName(name: string): RelationshipRecord | undefined;
 
   insertGoal(rec: Omit<GoalRecord, 'id' | 'created_at' | 'last_updated'>): GoalRecord;
   updateGoalStatus(id: string, status: GoalStatus): boolean;
-  listGoals(userId: string, opts?: { status?: GoalStatus }): GoalRecord[];
+  listGoals(opts?: { status?: GoalStatus }): GoalRecord[];
 
-  loadAlwaysBundle(userId: string): AlwaysBundle;
+  loadAlwaysBundle(): AlwaysBundle;
 }
 
 // ── Helpers ──────────────────────────────────────────────
@@ -137,9 +128,7 @@ export interface MemoryStore {
 const DEFAULT_LIMIT = 20;
 const MAX_LIMIT = 100;
 
-function nowMs(): number {
-  return Date.now();
-}
+function nowMs(): number { return Date.now(); }
 
 function toJsonArray(v: string[] | null | undefined): string | null {
   if (!v || v.length === 0) return null;
@@ -151,12 +140,9 @@ function fromJsonArray(v: string | null | undefined): string[] | null {
   try {
     const parsed = JSON.parse(v);
     return Array.isArray(parsed) ? parsed : null;
-  } catch {
-    return null;
-  }
+  } catch { return null; }
 }
 
-// DB row types differ from logical types in JSON array columns (stored as TEXT)
 type ProfileRow = Omit<ProfileRecord, never>;
 type JournalRow = Omit<JournalRecord, 'related_ids'> & { related_ids: string | null };
 type TraitRow = Omit<TraitRecord, 'source_obs_ids'> & { source_obs_ids: string | null };
@@ -178,15 +164,10 @@ function goalRowToRecord(r: GoalRow): GoalRecord {
 
 // ── Factory ──────────────────────────────────────────────
 
-export function createMemoryStore(dbPath: string = 'data/memory.db'): MemoryStore {
-  mkdirSync(dirname(dbPath), { recursive: true });
-
-  const db = new Database(dbPath);
-
+export function createMemoryStore(db: Database.Database): MemoryStore {
   db.exec(`
     CREATE TABLE IF NOT EXISTS profile (
       id                 TEXT PRIMARY KEY,
-      user_id            TEXT NOT NULL,
       category           TEXT NOT NULL,
       layer              TEXT NOT NULL,
       key                TEXT NOT NULL,
@@ -196,13 +177,24 @@ export function createMemoryStore(dbPath: string = 'data/memory.db'): MemoryStor
       source_msg_id      TEXT,
       last_updated       INTEGER NOT NULL,
       created_at         INTEGER NOT NULL,
-      UNIQUE(user_id, category, key)
+      UNIQUE(category, key)
     );
-    CREATE INDEX IF NOT EXISTS idx_profile_user_layer ON profile(user_id, layer);
+    CREATE INDEX IF NOT EXISTS idx_profile_layer ON profile(layer);
+
+    CREATE TABLE IF NOT EXISTS traits (
+      id              TEXT PRIMARY KEY,
+      type            TEXT NOT NULL,
+      label           TEXT NOT NULL,
+      confidence      REAL NOT NULL,
+      evidence_count  INTEGER NOT NULL DEFAULT 1,
+      source_obs_ids  TEXT,
+      first_seen      INTEGER NOT NULL,
+      last_confirmed  INTEGER NOT NULL,
+      UNIQUE(type, label)
+    );
 
     CREATE TABLE IF NOT EXISTS journal (
       id                     TEXT PRIMARY KEY,
-      user_id                TEXT NOT NULL,
       type                   TEXT NOT NULL,
       content                TEXT NOT NULL,
       status                 TEXT,
@@ -214,15 +206,15 @@ export function createMemoryStore(dbPath: string = 'data/memory.db'): MemoryStor
       follow_up_needed       INTEGER NOT NULL DEFAULT 0,
       inferred_trait         TEXT,
       confidence             REAL,
-      promoted_to_trait_id   TEXT,
+      promoted_to_trait_id   TEXT REFERENCES traits(id) ON DELETE SET NULL,
       session_id             TEXT,
-      source_msg_id          TEXT,
+      source_msg_id          TEXT REFERENCES messages(id) ON DELETE SET NULL,
       created_at             INTEGER NOT NULL,
       resolved_at            INTEGER
     );
-    CREATE INDEX IF NOT EXISTS idx_journal_user_status ON journal(user_id, status);
-    CREATE INDEX IF NOT EXISTS idx_journal_user_type ON journal(user_id, type);
-    CREATE INDEX IF NOT EXISTS idx_journal_inferred_trait ON journal(user_id, inferred_trait);
+    CREATE INDEX IF NOT EXISTS idx_journal_status ON journal(status);
+    CREATE INDEX IF NOT EXISTS idx_journal_type ON journal(type);
+    CREATE INDEX IF NOT EXISTS idx_journal_inferred_trait ON journal(inferred_trait);
 
     CREATE VIRTUAL TABLE IF NOT EXISTS journal_fts USING fts5(
       content,
@@ -242,37 +234,19 @@ export function createMemoryStore(dbPath: string = 'data/memory.db'): MemoryStor
       INSERT INTO journal_fts(rowid, content, inferred_trait) VALUES (new.rowid, new.content, new.inferred_trait);
     END;
 
-    CREATE TABLE IF NOT EXISTS traits (
-      id              TEXT PRIMARY KEY,
-      user_id         TEXT NOT NULL,
-      type            TEXT NOT NULL,
-      label           TEXT NOT NULL,
-      confidence      REAL NOT NULL,
-      evidence_count  INTEGER NOT NULL DEFAULT 1,
-      source_obs_ids  TEXT,
-      first_seen      INTEGER NOT NULL,
-      last_confirmed  INTEGER NOT NULL,
-      UNIQUE(user_id, type, label)
-    );
-    CREATE INDEX IF NOT EXISTS idx_traits_user ON traits(user_id);
-
     CREATE TABLE IF NOT EXISTS relationships (
       id                 TEXT PRIMARY KEY,
-      user_id            TEXT NOT NULL,
-      name               TEXT NOT NULL,
+      name               TEXT NOT NULL UNIQUE,
       role               TEXT NOT NULL,
       dynamic            TEXT,
       related_ids        TEXT,
       source_session_id  TEXT,
       last_mentioned     INTEGER NOT NULL,
-      created_at         INTEGER NOT NULL,
-      UNIQUE(user_id, name)
+      created_at         INTEGER NOT NULL
     );
-    CREATE INDEX IF NOT EXISTS idx_relationships_user ON relationships(user_id);
 
     CREATE TABLE IF NOT EXISTS goals (
       id                 TEXT PRIMARY KEY,
-      user_id            TEXT NOT NULL,
       title              TEXT NOT NULL,
       category           TEXT,
       status             TEXT NOT NULL DEFAULT 'active',
@@ -282,10 +256,10 @@ export function createMemoryStore(dbPath: string = 'data/memory.db'): MemoryStor
       created_at         INTEGER NOT NULL,
       last_updated       INTEGER NOT NULL
     );
-    CREATE INDEX IF NOT EXISTS idx_goals_user_status ON goals(user_id, status);
+    CREATE INDEX IF NOT EXISTS idx_goals_status ON goals(status);
   `);
 
-  // FTS5 auto-populate on first run — detect via journal_fts_docsize shadow table count
+  // FTS5 auto-populate on first run
   const fCounts = db.prepare(`
     SELECT
       (SELECT COUNT(*) FROM journal WHERE content IS NOT NULL) AS m,
@@ -297,28 +271,25 @@ export function createMemoryStore(dbPath: string = 'data/memory.db'): MemoryStor
 
   // ── Profile ──────────────────────────────────────────
 
-  const stmtGetProfile = db.prepare<[string, string, string], ProfileRow>(`
-    SELECT * FROM profile WHERE user_id = ? AND category = ? AND key = ?
+  const stmtGetProfile = db.prepare<[string, string], ProfileRow>(`
+    SELECT * FROM profile WHERE category = ? AND key = ?
   `);
-
   const stmtInsertProfile = db.prepare(`
-    INSERT INTO profile (id, user_id, category, layer, key, value, confidence, source_session_id, source_msg_id, last_updated, created_at)
-    VALUES (@id, @user_id, @category, @layer, @key, @value, @confidence, @source_session_id, @source_msg_id, @last_updated, @created_at)
+    INSERT INTO profile (id, category, layer, key, value, confidence, source_session_id, source_msg_id, last_updated, created_at)
+    VALUES (@id, @category, @layer, @key, @value, @confidence, @source_session_id, @source_msg_id, @last_updated, @created_at)
   `);
-
   const stmtUpdateProfile = db.prepare(`
     UPDATE profile SET value = @value, layer = @layer, confidence = @confidence,
       source_session_id = @source_session_id, source_msg_id = @source_msg_id, last_updated = @last_updated
-    WHERE user_id = @user_id AND category = @category AND key = @key
+    WHERE category = @category AND key = @key
   `);
 
   function upsertProfile(rec: Omit<ProfileRecord, 'id' | 'created_at' | 'last_updated'>): ProfileRecord {
-    const existing = stmtGetProfile.get(rec.user_id, rec.category, rec.key);
+    const existing = stmtGetProfile.get(rec.category, rec.key);
     const now = nowMs();
     if (existing) {
       stmtUpdateProfile.run({ ...rec, last_updated: now });
-      const updated = stmtGetProfile.get(rec.user_id, rec.category, rec.key);
-      return updated!;
+      return stmtGetProfile.get(rec.category, rec.key)!;
     }
     const id = uuidv4();
     const full: ProfileRecord = { ...rec, id, last_updated: now, created_at: now };
@@ -326,66 +297,49 @@ export function createMemoryStore(dbPath: string = 'data/memory.db'): MemoryStor
     return full;
   }
 
-  const stmtListProfileByLayer = db.prepare<[string, Layer], ProfileRow>(`
-    SELECT * FROM profile WHERE user_id = ? AND layer = ?
-  `);
-  const stmtListProfileByCategory = db.prepare<[string, string], ProfileRow>(`
-    SELECT * FROM profile WHERE user_id = ? AND category = ?
-  `);
-  const stmtListProfileByLayerAndCategory = db.prepare<[string, Layer, string], ProfileRow>(`
-    SELECT * FROM profile WHERE user_id = ? AND layer = ? AND category = ?
-  `);
-  const stmtListProfileAll = db.prepare<[string], ProfileRow>(`
-    SELECT * FROM profile WHERE user_id = ?
-  `);
+  const stmtListProfileAll = db.prepare<[], ProfileRow>(`SELECT * FROM profile`);
+  const stmtListProfileByLayer = db.prepare<[Layer], ProfileRow>(`SELECT * FROM profile WHERE layer = ?`);
+  const stmtListProfileByCategory = db.prepare<[string], ProfileRow>(`SELECT * FROM profile WHERE category = ?`);
+  const stmtListProfileByBoth = db.prepare<[Layer, string], ProfileRow>(`SELECT * FROM profile WHERE layer = ? AND category = ?`);
 
-  function listProfile(userId: string, opts?: { layer?: Layer; category?: string }): ProfileRecord[] {
-    if (opts?.layer && opts?.category) return stmtListProfileByLayerAndCategory.all(userId, opts.layer, opts.category);
-    if (opts?.layer) return stmtListProfileByLayer.all(userId, opts.layer);
-    if (opts?.category) return stmtListProfileByCategory.all(userId, opts.category);
-    return stmtListProfileAll.all(userId);
+  function listProfile(opts?: { layer?: Layer; category?: string }): ProfileRecord[] {
+    if (opts?.layer && opts?.category) return stmtListProfileByBoth.all(opts.layer, opts.category);
+    if (opts?.layer) return stmtListProfileByLayer.all(opts.layer);
+    if (opts?.category) return stmtListProfileByCategory.all(opts.category);
+    return stmtListProfileAll.all();
   }
 
-  function getProfile(userId: string, category: string, key: string): ProfileRecord | undefined {
-    return stmtGetProfile.get(userId, category, key);
+  function getProfile(category: string, key: string): ProfileRecord | undefined {
+    return stmtGetProfile.get(category, key);
   }
 
   // ── Journal ──────────────────────────────────────────
 
   const stmtInsertJournal = db.prepare(`
     INSERT INTO journal (
-      id, user_id, type, content, status, intensity, recurrence_count, related_ids,
+      id, type, content, status, intensity, recurrence_count, related_ids,
       event_date, event_outcome, follow_up_needed, inferred_trait, confidence,
       promoted_to_trait_id, session_id, source_msg_id, created_at, resolved_at
     ) VALUES (
-      @id, @user_id, @type, @content, @status, @intensity, @recurrence_count, @related_ids,
+      @id, @type, @content, @status, @intensity, @recurrence_count, @related_ids,
       @event_date, @event_outcome, @follow_up_needed, @inferred_trait, @confidence,
       @promoted_to_trait_id, @session_id, @source_msg_id, @created_at, @resolved_at
     )
   `);
-
   const stmtGetJournal = db.prepare<[string], JournalRow>(`SELECT * FROM journal WHERE id = ?`);
-
   const stmtResolveJournal = db.prepare(`
     UPDATE journal SET status = 'resolved', resolved_at = @resolved_at, event_outcome = @event_outcome WHERE id = @id
   `);
-
-  const stmtListOngoing = db.prepare<[string], JournalRow>(`
-    SELECT * FROM journal WHERE user_id = ? AND status = 'ongoing' ORDER BY created_at DESC
+  const stmtListOngoing = db.prepare<[], JournalRow>(`
+    SELECT * FROM journal WHERE status = 'ongoing' ORDER BY created_at DESC
   `);
 
   function insertJournal(rec: Omit<JournalRecord, 'id' | 'created_at'> & { id?: string; created_at?: number }): JournalRecord {
     const id = rec.id ?? uuidv4();
     const created_at = rec.created_at ?? nowMs();
-    const row = {
-      ...rec,
-      id,
-      created_at,
-      related_ids: toJsonArray(rec.related_ids),
-    };
+    const row = { ...rec, id, created_at, related_ids: toJsonArray(rec.related_ids) };
     stmtInsertJournal.run(row);
-    const saved = stmtGetJournal.get(id)!;
-    return journalRowToRecord(saved);
+    return journalRowToRecord(stmtGetJournal.get(id)!);
   }
 
   function getJournal(id: string): JournalRecord | undefined {
@@ -398,25 +352,21 @@ export function createMemoryStore(dbPath: string = 'data/memory.db'): MemoryStor
     return res.changes > 0;
   }
 
-  function listOngoing(userId: string): JournalRecord[] {
-    return stmtListOngoing.all(userId).map(journalRowToRecord);
+  function listOngoing(): JournalRecord[] {
+    return stmtListOngoing.all().map(journalRowToRecord);
   }
 
   function searchJournal(filter: JournalSearchFilter): JournalRecord[] {
-    const conditions: string[] = ['j.user_id = ?'];
-    const params: unknown[] = [filter.userId];
+    const conditions: string[] = [];
+    const params: unknown[] = [];
     let joinFts = false;
 
     if (filter.fromTime !== undefined) { conditions.push('j.created_at >= ?'); params.push(filter.fromTime); }
     if (filter.toTime !== undefined) { conditions.push('j.created_at < ?'); params.push(filter.toTime); }
     if (filter.type !== undefined) { conditions.push('j.type = ?'); params.push(filter.type); }
     if (filter.status !== undefined) {
-      if (filter.status === null) {
-        conditions.push('j.status IS NULL');
-      } else {
-        conditions.push('j.status = ?');
-        params.push(filter.status);
-      }
+      if (filter.status === null) conditions.push('j.status IS NULL');
+      else { conditions.push('j.status = ?'); params.push(filter.status); }
     }
 
     const hasQuery = filter.query !== undefined && filter.query.length > 0;
@@ -439,57 +389,51 @@ export function createMemoryStore(dbPath: string = 'data/memory.db'): MemoryStor
     const from = joinFts
       ? 'FROM journal j JOIN journal_fts fts ON j.rowid = fts.rowid'
       : 'FROM journal j';
-
-    const sql = `SELECT j.* ${from} WHERE ${conditions.join(' AND ')} ${orderClause} LIMIT ${limit}`;
+    const whereClause = conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : '';
+    const sql = `SELECT j.* ${from} ${whereClause} ${orderClause} LIMIT ${limit}`;
     const stmt = db.prepare<unknown[], JournalRow>(sql);
     return stmt.all(...params).map(journalRowToRecord);
   }
 
   // ── Traits ───────────────────────────────────────────
 
-  const stmtGetTrait = db.prepare<[string, TraitType, string], TraitRow>(`
-    SELECT * FROM traits WHERE user_id = ? AND type = ? AND label = ?
+  const stmtGetTrait = db.prepare<[TraitType, string], TraitRow>(`
+    SELECT * FROM traits WHERE type = ? AND label = ?
   `);
   const stmtInsertTrait = db.prepare(`
-    INSERT INTO traits (id, user_id, type, label, confidence, evidence_count, source_obs_ids, first_seen, last_confirmed)
-    VALUES (@id, @user_id, @type, @label, @confidence, @evidence_count, @source_obs_ids, @first_seen, @last_confirmed)
+    INSERT INTO traits (id, type, label, confidence, evidence_count, source_obs_ids, first_seen, last_confirmed)
+    VALUES (@id, @type, @label, @confidence, @evidence_count, @source_obs_ids, @first_seen, @last_confirmed)
   `);
   const stmtUpdateTrait = db.prepare(`
     UPDATE traits SET confidence = @confidence, evidence_count = @evidence_count,
       source_obs_ids = @source_obs_ids, last_confirmed = @last_confirmed
-    WHERE user_id = @user_id AND type = @type AND label = @label
+    WHERE type = @type AND label = @label
   `);
-  const stmtListTraits = db.prepare<[string], TraitRow>(`SELECT * FROM traits WHERE user_id = ?`);
-
-  function upsertTrait(rec: Omit<TraitRecord, 'id' | 'first_seen' | 'last_confirmed'>): TraitRecord {
-    const existing = stmtGetTrait.get(rec.user_id, rec.type, rec.label);
-    const now = nowMs();
-    if (existing) {
-      stmtUpdateTrait.run({
-        ...rec,
-        source_obs_ids: toJsonArray(rec.source_obs_ids),
-        last_confirmed: now,
-      });
-      return traitRowToRecord(stmtGetTrait.get(rec.user_id, rec.type, rec.label)!);
-    }
-    const id = uuidv4();
-    const full = { ...rec, id, first_seen: now, last_confirmed: now, source_obs_ids: toJsonArray(rec.source_obs_ids) };
-    stmtInsertTrait.run(full);
-    return traitRowToRecord(stmtGetTrait.get(rec.user_id, rec.type, rec.label)!);
-  }
-
-  function listTraits(userId: string): TraitRecord[] {
-    return stmtListTraits.all(userId).map(traitRowToRecord);
-  }
-  function getTraitByLabel(userId: string, type: TraitType, label: string): TraitRecord | undefined {
-    const row = stmtGetTrait.get(userId, type, label);
-    return row ? traitRowToRecord(row) : undefined;
-  }
-
+  const stmtListTraits = db.prepare<[], TraitRow>(`SELECT * FROM traits`);
   const stmtLinkObsToTrait = db.prepare(`
     UPDATE journal SET promoted_to_trait_id = @traitId WHERE id = @id
   `);
 
+  function upsertTrait(rec: Omit<TraitRecord, 'id' | 'first_seen' | 'last_confirmed'>): TraitRecord {
+    const existing = stmtGetTrait.get(rec.type, rec.label);
+    const now = nowMs();
+    if (existing) {
+      stmtUpdateTrait.run({ ...rec, source_obs_ids: toJsonArray(rec.source_obs_ids), last_confirmed: now });
+      return traitRowToRecord(stmtGetTrait.get(rec.type, rec.label)!);
+    }
+    const id = uuidv4();
+    const full = { ...rec, id, first_seen: now, last_confirmed: now, source_obs_ids: toJsonArray(rec.source_obs_ids) };
+    stmtInsertTrait.run(full);
+    return traitRowToRecord(stmtGetTrait.get(rec.type, rec.label)!);
+  }
+
+  function listTraits(): TraitRecord[] {
+    return stmtListTraits.all().map(traitRowToRecord);
+  }
+  function getTraitByLabel(type: TraitType, label: string): TraitRecord | undefined {
+    const row = stmtGetTrait.get(type, label);
+    return row ? traitRowToRecord(row) : undefined;
+  }
   function linkObservationsToTrait(obsIds: string[], traitId: string): number {
     if (obsIds.length === 0) return 0;
     const txn = db.transaction((ids: string[]) => {
@@ -505,54 +449,48 @@ export function createMemoryStore(dbPath: string = 'data/memory.db'): MemoryStor
 
   // ── Relationships ────────────────────────────────────
 
-  const stmtGetRelByName = db.prepare<[string, string], RelationshipRow>(`
-    SELECT * FROM relationships WHERE user_id = ? AND name = ?
-  `);
+  const stmtGetRelByName = db.prepare<[string], RelationshipRow>(`SELECT * FROM relationships WHERE name = ?`);
   const stmtInsertRel = db.prepare(`
-    INSERT INTO relationships (id, user_id, name, role, dynamic, related_ids, source_session_id, last_mentioned, created_at)
-    VALUES (@id, @user_id, @name, @role, @dynamic, @related_ids, @source_session_id, @last_mentioned, @created_at)
+    INSERT INTO relationships (id, name, role, dynamic, related_ids, source_session_id, last_mentioned, created_at)
+    VALUES (@id, @name, @role, @dynamic, @related_ids, @source_session_id, @last_mentioned, @created_at)
   `);
   const stmtUpdateRel = db.prepare(`
     UPDATE relationships SET role = @role, dynamic = @dynamic, related_ids = @related_ids,
       source_session_id = @source_session_id, last_mentioned = @last_mentioned
-    WHERE user_id = @user_id AND name = @name
+    WHERE name = @name
   `);
-  const stmtListRel = db.prepare<[string], RelationshipRow>(`SELECT * FROM relationships WHERE user_id = ?`);
+  const stmtListRel = db.prepare<[], RelationshipRow>(`SELECT * FROM relationships`);
 
   function upsertRelationship(rec: Omit<RelationshipRecord, 'id' | 'created_at' | 'last_mentioned'>): RelationshipRecord {
-    const existing = stmtGetRelByName.get(rec.user_id, rec.name);
+    const existing = stmtGetRelByName.get(rec.name);
     const now = nowMs();
     if (existing) {
-      stmtUpdateRel.run({
-        ...rec,
-        related_ids: toJsonArray(rec.related_ids),
-        last_mentioned: now,
-      });
-      return relationshipRowToRecord(stmtGetRelByName.get(rec.user_id, rec.name)!);
+      stmtUpdateRel.run({ ...rec, related_ids: toJsonArray(rec.related_ids), last_mentioned: now });
+      return relationshipRowToRecord(stmtGetRelByName.get(rec.name)!);
     }
     const id = uuidv4();
     const full = { ...rec, id, created_at: now, last_mentioned: now, related_ids: toJsonArray(rec.related_ids) };
     stmtInsertRel.run(full);
-    return relationshipRowToRecord(stmtGetRelByName.get(rec.user_id, rec.name)!);
+    return relationshipRowToRecord(stmtGetRelByName.get(rec.name)!);
   }
 
-  function listRelationships(userId: string): RelationshipRecord[] {
-    return stmtListRel.all(userId).map(relationshipRowToRecord);
+  function listRelationships(): RelationshipRecord[] {
+    return stmtListRel.all().map(relationshipRowToRecord);
   }
-  function getRelationshipByName(userId: string, name: string): RelationshipRecord | undefined {
-    const row = stmtGetRelByName.get(userId, name);
+  function getRelationshipByName(name: string): RelationshipRecord | undefined {
+    const row = stmtGetRelByName.get(name);
     return row ? relationshipRowToRecord(row) : undefined;
   }
 
   // ── Goals ────────────────────────────────────────────
 
   const stmtInsertGoal = db.prepare(`
-    INSERT INTO goals (id, user_id, title, category, status, target_date, related_ids, source_session_id, created_at, last_updated)
-    VALUES (@id, @user_id, @title, @category, @status, @target_date, @related_ids, @source_session_id, @created_at, @last_updated)
+    INSERT INTO goals (id, title, category, status, target_date, related_ids, source_session_id, created_at, last_updated)
+    VALUES (@id, @title, @category, @status, @target_date, @related_ids, @source_session_id, @created_at, @last_updated)
   `);
   const stmtUpdateGoalStatus = db.prepare(`UPDATE goals SET status = @status, last_updated = @last_updated WHERE id = @id`);
-  const stmtListGoalsAll = db.prepare<[string], GoalRow>(`SELECT * FROM goals WHERE user_id = ?`);
-  const stmtListGoalsByStatus = db.prepare<[string, GoalStatus], GoalRow>(`SELECT * FROM goals WHERE user_id = ? AND status = ?`);
+  const stmtListGoalsAll = db.prepare<[], GoalRow>(`SELECT * FROM goals`);
+  const stmtListGoalsByStatus = db.prepare<[GoalStatus], GoalRow>(`SELECT * FROM goals WHERE status = ?`);
 
   function insertGoal(rec: Omit<GoalRecord, 'id' | 'created_at' | 'last_updated'>): GoalRecord {
     const id = uuidv4();
@@ -567,24 +505,22 @@ export function createMemoryStore(dbPath: string = 'data/memory.db'): MemoryStor
     return res.changes > 0;
   }
 
-  function listGoals(userId: string, opts?: { status?: GoalStatus }): GoalRecord[] {
-    const rows = opts?.status
-      ? stmtListGoalsByStatus.all(userId, opts.status)
-      : stmtListGoalsAll.all(userId);
+  function listGoals(opts?: { status?: GoalStatus }): GoalRecord[] {
+    const rows = opts?.status ? stmtListGoalsByStatus.all(opts.status) : stmtListGoalsAll.all();
     return rows.map(goalRowToRecord);
   }
 
   // ── Bundle ───────────────────────────────────────────
 
-  function loadAlwaysBundle(userId: string): AlwaysBundle {
-    const l3 = stmtListProfileByLayer.all(userId, 'L3');
-    const l2Distilled = db.prepare<[string, Layer], ProfileRow>(
-      `SELECT * FROM profile WHERE user_id = ? AND layer = ? AND category IN ('value_belief','cognitive_style')`
-    ).all(userId, 'L2');
+  function loadAlwaysBundle(): AlwaysBundle {
+    const l3 = stmtListProfileByLayer.all('L3');
+    const l2Distilled = db.prepare<[Layer], ProfileRow>(
+      `SELECT * FROM profile WHERE layer = ? AND category IN ('value_belief','cognitive_style')`
+    ).all('L2');
     return {
       profile: [...l3, ...l2Distilled],
-      traits: listTraits(userId),
-      ongoing: listOngoing(userId),
+      traits: listTraits(),
+      ongoing: listOngoing(),
     };
   }
 
