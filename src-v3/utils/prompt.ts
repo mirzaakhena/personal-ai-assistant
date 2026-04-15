@@ -17,54 +17,47 @@ export interface QuotedInfo {
   forwarded?: boolean;
 }
 
-function formatDateTime(date: Date): { dateStr: string; timeStr: string } {
-  const dateStr = new Intl.DateTimeFormat('en-US', {
-    timeZone: TIMEZONE,
-    weekday: 'long',
-    year: 'numeric',
-    month: 'long',
-    day: 'numeric',
-  }).format(date);
+/** Format a Date as ISO 8601 with +07:00 (WIB) offset. */
+function toIsoJakartaFromDate(date: Date): string {
+  const pad = (n: number) => String(n).padStart(2, '0');
+  const ms = date.getTime() + 7 * 60 * 60 * 1000;
+  const j = new Date(ms);
+  return `${j.getUTCFullYear()}-${pad(j.getUTCMonth() + 1)}-${pad(j.getUTCDate())}T${pad(j.getUTCHours())}:${pad(j.getUTCMinutes())}:${pad(j.getUTCSeconds())}+07:00`;
+}
 
-  const timeStr = new Intl.DateTimeFormat('en-US', {
-    timeZone: TIMEZONE,
-    hour: '2-digit',
-    minute: '2-digit',
-    second: '2-digit',
-    hour12: false,
-    timeZoneName: 'short',
-  }).format(date);
-
-  return { dateStr, timeStr };
+/** Escape XML-significant characters in element body / attribute values. */
+function escapeXml(s: string): string {
+  return s
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;');
 }
 
 /**
- * Build the [USER MESSAGE] text block content (the structured text part).
- * Used internally whether we return a plain string or a ContentBlock[] with text as last block.
+ * Build the <user_message> XML block.
+ * Returns the structured XML text. Used for both string and ContentBlock[] return paths.
  */
 function buildUserMessageText(message: string, quoted?: QuotedInfo, hasMedia?: boolean): string {
-  const now = formatDateTime(new Date());
+  const ts = toIsoJakartaFromDate(new Date());
+  const attrs = [`timestamp="${ts}"`];
+  if (hasMedia) attrs.push(`has_media="true"`);
 
-  let quotedBlock = '';
+  const lines: string[] = [`<user_message ${attrs.join(' ')}>`];
+
   if (quoted) {
-    const senderLine = `From: ${quoted.sender}${quoted.forwarded ? ' (forwarded)' : ''}`;
-    const lines = ['', '[REPLYING TO]', senderLine];
-    if (quoted.at) {
-      const q = formatDateTime(quoted.at);
-      lines.push(`Timestamp: ${q.dateStr}, ${q.timeStr}`);
-    }
-    lines.push(quoted.content, '');
-    quotedBlock = lines.join('\n');
+    const qAttrs = [`from="${quoted.sender}"`];
+    if (quoted.at) qAttrs.push(`timestamp="${toIsoJakartaFromDate(quoted.at)}"`);
+    if (quoted.forwarded) qAttrs.push(`forwarded="true"`);
+    lines.push(`  <replying_to ${qAttrs.join(' ')}>`);
+    lines.push(`    <content>${escapeXml(quoted.content)}</content>`);
+    lines.push(`  </replying_to>`);
   }
 
-  const messageText = message.length > 0 ? message : (hasMedia ? '(no caption)' : '');
-
-  return `[USER MESSAGE]
-
-Timestamp: ${now.dateStr}, ${now.timeStr}
-${quotedBlock}
-[MESSAGE]
-${messageText}`;
+  const body = message.length > 0 ? message : (hasMedia ? '(no caption)' : '');
+  lines.push(`  <body>${escapeXml(body)}</body>`);
+  lines.push(`</user_message>`);
+  return lines.join('\n');
 }
 
 /**
@@ -93,12 +86,13 @@ export function buildUserPrompt(
  * System messages remain string-only.
  */
 export function buildSystemMessagePrompt(message: string): string {
-  const { dateStr, timeStr } = formatDateTime(new Date());
-
-  return `[SYSTEM MESSAGE]
-
-Timestamp: ${dateStr}, ${timeStr}
-
-[MESSAGE]
-${message}`;
+  const ts = toIsoJakartaFromDate(new Date());
+  return [
+    `<system_message timestamp="${ts}">`,
+    `  <body>${escapeXml(message)}</body>`,
+    `</system_message>`,
+  ].join('\n');
 }
+
+// re-export for backward compat (in case anything else imports TIMEZONE)
+export { TIMEZONE };
