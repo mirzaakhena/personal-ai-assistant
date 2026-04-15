@@ -22,8 +22,8 @@ import { buildUserPrompt, buildSystemMessagePrompt, type QuotedInfo } from '../u
 import { incrementTurnCount, getTurnCount, clearTurnCount } from '../utils/turns.js';
 import { updateStats, getStats, clearStats } from '../utils/stats.js';
 import { enqueue } from '../utils/queue.js';
-import { createJournalStore, type MessageRecord } from '../db/journal.js';
-import { createJournalServer, type JournalHandlers, type MessageSearchResult } from '../tools/journal.js';
+import { createMessageStore, type MessageRecord } from '../db/message.js';
+import { createMessageHistoryServer, type MessageHandlers, type MessageSearchResult } from '../tools/message-history.js';
 
 /** Factory that returns handlers scoped to a specific userId */
 export type MemoryHandlersFactory = (userId: string) => MemoryHandlers;
@@ -97,8 +97,8 @@ export interface TelegramGatewayConfig {
   triggerHost?: string | null;
   /** Trigger server port. Default 3100. */
   triggerPort?: number;
-  /** Journal DB path, default 'data/journal.db' */
-  journalDbPath?: string;
+  /** Message store DB path, default 'data/message.db' */
+  messageDbPath?: string;
 }
 
 /** Default in-memory memory backend — shared Map, keyed by `${userId}:${key}` */
@@ -127,7 +127,7 @@ export function createTelegramGateway(config: TelegramGatewayConfig): Gateway {
   const whitelist = new Set(config.whitelist);
 
   const sessions = createSessionStore(config.sessionDbPath);
-  const journalStore = createJournalStore(config.journalDbPath);
+  const messageStore = createMessageStore(config.messageDbPath);
 
   const engine = createAIEngine({ model });
 
@@ -168,7 +168,7 @@ export function createTelegramGateway(config: TelegramGatewayConfig): Gateway {
 
     try {
       const sent = await bot.api.sendMessage(chatId, content);
-      journalStore.insert({
+      messageStore.insert({
         id: `${chatId}:${sent.message_id}`,
         user_id: String(chatId),
         gateway: 'telegram',
@@ -212,10 +212,10 @@ export function createTelegramGateway(config: TelegramGatewayConfig): Gateway {
     };
   }
 
-  const journalHandlersFactory = (uid: string): JournalHandlers => ({
+  const messageHandlersFactory = (uid: string): MessageHandlers => ({
     search: (filter) =>
-      journalStore.search({ ...filter, userId: uid }).map(toSearchResult),
-    count: () => journalStore.count(uid),
+      messageStore.search({ ...filter, userId: uid }).map(toSearchResult),
+    count: () => messageStore.count(uid),
   });
 
   /** Shared query execution — used by message handler, cron fire, and trigger */
@@ -228,7 +228,7 @@ export function createTelegramGateway(config: TelegramGatewayConfig): Gateway {
         message: createMessageServer(deliver, queryUserId),
         memory: createMemoryServer(memoryHandlersFactory(queryUserId)),
         cronjob: createCronjobServer(cronjobHandlersFactory(queryUserId)),
-        journal: createJournalServer(journalHandlersFactory(queryUserId)),
+        messages: createMessageHistoryServer(messageHandlersFactory(queryUserId)),
       },
       callbacks: {
         onInit: (info) => log.debug(`[TG] model=${info.model} tools=${info.tools.length}`),
@@ -253,7 +253,7 @@ export function createTelegramGateway(config: TelegramGatewayConfig): Gateway {
       enqueue(job.userId, async () => {
         try {
           log.debug(`[TG] cron:${job.id} firing — ${job.scheduleHuman}`);
-          journalStore.insert({
+          messageStore.insert({
             id: `system:cron:${uuidv4()}`,
             user_id: job.userId,
             gateway: 'telegram',
@@ -292,7 +292,7 @@ export function createTelegramGateway(config: TelegramGatewayConfig): Gateway {
           enqueue(userId, async () => {
             try {
               log.debug(`[TG] trigger:${userId} — ${message.slice(0, 60)}`);
-              journalStore.insert({
+              messageStore.insert({
                 id: `system:trigger:${uuidv4()}`,
                 user_id: userId,
                 gateway: 'telegram',
@@ -385,7 +385,7 @@ export function createTelegramGateway(config: TelegramGatewayConfig): Gateway {
     // Skip entirely empty messages (no text AND no media)
     if (!text && mediaBlocks.length === 0) return;
 
-    // Save incoming user message to journal (skip commands — they're control, not content)
+    // Save incoming user message to message store (skip commands — they're control, not content)
     const photoMeta = ctx.message.photo && ctx.message.photo.length > 0
       ? ctx.message.photo[ctx.message.photo.length - 1]
       : null;
@@ -402,7 +402,7 @@ export function createTelegramGateway(config: TelegramGatewayConfig): Gateway {
       const mediaSize = photoMeta?.file_size ?? docMeta?.file_size ?? null;
       const mediaFilename = docMeta?.file_name ?? null;
 
-      journalStore.insert({
+      messageStore.insert({
         id: msgKey,
         user_id: userId,
         gateway: 'telegram',

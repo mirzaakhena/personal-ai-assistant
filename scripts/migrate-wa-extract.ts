@@ -1,5 +1,5 @@
 // scripts/migrate-wa-extract.ts
-// One-time migration: WhatsApp extract → v3 journal
+// One-time migration: WhatsApp extract → v3 message store
 
 import Database from 'better-sqlite3';
 import {
@@ -8,12 +8,12 @@ import {
   copyFileSync,
 } from 'fs';
 import { basename } from 'path';
-import { createJournalStore, type MessageRecord, type Sender } from '../src-v3/db/journal.js';
+import { createMessageStore, type MessageRecord, type Sender } from '../src-v3/db/message.js';
 
 // ── Configuration ───────────────────────────────────────────
 const SOURCE_DB = 'fromserver/whatsapp_extract.db';
 const SOURCE_MEDIA_DIR = 'fromserver/whatsapp_media';
-const TARGET_JOURNAL_DB = 'data/journal.db';
+const TARGET_MESSAGE_DB = 'data/message.db';
 const TARGET_MEDIA_DIR = 'data/media';
 
 /** Phone number → Telegram chat_id mapping */
@@ -64,7 +64,7 @@ function migrate(): void {
   console.log('=== WA Extract Migration ===');
   console.log(`Source DB:    ${SOURCE_DB}`);
   console.log(`Source media: ${SOURCE_MEDIA_DIR}${existsSync(SOURCE_MEDIA_DIR) ? '' : ' (missing — media will be skipped)'}`);
-  console.log(`Target DB:    ${TARGET_JOURNAL_DB}`);
+  console.log(`Target DB:    ${TARGET_MESSAGE_DB}`);
   console.log(`Target media: ${TARGET_MEDIA_DIR}`);
   console.log('');
   console.log('User mapping:');
@@ -79,7 +79,7 @@ function migrate(): void {
   mkdirSync(TARGET_MEDIA_DIR, { recursive: true });
 
   const source = new Database(SOURCE_DB, { readonly: true });
-  const journal = createJournalStore(TARGET_JOURNAL_DB);
+  const messageStore = createMessageStore(TARGET_MESSAGE_DB);
 
   const rows = source.prepare('SELECT * FROM messages ORDER BY timestamp ASC').all() as SourceRow[];
 
@@ -93,7 +93,7 @@ function migrate(): void {
   let mediaMissing = 0;
   let errors = 0;
 
-  const preDb = new Database(TARGET_JOURNAL_DB, { readonly: true });
+  const preDb = new Database(TARGET_MESSAGE_DB, { readonly: true });
   const preExistingCount = (preDb.prepare('SELECT COUNT(*) AS n FROM messages').get() as { n: number }).n;
   preDb.close();
 
@@ -164,7 +164,7 @@ function migrate(): void {
         raw_json: row.raw_json,
       };
 
-      journal.insert(record);
+      messageStore.insert(record);
       attempted++;
     } catch (err) {
       console.error(`  ERROR processing row ${row.id}: ${String(err)}`);
@@ -174,7 +174,7 @@ function migrate(): void {
 
   source.close();
 
-  const postDb = new Database(TARGET_JOURNAL_DB, { readonly: true });
+  const postDb = new Database(TARGET_MESSAGE_DB, { readonly: true });
   const postCount = (postDb.prepare('SELECT COUNT(*) AS n FROM messages').get() as { n: number }).n;
   const newInserts = postCount - preExistingCount;
   const alreadyExisted = attempted - newInserts;

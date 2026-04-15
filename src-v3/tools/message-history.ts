@@ -1,11 +1,11 @@
-// src-v3/tools/journal.ts
+// src-v3/tools/message-history.ts
 
 import { createSdkMcpServer, tool } from "@anthropic-ai/claude-agent-sdk";
 import { z } from "zod";
 
 export type Sender = 'user' | 'assistant' | 'system';
 
-export interface JournalSearchFilter {
+export interface MessageSearchFilter {
   fromTime?: number;
   toTime?: number;
   sender?: Sender;
@@ -26,8 +26,8 @@ export interface MessageSearchResult {
 }
 
 /** Abstract handlers — consumer provides scoped (per-userId) implementation */
-export interface JournalHandlers {
-  search: (filter: JournalSearchFilter) => Promise<MessageSearchResult[]> | MessageSearchResult[];
+export interface MessageHandlers {
+  search: (filter: MessageSearchFilter) => Promise<MessageSearchResult[]> | MessageSearchResult[];
   count: () => Promise<number> | number;
 }
 
@@ -44,12 +44,12 @@ function parseIsoToMs(iso: string): number {
 }
 
 /**
- * Create a standalone MCP server for journal search.
+ * Create a standalone MCP server for message history search.
  */
-export function createJournalServer(handlers: JournalHandlers) {
+export function createMessageHistoryServer(handlers: MessageHandlers) {
   const searchTool = tool(
-    "search_journal",
-    `Search the persistent journal of past messages for the current user.
+    "search_messages",
+    `Search the persistent message history for the current user.
 
 Messages include: user messages, your (assistant) responses, and system-triggered messages (cron, external triggers).
 
@@ -78,7 +78,7 @@ Timestamps in args use ISO 8601 format; timestamps in results are ISO 8601 with 
     },
     async (args) => {
       try {
-        const filter: JournalSearchFilter = {
+        const filter: MessageSearchFilter = {
           fromTime: args.from_time ? parseIsoToMs(args.from_time) : undefined,
           toTime: args.to_time ? parseIsoToMs(args.to_time) : undefined,
           sender: args.sender,
@@ -109,8 +109,8 @@ Timestamps in args use ISO 8601 format; timestamps in results are ISO 8601 with 
   );
 
   const countTool = tool(
-    "count_journal_messages",
-    "Return the total number of messages stored in the journal for the current user.",
+    "count_messages",
+    "Return the total number of messages stored in the message history for the current user.",
     {},
     async () => {
       try {
@@ -127,7 +127,7 @@ Timestamps in args use ISO 8601 format; timestamps in results are ISO 8601 with 
   );
 
   return createSdkMcpServer({
-    name: "journal",
+    name: "messages",
     version: "1.0.0",
     tools: [searchTool, countTool],
   });

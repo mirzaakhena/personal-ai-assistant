@@ -1,4 +1,4 @@
-// src-v3/db/journal.ts
+// src-v3/db/message.ts
 
 import Database from 'better-sqlite3';
 import { mkdirSync } from 'fs';
@@ -37,7 +37,7 @@ export interface SearchFilter {
   order?: 'newest' | 'oldest' | 'relevant';
 }
 
-export interface JournalStore {
+export interface MessageStore {
   insert(record: MessageRecord): void;
   getById(id: string): MessageRecord | undefined;
   search(filter: SearchFilter): MessageRecord[];
@@ -47,7 +47,7 @@ export interface JournalStore {
 const DEFAULT_LIMIT = 20;
 const MAX_LIMIT = 100;
 
-export function createJournalStore(dbPath: string = 'data/journal.db'): JournalStore {
+export function createMessageStore(dbPath: string = 'data/message.db'): MessageStore {
   mkdirSync(dirname(dbPath), { recursive: true });
 
   const db = new Database(dbPath);
