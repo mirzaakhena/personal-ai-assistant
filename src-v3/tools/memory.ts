@@ -200,11 +200,10 @@ export interface MemoryHandlers {
 
 export function promoteTraitImpl(
   store: MemoryStore,
-  userId: string,
   args: { label: string; type: TraitType; confidenceMode?: 'avg' | 'max' }
 ): TraitResult & { aggregated_from: number } {
   const candidates = store.searchJournal({
-    userId, type: 'trait_observation', limit: 100,
+    type: 'trait_observation', limit: 100,
   });
   const obs = candidates.filter(
     o => o.inferred_trait === args.label && o.promoted_to_trait_id === null
@@ -221,7 +220,7 @@ export function promoteTraitImpl(
     : confidences.reduce((a, b) => a + b, 0) / confidences.length;
 
   const trait = store.upsertTrait({
-    user_id: userId, type: args.type, label: args.label,
+    type: args.type, label: args.label,
     confidence: aggConfidence, evidence_count: obs.length,
     source_obs_ids: obs.map(o => o.id),
   });
@@ -235,22 +234,19 @@ export function promoteTraitImpl(
 
 export function buildMemoryHandlers(
   store: MemoryStore,
-  userId: string,
   sessionId: string | null
 ): MemoryHandlers {
   return {
     saveProfile: (rec) => sanitizeProfile(store.upsertProfile({
-      user_id: userId,
       category: rec.category, layer: rec.layer, key: rec.key, value: rec.value,
       confidence: rec.confidence ?? null,
       source_session_id: sessionId,
       source_msg_id: rec.source_msg_id ?? null,
     })),
 
-    listProfile: (opts) => store.listProfile(userId, opts).map(sanitizeProfile),
+    listProfile: (opts) => store.listProfile(opts).map(sanitizeProfile),
 
     saveJournal: (rec) => sanitizeJournal(store.insertJournal({
-      user_id: userId,
       type: rec.type as JournalType,
       content: rec.content,
       status: rec.status ?? null,
@@ -269,7 +265,6 @@ export function buildMemoryHandlers(
     })),
 
     saveTraitObservation: (rec) => sanitizeJournal(store.insertJournal({
-      user_id: userId,
       type: 'trait_observation',
       content: rec.content,
       status: null,
@@ -289,24 +284,22 @@ export function buildMemoryHandlers(
 
     resolveJournal: (id, outcome) => ({ resolved: store.resolveJournal(id, outcome ?? null) }),
 
-    searchMemory: (filter) => store.searchJournal({ ...filter, userId }).map(sanitizeJournal),
+    searchMemory: (filter) => store.searchJournal(filter).map(sanitizeJournal),
 
-    promoteTrait: (args) => promoteTraitImpl(store, userId, args),
+    promoteTrait: (args) => promoteTraitImpl(store, args),
 
-    listTraits: () => store.listTraits(userId).map(sanitizeTrait),
+    listTraits: () => store.listTraits().map(sanitizeTrait),
 
     saveRelationship: (rec) => sanitizeRelationship(store.upsertRelationship({
-      user_id: userId,
       name: rec.name, role: rec.role,
       dynamic: rec.dynamic ?? null,
       related_ids: rec.related_ids ?? null,
       source_session_id: sessionId,
     })),
 
-    listRelationships: () => store.listRelationships(userId).map(sanitizeRelationship),
+    listRelationships: () => store.listRelationships().map(sanitizeRelationship),
 
     saveGoal: (rec) => sanitizeGoal(store.insertGoal({
-      user_id: userId,
       title: rec.title,
       category: rec.category ?? null,
       status: rec.status ?? 'active',
@@ -317,7 +310,7 @@ export function buildMemoryHandlers(
 
     updateGoalStatus: (id, status) => ({ updated: store.updateGoalStatus(id, status) }),
 
-    listGoals: (opts) => store.listGoals(userId, opts).map(sanitizeGoal),
+    listGoals: (opts) => store.listGoals(opts).map(sanitizeGoal),
   };
 }
 
