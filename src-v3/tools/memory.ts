@@ -16,6 +16,7 @@ import type {
   TraitType,
   GoalStatus,
   EventOutcome,
+  Importance,                       // NEW
 } from '../db/memory.js';
 import { toIsoJakarta, parseIsoToMs } from '../utils/time.js';
 
@@ -30,6 +31,7 @@ export interface ProfileResult {
   confidence: number | null;
   source_session_id: string | null;
   source_msg_id: string | null;
+  importance: Importance;            // NEW
   last_updated: string;
   created_at: string;
 }
@@ -93,7 +95,9 @@ export interface GoalResult {
 function sanitizeProfile(r: ProfileRecord): ProfileResult {
   return {
     id: r.id, category: r.category, layer: r.layer, key: r.key, value: r.value,
-    confidence: r.confidence, source_session_id: r.source_session_id, source_msg_id: r.source_msg_id,
+    confidence: r.confidence,
+    source_session_id: r.source_session_id, source_msg_id: r.source_msg_id,
+    importance: r.importance,        // NEW
     last_updated: toIsoJakarta(r.last_updated), created_at: toIsoJakarta(r.created_at),
   };
 }
@@ -140,8 +144,9 @@ export interface MemoryHandlers {
   saveProfile(rec: {
     category: string; layer: Layer; key: string; value: string;
     confidence?: number; source_msg_id?: string;
+    importance?: Importance;
   }): ProfileResult;
-  listProfile(opts?: { layer?: Layer; category?: string }): ProfileResult[];
+  listProfile(opts?: { layer?: Layer; category?: string; importance?: Importance }): ProfileResult[];
 
   saveJournal(rec: {
     type: Exclude<JournalType, 'trait_observation'>;
@@ -242,6 +247,7 @@ export function buildMemoryHandlers(
       confidence: rec.confidence ?? null,
       source_session_id: sessionId,
       source_msg_id: rec.source_msg_id ?? null,
+      importance: rec.importance,
     })),
 
     listProfile: (opts) => store.listProfile(opts).map(sanitizeProfile),
@@ -344,21 +350,28 @@ function listOk(results: object[]): { content: { type: 'text'; text: string }[] 
 export function createMemoryServer(handlers: MemoryHandlers) {
   const saveProfileTool = tool(
     "save_profile",
-    `Save or update a singleton fact about the user (identity, location, preference, value/belief, cognitive style).
+    `Save or update a singleton fact about the user (identity, location, preference, value/belief, cognitive style, rule).
 Profile is keyed by (category, key) — re-saving with same key updates the value.
 
-Layer L3 = core identity (name, language, dob, location). Layer L2 = preferences/values/style.
+Layer L3 = core identity (name, language, dob, location). Layer L2 = preferences/values/style/rules.
+
+For category="rule" entries, set importance="critical" for safety-relevant rules
+(allergies, medical, legal). Use "normal" (default) for preferences/policies.
+Critical entries always load in memory_context; normal L2 entries are top-15 capped by recency.
 
 Examples:
   save_profile({ category: "identity", layer: "L3", key: "name", value: "Mirza" })
-  save_profile({ category: "preference", layer: "L2", key: "communication_style", value: "direct, no fluff", confidence: 0.9 })`,
+  save_profile({ category: "preference", layer: "L2", key: "communication_style", value: "direct, no fluff", confidence: 0.9 })
+  save_profile({ category: "rule", layer: "L3", key: "allergy_food", value: "udang, kerang", importance: "critical" })
+  save_profile({ category: "rule", layer: "L2", key: "before_leaving_home", value: "cabut colokan listrik, matikan AC" })`,
     {
-      category: z.string().min(1).describe("e.g. 'identity', 'location', 'preference', 'value_belief', 'cognitive_style'"),
-      layer: layerEnum.describe("L3 for core identity, L2 for preferences/values"),
-      key: z.string().min(1).describe("Stable key for this fact (e.g. 'name', 'language', 'communication_style')"),
-      value: z.string().min(1).describe("The fact itself"),
+      category: z.string().min(1).describe("e.g. 'identity', 'location', 'preference', 'value_belief', 'cognitive_style', 'rule'"),
+      layer: layerEnum.describe("L3 for core identity & safety-critical rules, L2 for preferences/values/normal rules"),
+      key: z.string().min(1).describe("Stable key for this fact (e.g. 'name', 'allergy_food', 'before_leaving_home')"),
+      value: z.string().min(1).describe("The fact / rule action / preference itself"),
       confidence: z.number().min(0).max(1).optional().describe("0..1 if inferred; omit for explicit user statement"),
       source_msg_id: z.string().optional().describe("Optional message id from search_messages that prompted this save"),
+      importance: z.enum(['critical', 'normal']).optional().describe("Critical = safety-relevant (allergies, medical, legal). Default 'normal'."),
     },
     async (args) => {
       try { return ok(handlers.saveProfile(args)); } catch (err) { return fail(err); }
@@ -367,14 +380,16 @@ Examples:
 
   const listProfileTool = tool(
     "list_profile",
-    `List the user's stored profile entries (singleton facts). Optionally filter by layer or category.
+    `List the user's stored profile entries (singleton facts, preferences, rules). Optionally filter by layer, category, or importance.
 Examples:
   list_profile() → all profile entries
   list_profile({ layer: "L3" }) → core identity only
-  list_profile({ category: "preference" }) → preferences only`,
+  list_profile({ category: "rule" }) → all rules
+  list_profile({ importance: "critical" }) → only critical (safety-relevant) entries`,
     {
       layer: layerEnum.optional(),
       category: z.string().optional(),
+      importance: z.enum(['critical', 'normal']).optional(),
     },
     async (args) => {
       try { return listOk(handlers.listProfile(args)); } catch (err) { return fail(err); }
