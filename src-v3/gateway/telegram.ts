@@ -421,10 +421,12 @@ export function createTelegramGateway(config: TelegramGatewayConfig): Gateway {
     // Commands only apply to text-only messages (no media)
     if (mediaBlocks.length === 0) {
       if (text === '/start') {
+        log.chat(`${chatId} → /start`);
         await bot.api.sendMessage(chatId, 'Hi! Aku asisten pribadimu. Ada yang bisa aku bantu?');
         return;
       }
       if (text === '/new') {
+        log.chat(`${chatId} → /new`);
         sessions.delete(userId);
         clearTurnCount(userId);
         clearStats(userId);
@@ -432,6 +434,7 @@ export function createTelegramGateway(config: TelegramGatewayConfig): Gateway {
         return;
       }
       if (text === '/status') {
+        log.chat(`${chatId} → /status`);
         const sessionId = sessions.get(userId);
         const turnCount = getTurnCount(userId);
         const stats = getStats(userId);
