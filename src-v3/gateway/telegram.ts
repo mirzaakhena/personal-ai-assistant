@@ -161,7 +161,7 @@ export function createTelegramGateway(config: TelegramGatewayConfig): Gateway {
         is_forwarded: 0,
         raw_json: null,
       });
-      log.chat(`${chatId} ← ${content.slice(0, 80)}`);
+      log.chat(`${chatId} ← ${content}`);
     } catch (err) {
       log.error(`[TG] sendMessage failed for ${chatId}`, err);
       throw err;
@@ -278,7 +278,7 @@ export function createTelegramGateway(config: TelegramGatewayConfig): Gateway {
         onTrigger: ({ userId, message }) => new Promise<void>((resolve, reject) => {
           enqueue(userId, async () => {
             try {
-              log.debug(`[TG] trigger:${userId} — ${message.slice(0, 60)}`);
+              log.debug(`[TG] trigger:${userId} — ${message}`);
               const userDb = userDbCache.get(userId);
               userDb.messages.insert({
                 id: `system:trigger:${uuidv4()}`,
@@ -459,7 +459,7 @@ export function createTelegramGateway(config: TelegramGatewayConfig): Gateway {
 
     const turn = incrementTurnCount(userId);
     const mediaLog = mediaBlocks.length > 0 ? ` [+${mediaBlocks.length} media]` : '';
-    log.chat(`${chatId} → ${text.slice(0, 80)}${mediaLog}`);
+    log.chat(`${chatId} → ${text}${mediaLog}`);
     log.debug(`[TG] turn ${turn}${quoted ? ` (replying to ${quoted.sender}${quoted.forwarded ? '/forwarded' : ''})` : ''}${mediaLog}`);
     try {
       const result = await runQuery(userId, prompt);

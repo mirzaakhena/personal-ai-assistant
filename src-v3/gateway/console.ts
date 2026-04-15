@@ -121,7 +121,7 @@ export function createConsoleGateway(config?: ConsoleGatewayConfig): Gateway {
         onTrigger: ({ userId, message }) => new Promise<void>((resolve, reject) => {
           enqueue(userId, async () => {
             try {
-              log.debug(`trigger:${userId} — ${message.slice(0, 60)}`);
+              log.debug(`trigger:${userId} — ${message}`);
               const prompt = buildSystemMessagePrompt(message);
               await runQuery(userId, prompt);
               resolve();
