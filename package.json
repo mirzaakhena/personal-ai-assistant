@@ -13,7 +13,9 @@
     "migrate:wa": "tsx scripts/migrate-wa-extract.ts",
     "test:memory": "tsx scripts/test-memory-m1.ts",
     "test:memory-m2": "tsx scripts/test-memory-m2.ts",
-    "test:m3-prompt": "tsx scripts/test-m3-prompt.ts"
+    "test:m3-prompt": "tsx scripts/test-m3-prompt.ts",
+    "test:user-db": "tsx scripts/test-user-db.ts",
+    "test:user-db-cache": "tsx scripts/test-user-db-cache.ts"
   },
   "keywords": [],
   "author": "",
