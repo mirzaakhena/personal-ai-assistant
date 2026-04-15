@@ -1,16 +1,17 @@
-// scripts/test-memory-m2.ts — Phase M2 smoke test (handler layer)
+// scripts/test-memory-m2.ts — Phase M2 smoke test (updated for per-user DB refactor)
 
-import { unlinkSync, existsSync } from 'fs';
+import Database from 'better-sqlite3';
+import { createMessageStore } from '../src-v3/db/message.js';
 import { createMemoryStore } from '../src-v3/db/memory.js';
 import { buildMemoryHandlers } from '../src-v3/tools/memory.js';
 
-const TEST_DB = 'data/_memory_m2_test.db';
-if (existsSync(TEST_DB)) unlinkSync(TEST_DB);
+const db = new Database(':memory:');
+db.pragma('foreign_keys = ON');
 
-const store = createMemoryStore(TEST_DB);
-const USER = 'test-user-m2';
+createMessageStore(db);
+const store = createMemoryStore(db);
 const SESSION = 'test-session-abc';
-const h = buildMemoryHandlers(store, USER, SESSION);
+const h = buildMemoryHandlers(store, SESSION);
 
 console.log('=== Phase M2 smoke test ===\n');
 
@@ -84,4 +85,5 @@ console.log('\n9. session_id injection check');
 console.log('   j1.session_id:', j1.session_id, '(should be test-session-abc)');
 console.log('   p1.source_session_id:', p1.source_session_id, '(should be test-session-abc)');
 
+db.close();
 console.log('\n=== All checks passed ===');

@@ -1,19 +1,20 @@
-// scripts/test-memory-m1.ts — Phase M1 smoke test
+// scripts/test-memory-m1.ts — Phase M1 smoke test (updated for per-user DB refactor)
 
-import { unlinkSync, existsSync } from 'fs';
+import Database from 'better-sqlite3';
+import { createMessageStore } from '../src-v3/db/message.js';
 import { createMemoryStore } from '../src-v3/db/memory.js';
 
-const TEST_DB = 'data/_memory_test.db';
-if (existsSync(TEST_DB)) unlinkSync(TEST_DB);
+const db = new Database(':memory:');
+db.pragma('foreign_keys = ON');
 
-const mem = createMemoryStore(TEST_DB);
-const USER = 'test-user-1';
+// messages must exist first (journal.source_msg_id FK references it)
+createMessageStore(db);
+const mem = createMemoryStore(db);
 
 console.log('=== Phase M1 smoke test ===\n');
 
 // 1. Profile upsert
 const p1 = mem.upsertProfile({
-  user_id: USER,
   category: 'identity',
   layer: 'L3',
   key: 'name',
@@ -25,7 +26,6 @@ const p1 = mem.upsertProfile({
 console.log('1. Profile inserted:', p1.value, 'id:', p1.id.slice(0, 8));
 
 const p1b = mem.upsertProfile({
-  user_id: USER,
   category: 'identity',
   layer: 'L3',
   key: 'name',
@@ -38,7 +38,6 @@ console.log('   Profile updated (same id?):', p1.id === p1b.id, 'new value:', p1
 
 // 2. Journal insert
 const j1 = mem.insertJournal({
-  user_id: USER,
   type: 'life_context',
   content: 'Sedang mengurus dokumen imigrasi Korea',
   status: 'ongoing',
@@ -58,7 +57,6 @@ const j1 = mem.insertJournal({
 console.log('\n2. Journal inserted:', j1.content.slice(0, 40), 'status:', j1.status);
 
 const j2 = mem.insertJournal({
-  user_id: USER,
   type: 'trait_observation',
   content: 'User mengoreksi detail kecil berkali-kali',
   status: null,
@@ -78,7 +76,7 @@ const j2 = mem.insertJournal({
 console.log('   Journal inserted (trait obs):', j2.inferred_trait, 'conf:', j2.confidence);
 
 // 3. FTS5 search
-const searchResults = mem.searchJournal({ userId: USER, query: 'imigrasi', limit: 5 });
+const searchResults = mem.searchJournal({ query: 'imigrasi', limit: 5 });
 console.log('\n3. Journal FTS5 search "imigrasi":', searchResults.length, 'matches');
 if (searchResults.length > 0) console.log('   Top:', searchResults[0].content.slice(0, 40));
 
@@ -90,7 +88,6 @@ console.log('   Status now:', j1After?.status, 'resolved_at set:', j1After?.reso
 
 // 5. Trait upsert
 const t1 = mem.upsertTrait({
-  user_id: USER,
   type: 'trait',
   label: 'perfeksionis',
   confidence: 0.75,
@@ -100,7 +97,6 @@ const t1 = mem.upsertTrait({
 console.log('\n5. Trait upserted:', t1.label, 'conf:', t1.confidence);
 
 const t1b = mem.upsertTrait({
-  user_id: USER,
   type: 'trait',
   label: 'perfeksionis',
   confidence: 0.85,
@@ -111,7 +107,6 @@ console.log('   Trait updated (same id?):', t1.id === t1b.id, 'new conf:', t1b.c
 
 // 6. Relationship
 const r1 = mem.upsertRelationship({
-  user_id: USER,
   name: 'Budi',
   role: 'atasan',
   dynamic: 'memberi banyak guidance',
@@ -122,7 +117,6 @@ console.log('\n6. Relationship inserted:', r1.name, 'role:', r1.role);
 
 // 7. Goal
 const g1 = mem.insertGoal({
-  user_id: USER,
   title: 'Pindah kerja ke Samsung Busan',
   category: 'career',
   status: 'active',
@@ -133,11 +127,11 @@ const g1 = mem.insertGoal({
 console.log('\n7. Goal inserted:', g1.title, 'status:', g1.status);
 
 mem.updateGoalStatus(g1.id, 'completed');
-const goals = mem.listGoals(USER);
+const goals = mem.listGoals();
 console.log('   Goals after status update:', goals.map(g => `${g.title} (${g.status})`));
 
 // 8. Always bundle
-const bundle = mem.loadAlwaysBundle(USER);
+const bundle = mem.loadAlwaysBundle();
 console.log('\n8. Always bundle:');
 console.log('   profile entries:', bundle.profile.length);
 console.log('   traits:', bundle.traits.length);
@@ -145,7 +139,6 @@ console.log('   ongoing journal:', bundle.ongoing.length, '(should be 0 — j1 w
 
 // 9. listOngoing — insert another ongoing entry
 mem.insertJournal({
-  user_id: USER,
   type: 'problem',
   content: 'Sering lupa minum obat',
   status: 'ongoing',
@@ -162,7 +155,7 @@ mem.insertJournal({
   source_msg_id: null,
   resolved_at: null,
 });
-const bundle2 = mem.loadAlwaysBundle(USER);
+const bundle2 = mem.loadAlwaysBundle();
 console.log('\n9. After adding ongoing problem — ongoing count:', bundle2.ongoing.length, '(should be 1)');
 
 // 10. linkObservationsToTrait
@@ -172,4 +165,5 @@ const j2After = mem.getJournal(j2.id);
 console.log('   j2 promoted_to_trait_id:', j2After?.promoted_to_trait_id, '(should equal t1.id)');
 console.log('   match t1.id?', j2After?.promoted_to_trait_id === t1.id);
 
+db.close();
 console.log('\n=== All checks passed ===');
