@@ -11,7 +11,8 @@
     "type-check": "tsc --noEmit",
     "test": "vitest",
     "migrate:wa": "tsx scripts/migrate-wa-extract.ts",
-    "test:memory": "tsx scripts/test-memory-m1.ts"
+    "test:memory": "tsx scripts/test-memory-m1.ts",
+    "test:memory-m2": "tsx scripts/test-memory-m2.ts"
   },
   "keywords": [],
   "author": "",
