@@ -8,6 +8,8 @@ import type { QueryResult, ContentBlock } from '../ai-engine/index.js';
 import { createMessageServer, type MessageDeliver } from '../tools/message.js';
 import { createMemoryServer, buildMemoryHandlers } from '../tools/memory.js';
 import { createCronjobServer, type CronjobHandlers } from '../tools/cronjob.js';
+import { createTasksServer, buildTaskHandlers } from '../tools/tasks.js';
+import { createHabitsServer, buildHabitHandlers } from '../tools/habits.js';
 import { createCronScheduler } from '../cron/scheduler.js';
 import { createUserDbCache } from '../db/user-db-cache.js';
 import { createTriggerServer } from '../trigger/server.js';
@@ -64,9 +66,9 @@ export function createConsoleGateway(config?: ConsoleGatewayConfig): Gateway {
 
     let systemPrompt: string | undefined;
     if (isFresh) {
-      const bundle = userDb.memory.loadAlwaysBundle();
+      const bundle = userDb.loadAlwaysBundle();
       systemPrompt = buildSystemPromptWithMemory(bundle);
-      log.debug(`fresh session for ${queryUserId} — injecting memory bundle (profile=${bundle.profile.length}, traits=${bundle.traits.length}, ongoing=${bundle.ongoing.length})`);
+      log.debug(`fresh session for ${queryUserId} — injecting memory bundle (profile=${bundle.profile.length}, traits=${bundle.traits.length}, ongoing=${bundle.ongoing.length}, tasks=${bundle.tasks.length}, habits=${bundle.habits.length})`);
     }
 
     const result = await engine.query(prompt, {
@@ -76,6 +78,8 @@ export function createConsoleGateway(config?: ConsoleGatewayConfig): Gateway {
         message: createMessageServer(deliver, queryUserId),
         memory: createMemoryServer(buildMemoryHandlers(userDb.memory, sessionId ?? null)),
         cronjob: createCronjobServer(cronjobHandlersFactory(queryUserId)),
+        tasks: createTasksServer(buildTaskHandlers(userDb.tasks)),
+        habits: createHabitsServer(buildHabitHandlers(userDb.habits)),
       },
       callbacks: {
         onInit: (info) => log.debug(`model=${info.model} tools=${info.tools.length}`),

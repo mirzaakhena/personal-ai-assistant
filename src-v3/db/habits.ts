@@ -245,26 +245,27 @@ export function createHabitStore(db: Database.Database): HabitStore {
       ? Math.min(100, Math.round((done_this_period / target) * 100))
       : (habit.cadence_type === 'boolean' ? done_this_period * 100 : 0);
 
+    const habitNonNull = habit;
     function periodSatisfied(periodKey: string): boolean {
-      if (habit.cadence_type === 'slot') {
+      if (habitNonNull.cadence_type === 'slot') {
         const row = db.prepare<[string, string], { c: number }>(
           `SELECT COUNT(DISTINCT slot) AS c FROM habit_completions WHERE habit_id = ? AND period_key = ?`
         ).get(habitId, periodKey);
         return (row?.c ?? 0) >= (config.slots?.length ?? 0);
       }
-      if (habit.cadence_type === 'count') {
+      if (habitNonNull.cadence_type === 'count') {
         const row = db.prepare<[string, string], { c: number }>(
           `SELECT COUNT(*) AS c FROM habit_completions WHERE habit_id = ? AND period_key = ?`
         ).get(habitId, periodKey);
         return (row?.c ?? 0) >= (config.target ?? 1);
       }
-      if (habit.cadence_type === 'quantity' || habit.cadence_type === 'duration') {
+      if (habitNonNull.cadence_type === 'quantity' || habitNonNull.cadence_type === 'duration') {
         const row = db.prepare<[string, string], { s: number | null }>(
           `SELECT SUM(value) AS s FROM habit_completions WHERE habit_id = ? AND period_key = ?`
         ).get(habitId, periodKey);
         return (row?.s ?? 0) >= (config.target ?? 1);
       }
-      if (habit.cadence_type === 'boolean') {
+      if (habitNonNull.cadence_type === 'boolean') {
         const row = db.prepare<[string, string], { c: number }>(
           `SELECT COUNT(*) AS c FROM habit_completions WHERE habit_id = ? AND period_key = ?`
         ).get(habitId, periodKey);

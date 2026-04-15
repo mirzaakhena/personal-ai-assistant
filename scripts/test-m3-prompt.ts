@@ -10,11 +10,11 @@ import {
   buildSystemMessagePrompt,
 } from '../src-v3/utils/prompt.js';
 import type {
-  AlwaysBundle,
   ProfileRecord,
   TraitRecord,
   JournalRecord,
 } from '../src-v3/db/memory.js';
+import type { AlwaysBundle } from '../src-v3/db/user-db.js';
 
 let failures = 0;
 function assert(cond: boolean, label: string, detail?: string): void {
@@ -41,6 +41,7 @@ function profile(over: Partial<ProfileRecord>): ProfileRecord {
     confidence: null,
     source_session_id: null,
     source_msg_id: null,
+    importance: null,
     last_updated: 0,
     created_at: 0,
     ...over,
@@ -98,14 +99,18 @@ const populated: AlwaysBundle = {
     ongoing({ id: 'o1', type: 'problem', content: 'Sering lupa minum obat', recurrence_count: 2 }),
     ongoing({ id: 'o2', type: 'life_context', content: 'Sedang mengurus dokumen imigrasi Korea' }),
   ],
+  tasks: [],
+  habits: [],
 };
 
-const empty: AlwaysBundle = { profile: [], traits: [], ongoing: [] };
+const empty: AlwaysBundle = { profile: [], traits: [], ongoing: [], tasks: [], habits: [] };
 
 const onlyProfile: AlwaysBundle = {
   profile: [profile({ id: 'p1', value: 'Mirza' })],
   traits: [],
   ongoing: [],
+  tasks: [],
+  habits: [],
 };
 
 // ── Tests ────────────────────────────────────────────────

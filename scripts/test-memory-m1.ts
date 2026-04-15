@@ -130,12 +130,11 @@ mem.updateGoalStatus(g1.id, 'completed');
 const goals = mem.listGoals();
 console.log('   Goals after status update:', goals.map(g => `${g.title} (${g.status})`));
 
-// 8. Always bundle
-const bundle = mem.loadAlwaysBundle();
-console.log('\n8. Always bundle:');
-console.log('   profile entries:', bundle.profile.length);
-console.log('   traits:', bundle.traits.length);
-console.log('   ongoing journal:', bundle.ongoing.length, '(should be 0 — j1 was resolved)');
+// 8. Always bundle components (loadAlwaysBundle now on UserDb; verify via direct queries)
+console.log('\n8. Bundle components:');
+console.log('   profile entries:', mem.listProfile().length);
+console.log('   traits:', mem.listTraits().length);
+console.log('   ongoing journal:', mem.listOngoing().length, '(should be 0 — j1 was resolved)');
 
 // 9. listOngoing — insert another ongoing entry
 mem.insertJournal({
@@ -155,8 +154,7 @@ mem.insertJournal({
   source_msg_id: null,
   resolved_at: null,
 });
-const bundle2 = mem.loadAlwaysBundle();
-console.log('\n9. After adding ongoing problem — ongoing count:', bundle2.ongoing.length, '(should be 1)');
+console.log('\n9. After adding ongoing problem — ongoing count:', mem.listOngoing().length, '(should be 1)');
 
 // 10. linkObservationsToTrait
 const linked = mem.linkObservationsToTrait([j2.id], t1.id);
