@@ -1,14 +1,11 @@
 // src-v3/db/message.ts
 
 import Database from 'better-sqlite3';
-import { mkdirSync } from 'fs';
-import { dirname } from 'path';
 
 export type Sender = 'user' | 'assistant' | 'system';
 
 export interface MessageRecord {
   id: string;
-  user_id: string;
   gateway: string;
   session_id: string | null;
   sender: Sender;
@@ -26,7 +23,6 @@ export interface MessageRecord {
 }
 
 export interface SearchFilter {
-  userId: string;
   fromTime?: number;
   toTime?: number;
   sender?: Sender;
@@ -41,21 +37,16 @@ export interface MessageStore {
   insert(record: MessageRecord): void;
   getById(id: string): MessageRecord | undefined;
   search(filter: SearchFilter): MessageRecord[];
-  count(userId: string): number;
+  count(): number;
 }
 
 const DEFAULT_LIMIT = 20;
 const MAX_LIMIT = 100;
 
-export function createMessageStore(dbPath: string = 'data/message.db'): MessageStore {
-  mkdirSync(dirname(dbPath), { recursive: true });
-
-  const db = new Database(dbPath);
-
+export function createMessageStore(db: Database.Database): MessageStore {
   db.exec(`
     CREATE TABLE IF NOT EXISTS messages (
       id              TEXT PRIMARY KEY,
-      user_id         TEXT NOT NULL,
       gateway         TEXT NOT NULL,
       session_id      TEXT,
       sender          TEXT NOT NULL,
@@ -72,8 +63,8 @@ export function createMessageStore(dbPath: string = 'data/message.db'): MessageS
       raw_json        TEXT
     );
 
-    CREATE INDEX IF NOT EXISTS idx_messages_user_ts ON messages(user_id, timestamp);
-    CREATE INDEX IF NOT EXISTS idx_messages_user_sender ON messages(user_id, sender);
+    CREATE INDEX IF NOT EXISTS idx_messages_timestamp ON messages(timestamp);
+    CREATE INDEX IF NOT EXISTS idx_messages_sender ON messages(sender);
 
     CREATE VIRTUAL TABLE IF NOT EXISTS messages_fts USING fts5(
       body,
@@ -96,58 +87,39 @@ export function createMessageStore(dbPath: string = 'data/message.db'): MessageS
     END;
   `);
 
-  // One-time populate FTS5 index from existing messages (first run after FTS5 upgrade).
-  // For external-content FTS5, `messages_fts` row count mirrors the joined source table.
-  // The actual index state lives in shadow table `messages_fts_docsize` — one row per
-  // indexed document. When it's empty but source has rows, the index is uninitialized.
+  // One-time FTS5 populate
   const counts = db.prepare(`
     SELECT
       (SELECT COUNT(*) FROM messages WHERE body IS NOT NULL) AS m,
       (SELECT COUNT(*) FROM messages_fts_docsize) AS d
   `).get() as { m: number; d: number };
-
   if (counts.m > 0 && counts.d === 0) {
-    // Build the inverted index by scanning the source table and tokenizing properly.
     db.exec(`INSERT INTO messages_fts(messages_fts) VALUES('rebuild')`);
   }
 
   const stmtInsert = db.prepare(`
     INSERT OR IGNORE INTO messages (
-      id, user_id, gateway, session_id, sender, timestamp, type, body,
+      id, gateway, session_id, sender, timestamp, type, body,
       has_media, media_mimetype, media_filename, media_size, media_path,
       quoted_msg_id, is_forwarded, raw_json
     ) VALUES (
-      @id, @user_id, @gateway, @session_id, @sender, @timestamp, @type, @body,
+      @id, @gateway, @session_id, @sender, @timestamp, @type, @body,
       @has_media, @media_mimetype, @media_filename, @media_size, @media_path,
       @quoted_msg_id, @is_forwarded, @raw_json
     )
   `);
 
-  const stmtGetById = db.prepare<[string], MessageRecord>(`
-    SELECT * FROM messages WHERE id = ?
-  `);
-
-  const stmtCount = db.prepare<[string], { n: number }>(`
-    SELECT COUNT(*) AS n FROM messages WHERE user_id = ?
-  `);
+  const stmtGetById = db.prepare<[string], MessageRecord>(`SELECT * FROM messages WHERE id = ?`);
+  const stmtCount = db.prepare<[], { n: number }>(`SELECT COUNT(*) AS n FROM messages`);
 
   function buildSearchQuery(filter: SearchFilter): { sql: string; params: unknown[] } {
-    const conditions: string[] = ['m.user_id = ?'];
-    const params: unknown[] = [filter.userId];
+    const conditions: string[] = [];
+    const params: unknown[] = [];
     let joinFts = false;
 
-    if (filter.fromTime !== undefined) {
-      conditions.push('m.timestamp >= ?');
-      params.push(filter.fromTime);
-    }
-    if (filter.toTime !== undefined) {
-      conditions.push('m.timestamp < ?');
-      params.push(filter.toTime);
-    }
-    if (filter.sender !== undefined) {
-      conditions.push('m.sender = ?');
-      params.push(filter.sender);
-    }
+    if (filter.fromTime !== undefined) { conditions.push('m.timestamp >= ?'); params.push(filter.fromTime); }
+    if (filter.toTime !== undefined) { conditions.push('m.timestamp < ?'); params.push(filter.toTime); }
+    if (filter.sender !== undefined) { conditions.push('m.sender = ?'); params.push(filter.sender); }
 
     const hasQuery = filter.query !== undefined && filter.query.length > 0;
     if (hasQuery) {
@@ -156,27 +128,15 @@ export function createMessageStore(dbPath: string = 'data/message.db'): MessageS
       params.push(filter.query);
     }
 
-    if (filter.gateway !== undefined) {
-      conditions.push('m.gateway = ?');
-      params.push(filter.gateway);
-    }
-    if (filter.hasMedia !== undefined) {
-      conditions.push('m.has_media = ?');
-      params.push(filter.hasMedia ? 1 : 0);
-    }
+    if (filter.gateway !== undefined) { conditions.push('m.gateway = ?'); params.push(filter.gateway); }
+    if (filter.hasMedia !== undefined) { conditions.push('m.has_media = ?'); params.push(filter.hasMedia ? 1 : 0); }
 
-    // Smart default: BM25 relevance when query is present, else newest first
     const defaultOrder: 'newest' | 'oldest' | 'relevant' = hasQuery ? 'relevant' : 'newest';
     const order = filter.order ?? defaultOrder;
-
     let orderClause: string;
-    if (order === 'relevant' && joinFts) {
-      orderClause = 'ORDER BY rank';
-    } else if (order === 'oldest') {
-      orderClause = 'ORDER BY m.timestamp ASC';
-    } else {
-      orderClause = 'ORDER BY m.timestamp DESC';
-    }
+    if (order === 'relevant' && joinFts) orderClause = 'ORDER BY rank';
+    else if (order === 'oldest') orderClause = 'ORDER BY m.timestamp ASC';
+    else orderClause = 'ORDER BY m.timestamp DESC';
 
     const rawLimit = filter.limit ?? DEFAULT_LIMIT;
     const limit = Math.max(1, Math.min(MAX_LIMIT, Math.floor(rawLimit)));
@@ -184,32 +144,20 @@ export function createMessageStore(dbPath: string = 'data/message.db'): MessageS
     const fromClause = joinFts
       ? 'FROM messages m JOIN messages_fts fts ON m.rowid = fts.rowid'
       : 'FROM messages m';
+    const whereClause = conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : '';
 
-    const sql = `
-      SELECT m.*
-      ${fromClause}
-      WHERE ${conditions.join(' AND ')}
-      ${orderClause}
-      LIMIT ${limit}
-    `;
+    const sql = `SELECT m.* ${fromClause} ${whereClause} ${orderClause} LIMIT ${limit}`;
     return { sql, params };
   }
 
   return {
-    insert(record) {
-      stmtInsert.run(record);
-    },
-    getById(id) {
-      return stmtGetById.get(id);
-    },
+    insert(record) { stmtInsert.run(record); },
+    getById(id) { return stmtGetById.get(id); },
     search(filter) {
       const { sql, params } = buildSearchQuery(filter);
       const stmt = db.prepare<unknown[], MessageRecord>(sql);
       return stmt.all(...params);
     },
-    count(userId) {
-      const row = stmtCount.get(userId);
-      return row?.n ?? 0;
-    },
+    count() { return stmtCount.get()?.n ?? 0; },
   };
 }

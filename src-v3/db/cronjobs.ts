@@ -1,8 +1,6 @@
 // src-v3/db/cronjobs.ts
 
 import Database from 'better-sqlite3';
-import { mkdirSync } from 'fs';
-import { dirname } from 'path';
 
 export type CronjobType = 'once' | 'recurring';
 
@@ -20,7 +18,6 @@ export type ExecutionStatus = 'EXECUTING' | 'EXECUTED' | 'FAILED' | 'MISSED';
 
 export interface CronjobRecord {
   id: string;
-  user_id: string;
   message: string;
   type: CronjobType;
   schedule_cron: string | null;
@@ -46,7 +43,7 @@ export interface CronjobStore {
   updateJobStatus(id: string, status: CronjobStatus): void;
   updateJobMessage(id: string, message: string): void;
   getJobById(id: string): CronjobRecord | undefined;
-  getJobsByUser(userId: string, activeOnly?: boolean): CronjobRecord[];
+  getJobs(activeOnly?: boolean): CronjobRecord[];
   getPendingOnceJobs(): CronjobRecord[];
   getActiveRecurringJobs(): CronjobRecord[];
   insertExecution(exec: ExecutionRecord): void;
@@ -56,15 +53,10 @@ export interface CronjobStore {
 
 const TERMINAL_STATUSES = ['CANCELLED', 'COMPLETED', 'EXECUTED', 'FAILED', 'MISSED'];
 
-export function createCronjobStore(dbPath: string = 'data/cronjobs.db'): CronjobStore {
-  mkdirSync(dirname(dbPath), { recursive: true });
-
-  const db = new Database(dbPath);
-
+export function createCronjobStore(db: Database.Database): CronjobStore {
   db.exec(`
     CREATE TABLE IF NOT EXISTS cronjobs (
       id            TEXT PRIMARY KEY,
-      user_id       TEXT NOT NULL,
       message       TEXT NOT NULL,
       type          TEXT NOT NULL,
       schedule_cron TEXT,
@@ -88,83 +80,49 @@ export function createCronjobStore(dbPath: string = 'data/cronjobs.db'): Cronjob
   `);
 
   const stmtInsertJob = db.prepare(`
-    INSERT INTO cronjobs (id, user_id, message, type, schedule_cron, schedule_human, scheduled_at, end_date, status, created_at, updated_at)
-    VALUES (@id, @user_id, @message, @type, @schedule_cron, @schedule_human, @scheduled_at, @end_date, @status, @created_at, @updated_at)
+    INSERT INTO cronjobs (id, message, type, schedule_cron, schedule_human, scheduled_at, end_date, status, created_at, updated_at)
+    VALUES (@id, @message, @type, @schedule_cron, @schedule_human, @scheduled_at, @end_date, @status, @created_at, @updated_at)
   `);
 
-  const stmtUpdateJobStatus = db.prepare(`
-    UPDATE cronjobs SET status = @status, updated_at = @updated_at WHERE id = @id
-  `);
-
-  const stmtUpdateJobMessage = db.prepare(`
-    UPDATE cronjobs SET message = @message, updated_at = @updated_at WHERE id = @id
-  `);
-
-  const stmtGetJobById = db.prepare<[string], CronjobRecord>(`
-    SELECT * FROM cronjobs WHERE id = ?
-  `);
-
-  const stmtGetJobsByUserAll = db.prepare<[string], CronjobRecord>(`
-    SELECT * FROM cronjobs WHERE user_id = ? ORDER BY created_at DESC
-  `);
+  const stmtUpdateJobStatus = db.prepare(`UPDATE cronjobs SET status = @status, updated_at = @updated_at WHERE id = @id`);
+  const stmtUpdateJobMessage = db.prepare(`UPDATE cronjobs SET message = @message, updated_at = @updated_at WHERE id = @id`);
+  const stmtGetJobById = db.prepare<[string], CronjobRecord>(`SELECT * FROM cronjobs WHERE id = ?`);
+  const stmtGetAllJobs = db.prepare<[], CronjobRecord>(`SELECT * FROM cronjobs ORDER BY created_at DESC`);
 
   const placeholders = TERMINAL_STATUSES.map(() => '?').join(',');
-  const stmtGetJobsByUserActive = db.prepare<[string, ...string[]], CronjobRecord>(
-    `SELECT * FROM cronjobs WHERE user_id = ? AND status NOT IN (${placeholders}) ORDER BY created_at DESC`
+  const stmtGetActiveJobs = db.prepare<string[], CronjobRecord>(
+    `SELECT * FROM cronjobs WHERE status NOT IN (${placeholders}) ORDER BY created_at DESC`
   );
 
-  const stmtGetPendingOnce = db.prepare<[], CronjobRecord>(`
-    SELECT * FROM cronjobs WHERE type = 'once' AND status = 'PENDING'
-  `);
-
-  const stmtGetActiveRecurring = db.prepare<[], CronjobRecord>(`
-    SELECT * FROM cronjobs WHERE type = 'recurring' AND status = 'ACTIVE'
-  `);
+  const stmtGetPendingOnce = db.prepare<[], CronjobRecord>(`SELECT * FROM cronjobs WHERE type = 'once' AND status = 'PENDING'`);
+  const stmtGetActiveRecurring = db.prepare<[], CronjobRecord>(`SELECT * FROM cronjobs WHERE type = 'recurring' AND status = 'ACTIVE'`);
 
   const stmtInsertExecution = db.prepare(`
     INSERT INTO cronjob_executions (id, cronjob_id, scheduled_at, executed_at, status, created_at)
     VALUES (@id, @cronjob_id, @scheduled_at, @executed_at, @status, @created_at)
   `);
-
   const stmtUpdateExecutionStatus = db.prepare(`
     UPDATE cronjob_executions SET status = @status, executed_at = @executed_at WHERE id = @id
   `);
-
   const stmtGetLastExecution = db.prepare<[string], ExecutionRecord>(`
     SELECT * FROM cronjob_executions WHERE cronjob_id = ? ORDER BY scheduled_at DESC LIMIT 1
   `);
 
   return {
-    insertJob(job) {
-      stmtInsertJob.run(job);
+    insertJob(job) { stmtInsertJob.run(job); },
+    updateJobStatus(id, status) { stmtUpdateJobStatus.run({ id, status, updated_at: Date.now() }); },
+    updateJobMessage(id, message) { stmtUpdateJobMessage.run({ id, message, updated_at: Date.now() }); },
+    getJobById(id) { return stmtGetJobById.get(id); },
+    getJobs(activeOnly = false) {
+      if (activeOnly) return stmtGetActiveJobs.all(...TERMINAL_STATUSES);
+      return stmtGetAllJobs.all();
     },
-    updateJobStatus(id, status) {
-      stmtUpdateJobStatus.run({ id, status, updated_at: Date.now() });
-    },
-    updateJobMessage(id, message) {
-      stmtUpdateJobMessage.run({ id, message, updated_at: Date.now() });
-    },
-    getJobById(id) {
-      return stmtGetJobById.get(id);
-    },
-    getJobsByUser(userId, activeOnly = false) {
-      if (activeOnly) return stmtGetJobsByUserActive.all(userId, ...TERMINAL_STATUSES);
-      return stmtGetJobsByUserAll.all(userId);
-    },
-    getPendingOnceJobs() {
-      return stmtGetPendingOnce.all();
-    },
-    getActiveRecurringJobs() {
-      return stmtGetActiveRecurring.all();
-    },
-    insertExecution(exec) {
-      stmtInsertExecution.run(exec);
-    },
+    getPendingOnceJobs() { return stmtGetPendingOnce.all(); },
+    getActiveRecurringJobs() { return stmtGetActiveRecurring.all(); },
+    insertExecution(exec) { stmtInsertExecution.run(exec); },
     updateExecutionStatus(id, status, executedAt) {
       stmtUpdateExecutionStatus.run({ id, status, executed_at: executedAt ?? null });
     },
-    getLastExecutionForJob(cronjobId) {
-      return stmtGetLastExecution.get(cronjobId);
-    },
+    getLastExecutionForJob(cronjobId) { return stmtGetLastExecution.get(cronjobId); },
   };
 }
