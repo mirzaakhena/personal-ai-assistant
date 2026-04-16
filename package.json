@@ -20,6 +20,8 @@
     "test:tasks": "tsx scripts/test-tasks.ts",
     "test:habits": "tsx scripts/test-habits.ts",
     "test:rules-bundle": "tsx scripts/test-rules-bundle.ts",
+    "test:session-grouper": "tsx scripts/test-session-grouper.ts",
+    "test:memory-op-executor": "tsx scripts/test-memory-op-executor.ts",
     "migrate:per-user-db": "tsx scripts/migrate-to-per-user-db.ts"
   },
   "keywords": [],
