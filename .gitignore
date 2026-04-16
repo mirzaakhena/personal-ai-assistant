@@ -10,3 +10,8 @@ data/
 memory.db/
 fromserver/
 memory.db.json
+
+# Local artifacts (logs, conversation dumps, ad-hoc debug scripts) — never commit
+*.log
+conversation-*.txt
+scripts/dump-*.ts
