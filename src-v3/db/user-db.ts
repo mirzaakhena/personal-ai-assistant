@@ -12,6 +12,7 @@ import { createSessionStore, type SessionStore } from './sessions.js';
 import { createCronjobStore, type CronjobStore } from './cronjobs.js';
 import { createTaskStore, type TaskStore, type TaskRecord } from './tasks.js';
 import { createHabitStore, type HabitStore, type HabitStatusInfo } from './habits.js';
+import { createPopulateRunsStore, type PopulateRunsStore } from './populate-runs.js';
 
 export interface AlwaysBundle {
   profile: ProfileRecord[];
@@ -29,6 +30,7 @@ export interface UserDb {
   cronjobs: CronjobStore;
   tasks: TaskStore;
   habits: HabitStore;
+  populateRuns: PopulateRunsStore;
   loadAlwaysBundle(): AlwaysBundle;
   close(): void;
 }
@@ -49,6 +51,7 @@ export function createUserDb(userId: string, baseDir: string = 'data/users'): Us
   const cronjobs = createCronjobStore(db);
   const tasks = createTaskStore(db);
   const habits = createHabitStore(db);
+  const populateRuns = createPopulateRunsStore(db);
 
   function loadAlwaysBundle(): AlwaysBundle {
     // Profile composition:
@@ -74,6 +77,7 @@ export function createUserDb(userId: string, baseDir: string = 'data/users'): Us
   return {
     userId,
     memory, messages, sessions, cronjobs, tasks, habits,
+    populateRuns,
     loadAlwaysBundle,
     close: () => db.close(),
   };
