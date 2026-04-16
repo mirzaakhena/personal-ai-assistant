@@ -3,35 +3,42 @@
 import type { Options } from "@anthropic-ai/claude-agent-sdk";
 import type { EffortLevel } from "./types.js";
 
-/** All built-in Claude Code tools — blocked to keep the AI focused on our MCP tools only */
+/**
+ * Built-in Claude Code tools that we explicitly BLOCK from the runtime AI.
+ *
+ * Rationale: keep AI focused on user-facing conversation + our MCP tools.
+ *
+ * What's ENABLED (not in this list):
+ *   Code/filesystem: Bash, Glob, Grep, Read, Edit, Write, NotebookEdit,
+ *                    BashOutput, KillShell
+ *   Web:             WebFetch, WebSearch
+ *   Dev utilities:   executeCode, getDiagnostics, TodoWrite
+ *
+ * What's BLOCKED (listed below):
+ *   - Task/Agent spawning — runtime is single-agent; no nested delegation
+ *   - Plan mode — not a user-facing assistant concern
+ *   - Worktree ops — git internals, not for end-user chat
+ *   - Skill/SlashCommand — Claude Code UI surface, not our runtime
+ *   - Claude Code's Task* tracking — conflicts with our tasks MCP
+ *   - ToolSearch — Claude Code internal
+ *   - Cron/trigger built-ins — superseded by our MCP cronjob tools
+ *   - AskUserQuestion — our gateway handles user turns directly
+ */
 const allBuiltInTools = [
-  // Code/filesystem
-  'Task',            'Bash',
-  'Glob',            'Grep',
-  'Read',            'Edit',
-  'Write',           'NotebookEdit',
-  'BashOutput',      'KillShell',
-  // Web
-  'WebFetch',        'WebSearch',
-  // Planning
-  'ExitPlanMode',    'EnterPlanMode',
-  // Worktree
-  'EnterWorktree',   'ExitWorktree',
-  // Skills / slash / diagnostics
-  'Skill',           'SlashCommand',
-  'getDiagnostics',  'executeCode',
-  'TodoWrite',
   // Agent / task spawning
-  'Agent',
-  'AgentOutputTool', 'AskUserQuestion',
-  'TaskCreate',      'TaskGet',
-  'TaskList',        'TaskUpdate',
-  'TaskOutput',      'TaskStop',
+  'Task', 'Agent', 'AgentOutputTool', 'AskUserQuestion',
+  // Planning UI (Claude Code meta)
+  'ExitPlanMode', 'EnterPlanMode',
+  // Worktree (git internals)
+  'EnterWorktree', 'ExitWorktree',
+  // Skill / slash (Claude Code UI surface)
+  'Skill', 'SlashCommand',
+  // Claude Code's own task tracker (conflicts with our tasks MCP)
+  'TaskCreate', 'TaskGet', 'TaskList', 'TaskUpdate', 'TaskOutput', 'TaskStop',
   'ToolSearch',
-  // Cron / scheduling / triggers (we use our own MCP cronjob tools)
-  'CronCreate',      'CronDelete',
-  'CronList',        'RemoteTrigger',
-  'Monitor',         'ScheduleWakeup',
+  // Cron / scheduling (superseded by our MCP cronjob tools)
+  'CronCreate', 'CronDelete', 'CronList',
+  'RemoteTrigger', 'Monitor', 'ScheduleWakeup',
 ];
 
 /** Fully resolved config — all fields required, merged by query.ts before calling this */
