@@ -1,6 +1,6 @@
 // scripts/migrate-populate-memory.ts
 
-import Anthropic from '@anthropic-ai/sdk';
+import { query } from '@anthropic-ai/claude-agent-sdk';
 import Database from 'better-sqlite3';
 import { readdirSync, existsSync } from 'fs';
 import { join } from 'path';
@@ -67,35 +67,48 @@ Options:
 `);
 }
 
-// ── Haiku client ──────────────────────────────────────
+// ── Claude client (via Claude Code subscription auth) ──
 
-const MODEL = process.env.CLAUDE_MODEL ?? 'claude-haiku-4-5-20251001';
-const INPUT_COST_PER_1M = 1.00;   // USD (Haiku 4.5 pricing)
-const OUTPUT_COST_PER_1M = 5.00;
+const MODEL = process.env.CLAUDE_MODEL ?? 'sonnet';
 
-const client = new Anthropic();
-
-async function callHaiku(systemPrompt: string, userContent: string): Promise<{
+async function callClaude(systemPrompt: string, userContent: string): Promise<{
   text: string;
   input_tokens: number;
   output_tokens: number;
   cost_usd: number;
 }> {
-  const resp = await client.messages.create({
-    model: MODEL,
-    max_tokens: 4096,
-    system: systemPrompt,
-    messages: [{ role: 'user', content: userContent }],
+  const q = query({
+    prompt: userContent,
+    options: {
+      model: MODEL,
+      systemPrompt,
+      maxTurns: 1,
+      allowedTools: [],
+      settingSources: [],
+      permissionMode: 'bypassPermissions',
+    },
   });
 
-  const text = resp.content
-    .filter((b): b is { type: 'text'; text: string } => b.type === 'text')
-    .map(b => b.text)
-    .join('');
-  const input_tokens = resp.usage.input_tokens;
-  const output_tokens = resp.usage.output_tokens;
-  const cost_usd = (input_tokens / 1_000_000) * INPUT_COST_PER_1M
-                 + (output_tokens / 1_000_000) * OUTPUT_COST_PER_1M;
+  let text = '';
+  let input_tokens = 0;
+  let output_tokens = 0;
+  let cost_usd = 0;
+
+  for await (const msg of q) {
+    if (msg.type === 'result') {
+      if (msg.subtype === 'success') {
+        text = msg.result;
+        input_tokens = msg.usage.input_tokens ?? 0;
+        output_tokens = msg.usage.output_tokens ?? 0;
+        cost_usd = msg.total_cost_usd ?? 0;
+      } else {
+        throw new Error(`query failed: ${JSON.stringify(msg).slice(0, 200)}`);
+      }
+      break;
+    }
+  }
+
+  if (!text) throw new Error('empty response from Claude');
 
   return { text, input_tokens, output_tokens, cost_usd };
 }
@@ -190,7 +203,7 @@ async function main(): Promise<void> {
 
     let resp: { text: string; input_tokens: number; output_tokens: number; cost_usd: number };
     try {
-      resp = await callHaiku(EXTRACTION_SYSTEM_PROMPT, xml);
+      resp = await callClaude(EXTRACTION_SYSTEM_PROMPT, xml);
     } catch (err: any) {
       const errStr = String(err).slice(0, 200);
       console.error(`  ✗ API error: ${errStr}`);
