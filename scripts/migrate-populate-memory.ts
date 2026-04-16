@@ -8,6 +8,7 @@ import { createUserDb } from '../src-v3/db/user-db.js';
 import { groupBySessionGap, type SessionGroup } from '../src-v3/utils/session-grouper.js';
 import { EXTRACTION_SYSTEM_PROMPT, type ExtractionOutput } from '../src-v3/utils/extraction-prompt.js';
 import { executeMemoryOps } from '../src-v3/utils/memory-op-executor.js';
+import { requireModel } from '../src-v3/utils/model-config.js';
 import type { MessageRecord } from '../src-v3/db/message.js';
 
 // ── CLI args parsing ──────────────────────────────────
@@ -69,7 +70,7 @@ Options:
 
 // ── Claude client (via Claude Code subscription auth) ──
 
-const MODEL = process.env.CLAUDE_MODEL ?? 'sonnet';
+const MODEL = requireModel();
 
 async function callClaude(systemPrompt: string, userContent: string): Promise<{
   text: string;

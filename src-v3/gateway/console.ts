@@ -20,11 +20,12 @@ import { buildSystemPromptWithMemory } from '../utils/system-prompt.js';
 import { incrementTurnCount, getTurnCount, clearTurnCount } from '../utils/turns.js';
 import { updateStats, getStats, clearStats } from '../utils/stats.js';
 import { enqueue } from '../utils/queue.js';
+import { requireModel } from '../utils/model-config.js';
 
 export interface ConsoleGatewayConfig {
   /** Base directory for per-user DB folders, default 'data/users' */
   usersBaseDir?: string;
-  /** AI model, default 'haiku' */
+  /** AI model. If omitted, falls back to process.env.CLAUDE_MODEL; throws if neither set. */
   model?: string;
   /** User ID for the console session, default 'console-user' */
   userId?: string;
@@ -39,7 +40,7 @@ export interface ConsoleGatewayConfig {
 
 export function createConsoleGateway(config?: ConsoleGatewayConfig): Gateway {
   const userId = config?.userId ?? 'console-user';
-  const model = config?.model ?? 'haiku';
+  const model = requireModel(config?.model);
   const userDbCache = createUserDbCache(config?.usersBaseDir);
 
   // Engine has NO MCP servers at creation — all servers bind userId per-query

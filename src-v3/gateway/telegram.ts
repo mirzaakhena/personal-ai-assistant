@@ -24,6 +24,7 @@ import type { TriggerServer } from '../trigger/types.js';
 import { log } from '../utils/logger.js';
 import { buildUserPrompt, buildSystemMessagePrompt, type QuotedInfo } from '../utils/prompt.js';
 import { incrementTurnCount, getTurnCount, clearTurnCount } from '../utils/turns.js';
+import { requireModel } from '../utils/model-config.js';
 import { updateStats, getStats, clearStats } from '../utils/stats.js';
 import { buildSystemPromptWithMemory } from '../utils/system-prompt.js';
 import { enqueue } from '../utils/queue.js';
@@ -88,7 +89,7 @@ export interface TelegramGatewayConfig {
   whitelist: number[];
   /** Base directory for per-user DB folders, default 'data/users' */
   usersBaseDir?: string;
-  /** AI model, default 'haiku' */
+  /** AI model. If omitted, falls back to process.env.CLAUDE_MODEL; throws if neither set. */
   model?: string;
   /** Trigger server host. Default '127.0.0.1'. Set to null to disable. */
   triggerHost?: string | null;
@@ -102,7 +103,7 @@ export function createTelegramGateway(config: TelegramGatewayConfig): Gateway {
     throw new Error('Telegram bot token is required');
   }
 
-  const model = config.model ?? 'haiku';
+  const model = requireModel(config.model);
   const userDbCache = createUserDbCache(config.usersBaseDir);
   const whitelist = new Set(config.whitelist);
 

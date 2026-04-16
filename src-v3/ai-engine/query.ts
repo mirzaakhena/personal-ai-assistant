@@ -4,6 +4,7 @@ import { query as sdkQuery } from "@anthropic-ai/claude-agent-sdk";
 import type { SDKUserMessage } from "@anthropic-ai/claude-agent-sdk";
 import { createQueryOptions } from "./options.js";
 import { DEFAULT_SYSTEM_PROMPT } from "../utils/system-prompt.js";
+import { requireModel } from "../utils/model-config.js";
 import type { ContentBlock } from "../utils/media.js";
 import type {
   AIEngine,
@@ -24,7 +25,7 @@ import type {
  */
 export function createAIEngine(config?: EngineConfig): AIEngine {
   const defaults = {
-    model: config?.model ?? 'haiku', // TODO: read from env (CLAUDE_MODEL)
+    model: requireModel(config?.model),
     systemPrompt: config?.systemPrompt ?? DEFAULT_SYSTEM_PROMPT,
     maxTurns: config?.maxTurns ?? 10,
     effort: config?.effort ?? 'low',
