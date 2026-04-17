@@ -7,6 +7,7 @@ export type {
   QueryOptions,
   QueryCallbacks,
   QueryResult,
+  TokenUsage,
   InitInfo,
   RateLimitInfo,
   QueryErrorInfo,

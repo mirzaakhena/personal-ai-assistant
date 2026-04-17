@@ -19,7 +19,9 @@ import { buildUserPrompt, buildSystemMessagePrompt } from '../utils/prompt.js';
 import { buildSystemPromptWithMemory } from '../utils/system-prompt.js';
 import { maybeResetSession } from '../utils/session-reset.js';
 import { incrementTurnCount, getTurnCount, clearTurnCount } from '../utils/turns.js';
-import { updateStats, getStats, clearStats } from '../utils/stats.js';
+import { recordQuery, recordRateLimit, getStats, getRateLimit, clearStats } from '../utils/stats.js';
+import { formatUsd } from '../utils/pricing.js';
+import { getContextLimit, contextUsedFromUsage, formatTokens, formatResetsIn, formatResetsAtLocal } from '../utils/context-limits.js';
 import { enqueue } from '../utils/queue.js';
 import { requireModel } from '../utils/model-config.js';
 
@@ -91,6 +93,7 @@ export function createConsoleGateway(config?: ConsoleGatewayConfig): Gateway {
         onThinking: (text) => log.debug(`thinking: ${text}`),
         onToolUse: (name) => log.debug(`tool: ${name}`),
         onSessionId: (id) => log.debug(`session: ${id}`),
+        onRateLimit: (info) => recordRateLimit(queryUserId, info),
         onError: (err) => log.error(`[${err.level}] ${err.reason}: ${err.messages.join(', ')}`),
         onFallback: (text) => {
           log.debug('send_message not called (possibly not relevant)');
@@ -160,16 +163,69 @@ export function createConsoleGateway(config?: ConsoleGatewayConfig): Gateway {
     const sessionId = getSessionId();
     const turnCount = getTurnCount(userId);
     const stats = getStats(userId);
+    const userDb = userDbCache.get(userId);
 
     console.log('');
-    console.log(`  Session:  ${sessionId ?? 'none'}`);
-    console.log(`  Turns:    ${turnCount}`);
+    console.log(`  Session:        ${sessionId ?? 'none'}`);
+    console.log(`  Current turn:   ${turnCount} (this session)`);
     if (stats) {
-      console.log(`  Cost:     $${stats.accumulated.costUsd.toFixed(4)} (last: $${stats.lastQuery.costUsd.toFixed(4)})`);
-      console.log(`  Duration: ${stats.accumulated.durationMs}ms (last: ${stats.lastQuery.durationMs}ms)`);
-      console.log(`  AI Turns: ${stats.accumulated.numTurns} (last: ${stats.lastQuery.numTurns})`);
+      const a = stats.accumulated;
+      const l = stats.lastQuery;
+      const totalTokens = a.inputTokens + a.cacheCreationTokens + a.cacheReadTokens + a.outputTokens;
+      const contextLimit = getContextLimit(stats.model);
+      const contextUsed = contextUsedFromUsage({
+        inputTokens: l.inputTokens,
+        cacheCreationTokens: l.cacheCreationTokens,
+        cacheReadTokens: l.cacheReadTokens,
+      });
+      const contextPct = contextLimit > 0 ? Math.round((contextUsed / contextLimit) * 100) : 0;
+
+      console.log('');
+      console.log('  ── Context ──');
+      console.log(`  Model:          ${stats.model ?? 'unknown'}`);
+      console.log(`  Context:        ${formatTokens(contextUsed)} / ${formatTokens(contextLimit)} (${contextPct}%)`);
+      console.log('');
+      console.log('  ── This session ──');
+      console.log(`  Actual cost:    ${formatUsd(a.costUsd)} (last: ${formatUsd(l.costUsd)})`);
+      console.log(`  Simulated API:  ${formatUsd(a.simulatedApiCostUsd)} (last: ${formatUsd(l.simulatedApiCostUsd)})`);
+      console.log(`  Tokens total:   ${totalTokens.toLocaleString()}`);
+      console.log(`    input:        ${a.inputTokens.toLocaleString()}`);
+      console.log(`    cache write:  ${a.cacheCreationTokens.toLocaleString()}`);
+      console.log(`    cache read:   ${a.cacheReadTokens.toLocaleString()} (cached → cheap)`);
+      console.log(`    output:       ${a.outputTokens.toLocaleString()}`);
+      console.log(`  Duration:       ${a.durationMs}ms (last: ${l.durationMs}ms)`);
+      console.log(`  AI sub-turns:   ${a.numTurns} (last: ${l.numTurns}) — internal tool cycles`);
     } else {
       console.log('  Stats:    no queries yet');
+    }
+
+    // Rate limit
+    const rl = getRateLimit(userId);
+    if (rl) {
+      const utilPct = rl.utilization !== null ? Math.round(rl.utilization * 100) : null;
+      console.log('');
+      console.log('  ── Rate limit (Claude subscription) ──');
+      console.log(`  Window:         ${rl.rateLimitType ?? 'unknown'}`);
+      console.log(`  Status:         ${rl.status}`);
+      console.log(utilPct !== null ? `  Usage:          ${utilPct}%` : '  Usage:          —');
+      console.log(`  Resets:         ${formatResetsAtLocal(rl.resetsAt)} WIB (in ${formatResetsIn(rl.resetsAt)})`);
+    }
+
+    const now = Date.now();
+    const dayMs = 24 * 60 * 60 * 1000;
+    const today = userDb.queryCosts.aggregateSince(now - dayMs);
+    const month = userDb.queryCosts.aggregateSince(now - 30 * dayMs);
+    if (today.queries > 0 || month.queries > 0) {
+      console.log('');
+      console.log('  ── Last 24h ──');
+      console.log(`  Queries:        ${today.queries}`);
+      console.log(`  Actual cost:    ${formatUsd(today.actual_cost_usd)}`);
+      console.log(`  Simulated API:  ${formatUsd(today.simulated_api_cost_usd)}`);
+      console.log('');
+      console.log('  ── Last 30d ──');
+      console.log(`  Queries:        ${month.queries}`);
+      console.log(`  Actual cost:    ${formatUsd(month.actual_cost_usd)}`);
+      console.log(`  Simulated API:  ${formatUsd(month.simulated_api_cost_usd)}`);
     }
     console.log('');
   }
@@ -180,7 +236,7 @@ export function createConsoleGateway(config?: ConsoleGatewayConfig): Gateway {
 
     const prompt = buildUserPrompt(input);
     const result = await runQuery(userId, prompt);
-    updateStats(userId, result.sessionId, result.costUsd, result.durationMs, result.numTurns);
+    recordQuery(userDbCache.get(userId), userId, result);
   }
 
   return {

@@ -14,6 +14,7 @@ import type {
   QueryErrorInfo,
   InitInfo,
   RateLimitInfo,
+  TokenUsage,
 } from "./types.js";
 
 /**
@@ -64,6 +65,8 @@ export function createAIEngine(config?: EngineConfig): AIEngine {
       let costUsd = 0;
       let durationMs = 0;
       let numTurns = 0;
+      let model: string | null = null;
+      let usage: TokenUsage | null = null;
       let error: QueryErrorInfo | undefined;
       let sendMessageCalled = false;
 
@@ -81,6 +84,7 @@ export function createAIEngine(config?: EngineConfig): AIEngine {
                 mcpServers: initMsg.mcp_servers ?? [],
                 sessionId: message.session_id,
               };
+              model = initMsg.model ?? null;
               resultSessionId = message.session_id;
               callbacks?.onInit?.(info);
               callbacks?.onSessionId?.(message.session_id);
@@ -133,9 +137,12 @@ export function createAIEngine(config?: EngineConfig): AIEngine {
 
           case 'rate_limit_event': {
             const rlMsg = message as any;
+            const rl = rlMsg.rate_limit_info ?? {};
             const info: RateLimitInfo = {
-              resetsAt: rlMsg.rate_limit?.resets_at ?? '',
-              remaining: rlMsg.rate_limit?.remaining ?? 0,
+              status: rl.status ?? 'unknown',
+              resetsAt: typeof rl.resetsAt === 'number' ? rl.resetsAt : null,
+              rateLimitType: rl.rateLimitType ?? null,
+              utilization: typeof rl.utilization === 'number' ? rl.utilization : null,
             };
             callbacks?.onRateLimit?.(info);
             break;
@@ -147,6 +154,17 @@ export function createAIEngine(config?: EngineConfig): AIEngine {
             durationMs = resultMsg.duration_ms ?? 0;
             numTurns = resultMsg.num_turns ?? 0;
             resultSessionId = resultMsg.session_id ?? resultSessionId;
+
+            // Usage breakdown — SDK returns snake_case keys inside usage object
+            const u = resultMsg.usage;
+            if (u && typeof u === 'object') {
+              usage = {
+                inputTokens: u.input_tokens ?? 0,
+                cacheCreationTokens: u.cache_creation_input_tokens ?? 0,
+                cacheReadTokens: u.cache_read_input_tokens ?? 0,
+                outputTokens: u.output_tokens ?? 0,
+              };
+            }
 
             if (message.subtype !== 'success') {
               error = {
@@ -172,6 +190,8 @@ export function createAIEngine(config?: EngineConfig): AIEngine {
         costUsd,
         durationMs,
         numTurns,
+        model,
+        usage,
         sendMessageCalled,
         ...(error ? { error } : {}),
       };

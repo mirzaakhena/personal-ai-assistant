@@ -13,10 +13,16 @@ export interface InitInfo {
   sessionId: string;
 }
 
-/** Info from rate_limit_event message */
+/** Info from rate_limit_event message — mirrors SDK's SDKRateLimitInfo. */
 export interface RateLimitInfo {
-  resetsAt: string;
-  remaining: number;
+  /** 'allowed' | 'allowed_warning' | 'rejected' */
+  status: string;
+  /** Unix epoch SECONDS when the window resets (may be undefined if not applicable) */
+  resetsAt: number | null;
+  /** Which window this refers to: 'five_hour' | 'seven_day' | 'seven_day_opus' | 'seven_day_sonnet' | 'overage' */
+  rateLimitType: string | null;
+  /** Fraction used 0..1 (null if SDK didn't report) */
+  utilization: number | null;
 }
 
 // ── Error types ──────────────────────────────────────────
@@ -121,6 +127,14 @@ export type {
 
 // ── Result ───────────────────────────────────────────────
 
+/** Token breakdown from SDK result message (usage block). */
+export interface TokenUsage {
+  inputTokens: number;
+  cacheCreationTokens: number;
+  cacheReadTokens: number;
+  outputTokens: number;
+}
+
 /**
  * Result returned after a query completes.
  */
@@ -130,6 +144,10 @@ export interface QueryResult {
   costUsd: number;
   durationMs: number;
   numTurns: number;
+  /** Model that answered (from init message), e.g. "claude-sonnet-4-6" */
+  model: string | null;
+  /** Token breakdown for this query (null if SDK didn't return usage) */
+  usage: TokenUsage | null;
   /** Whether send_message tool was called at least once */
   sendMessageCalled: boolean;
   /** Present if the query ended with an error */
