@@ -173,17 +173,17 @@ export function createConsoleGateway(config?: ConsoleGatewayConfig): Gateway {
       const l = stats.lastQuery;
       const totalTokens = a.inputTokens + a.cacheCreationTokens + a.cacheReadTokens + a.outputTokens;
       const contextLimit = getContextLimit(stats.model);
-      const contextUsed = contextUsedFromUsage({
+      const lastQueryProcessed = contextUsedFromUsage({
         inputTokens: l.inputTokens,
         cacheCreationTokens: l.cacheCreationTokens,
         cacheReadTokens: l.cacheReadTokens,
       });
-      const contextPct = contextLimit > 0 ? Math.round((contextUsed / contextLimit) * 100) : 0;
 
       console.log('');
-      console.log('  ── Context ──');
+      console.log('  ── Model & context ──');
       console.log(`  Model:          ${stats.model ?? 'unknown'}`);
-      console.log(`  Context:        ${formatTokens(contextUsed)} / ${formatTokens(contextLimit)} (${contextPct}%)`);
+      console.log(`  Context window: ${formatTokens(contextLimit)}`);
+      console.log(`  Last query processed: ${formatTokens(lastQueryProcessed)} input tokens (across ${l.numTurns} sub-turns)`);
       console.log('');
       console.log('  ── This session ──');
       console.log(`  Actual cost:    ${formatUsd(a.costUsd)} (last: ${formatUsd(l.costUsd)})`);

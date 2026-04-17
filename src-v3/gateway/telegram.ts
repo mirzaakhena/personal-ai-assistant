@@ -492,20 +492,23 @@ export function createTelegramGateway(config: TelegramGatewayConfig): Gateway {
       const l = stats.lastQuery;
       const totalTokens = a.inputTokens + a.cacheCreationTokens + a.cacheReadTokens + a.outputTokens;
 
-      // Context usage — from LAST query (that's the current context size)
+      // Last-query token footprint. NOTE: claude-agent-sdk aggregates usage
+      // across internal sub-turns (tool-use cycles), so cache_read can be
+      // inflated by re-reads. Treat this as billing volume, not a snapshot
+      // of current context capacity — hence no % against limit.
       const contextLimit = getContextLimit(stats.model);
-      const contextUsed = contextUsedFromUsage({
+      const lastQueryProcessed = contextUsedFromUsage({
         inputTokens: l.inputTokens,
         cacheCreationTokens: l.cacheCreationTokens,
         cacheReadTokens: l.cacheReadTokens,
       });
-      const contextPct = contextLimit > 0 ? Math.round((contextUsed / contextLimit) * 100) : 0;
 
       lines.push(
         '',
-        '── Context ──',
+        '── Model & context ──',
         `Model:          ${stats.model ?? 'unknown'}`,
-        `Context:        ${formatTokens(contextUsed)} / ${formatTokens(contextLimit)} (${contextPct}%)`,
+        `Context window: ${formatTokens(contextLimit)}`,
+        `Last query processed: ${formatTokens(lastQueryProcessed)} input tokens (across ${l.numTurns} sub-turns)`,
         '',
         '── This session ──',
         `Actual cost:    ${formatUsd(a.costUsd)} (last: ${formatUsd(l.costUsd)})`,
