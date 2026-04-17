@@ -4,6 +4,7 @@ import Database from 'better-sqlite3';
 
 export interface SessionStore {
   get(): string | undefined;
+  getLastActivity(): number | undefined;
   save(sessionId: string): void;
   delete(): void;
 }
@@ -21,6 +22,10 @@ export function createSessionStore(db: Database.Database): SessionStore {
     'SELECT session_id FROM sessions WHERE id = 1'
   );
 
+  const stmtGetLastActivity = db.prepare<[], { updated_at: number }>(
+    'SELECT updated_at FROM sessions WHERE id = 1'
+  );
+
   const stmtUpsert = db.prepare(
     `INSERT INTO sessions (id, session_id, updated_at)
      VALUES (1, ?, ?)
@@ -31,6 +36,7 @@ export function createSessionStore(db: Database.Database): SessionStore {
 
   return {
     get() { return stmtGet.get()?.session_id; },
+    getLastActivity() { return stmtGetLastActivity.get()?.updated_at; },
     save(sessionId) { stmtUpsert.run(sessionId, Date.now()); },
     delete() { stmtDelete.run(); },
   };

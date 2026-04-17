@@ -17,6 +17,7 @@ import type { TriggerServer } from '../trigger/types.js';
 import { log } from '../utils/logger.js';
 import { buildUserPrompt, buildSystemMessagePrompt } from '../utils/prompt.js';
 import { buildSystemPromptWithMemory } from '../utils/system-prompt.js';
+import { maybeResetSession } from '../utils/session-reset.js';
 import { incrementTurnCount, getTurnCount, clearTurnCount } from '../utils/turns.js';
 import { updateStats, getStats, clearStats } from '../utils/stats.js';
 import { enqueue } from '../utils/queue.js';
@@ -62,6 +63,9 @@ export function createConsoleGateway(config?: ConsoleGatewayConfig): Gateway {
   /** Shared query execution — used by both user input and cron fire */
   async function runQuery(queryUserId: string, prompt: string | ContentBlock[]): Promise<QueryResult> {
     const userDb = userDbCache.get(queryUserId);
+
+    maybeResetSession(userDb, `[console:${queryUserId}]`);
+
     const sessionId = userDb.sessions.get();
     const isFresh = sessionId === undefined;
 
@@ -69,7 +73,7 @@ export function createConsoleGateway(config?: ConsoleGatewayConfig): Gateway {
     if (isFresh) {
       const bundle = userDb.loadAlwaysBundle();
       systemPrompt = buildSystemPromptWithMemory(bundle);
-      log.debug(`fresh session for ${queryUserId} — injecting memory bundle (profile=${bundle.profile.length}, traits=${bundle.traits.length}, ongoing=${bundle.ongoing.length}, tasks=${bundle.tasks.length}, habits=${bundle.habits.length})`);
+      log.debug(`fresh session for ${queryUserId} — injecting memory bundle (profile=${bundle.profile.length}, relationships=${bundle.relationships.length}, ongoing=${bundle.ongoing.length}, recent=${bundle.recent.length}, tasks=${bundle.tasks.length}, habits=${bundle.habits.length})`);
     }
 
     const result = await engine.query(prompt, {

@@ -13,8 +13,7 @@ OUTPUT FORMAT: Strict JSON matching this schema:
   "key_decisions": ["decision-1 (if any)"],
   "ops": [
     { "op": "save_profile", "category": "...", "layer": "L2|L3", "key": "...", "value": "...", "importance": "critical|normal" (optional) },
-    { "op": "save_relationship", "name": "...", "role": "...", "dynamic": "..." (optional) },
-    { "op": "save_goal", "title": "...", "category": "career|health|finance|education|personal|family|null", "status": "active|completed|abandoned" (optional), "target_date": "YYYY-MM-DD" (optional) },
+    { "op": "save_relationship", "name": "...", "role": "...", "dynamic": "..." (optional), "circle": "inner|extended_family|close|casual" (optional) },
     { "op": "save_journal", "type": "life_context|problem|event|emotion", "content": "...", "status": "ongoing|resolved" (optional), "intensity": "low|medium|high" (optional), "event_date": "YYYY-MM-DD" (optional) },
     { "op": "save_trait_observation", "inferred_trait": "...", "confidence": 0.0-1.0, "content": "..." }
   ]
@@ -44,7 +43,7 @@ EXTRACTION RULES:
 
 6. CONFIDENCE for trait_observation: 0.5-0.7 for single observation, 0.7-0.9 if user self-identifies ("aku itu perfeksionis").
 
-7. GOAL CATEGORY: use closest; null if none fit.
+7. For LONG-TERM ASPIRATIONS (e.g. "mau beli rumah", "ingin pindah kerja ke X"): use save_journal type='life_context' status='ongoing'. Do NOT use separate goals — goals table removed in v5.
 
 8. RESPONSE: ONLY JSON. No markdown code fences. No prose. Parse-ready.
 

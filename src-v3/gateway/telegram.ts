@@ -27,6 +27,7 @@ import { incrementTurnCount, getTurnCount, clearTurnCount } from '../utils/turns
 import { requireModel } from '../utils/model-config.js';
 import { updateStats, getStats, clearStats } from '../utils/stats.js';
 import { buildSystemPromptWithMemory } from '../utils/system-prompt.js';
+import { maybeResetSession } from '../utils/session-reset.js';
 import { enqueue } from '../utils/queue.js';
 
 
@@ -201,6 +202,11 @@ export function createTelegramGateway(config: TelegramGatewayConfig): Gateway {
   /** Shared query execution — used by message handler, cron fire, and trigger */
   async function runQuery(queryUserId: string, prompt: string | ContentBlock[]): Promise<QueryResult> {
     const userDb = userDbCache.get(queryUserId);
+
+    // Daily boundary reset — if last activity crossed the daily reset hour
+    // and user isn't active within guard window, start fresh.
+    maybeResetSession(userDb, `[TG:${queryUserId}]`);
+
     const sessionId = userDb.sessions.get();
     const isFresh = sessionId === undefined;
 
@@ -208,7 +214,7 @@ export function createTelegramGateway(config: TelegramGatewayConfig): Gateway {
     if (isFresh) {
       const bundle = userDb.loadAlwaysBundle();
       systemPrompt = buildSystemPromptWithMemory(bundle);
-      log.debug(`[TG] fresh session for ${queryUserId} — injecting memory bundle (profile=${bundle.profile.length}, traits=${bundle.traits.length}, ongoing=${bundle.ongoing.length}, tasks=${bundle.tasks.length}, habits=${bundle.habits.length})`);
+      log.debug(`[TG] fresh session for ${queryUserId} — injecting memory bundle (profile=${bundle.profile.length}, relationships=${bundle.relationships.length}, ongoing=${bundle.ongoing.length}, recent=${bundle.recent.length}, tasks=${bundle.tasks.length}, habits=${bundle.habits.length})`);
     }
 
     const result = await engine.query(prompt, {

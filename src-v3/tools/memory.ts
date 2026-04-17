@@ -6,17 +6,14 @@ import type {
   MemoryStore,
   ProfileRecord,
   JournalRecord,
-  TraitRecord,
   RelationshipRecord,
-  GoalRecord,
   Layer,
   JournalType,
   JournalStatus,
   Intensity,
-  TraitType,
-  GoalStatus,
   EventOutcome,
-  Importance,                       // NEW
+  Importance,
+  Circle,
 } from '../db/memory.js';
 import { toIsoJakarta, parseIsoToMs } from '../utils/time.js';
 
@@ -31,7 +28,7 @@ export interface ProfileResult {
   confidence: number | null;
   source_session_id: string | null;
   source_msg_id: string | null;
-  importance: Importance;            // NEW
+  importance: Importance;
   last_updated: string;
   created_at: string;
 }
@@ -49,22 +46,10 @@ export interface JournalResult {
   follow_up_needed: number;
   inferred_trait: string | null;
   confidence: number | null;
-  promoted_to_trait_id: string | null;
   session_id: string | null;
   source_msg_id: string | null;
   created_at: string;
   resolved_at: string | null;
-}
-
-export interface TraitResult {
-  id: string;
-  type: TraitType;
-  label: string;
-  confidence: number;
-  evidence_count: number;
-  source_obs_ids: string[] | null;
-  first_seen: string;
-  last_confirmed: string;
 }
 
 export interface RelationshipResult {
@@ -72,22 +57,11 @@ export interface RelationshipResult {
   name: string;
   role: string;
   dynamic: string | null;
+  circle: Circle;
   related_ids: string[] | null;
   source_session_id: string | null;
   last_mentioned: string;
   created_at: string;
-}
-
-export interface GoalResult {
-  id: string;
-  title: string;
-  category: string | null;
-  status: GoalStatus;
-  target_date: string | null;
-  related_ids: string[] | null;
-  source_session_id: string | null;
-  created_at: string;
-  last_updated: string;
 }
 
 // ── Sanitizers ──────────────────────────────────────────
@@ -97,7 +71,7 @@ function sanitizeProfile(r: ProfileRecord): ProfileResult {
     id: r.id, category: r.category, layer: r.layer, key: r.key, value: r.value,
     confidence: r.confidence,
     source_session_id: r.source_session_id, source_msg_id: r.source_msg_id,
-    importance: r.importance,        // NEW
+    importance: r.importance,
     last_updated: toIsoJakarta(r.last_updated), created_at: toIsoJakarta(r.created_at),
   };
 }
@@ -108,33 +82,18 @@ function sanitizeJournal(r: JournalRecord): JournalResult {
     recurrence_count: r.recurrence_count, related_ids: r.related_ids,
     event_date: r.event_date, event_outcome: r.event_outcome, follow_up_needed: r.follow_up_needed,
     inferred_trait: r.inferred_trait, confidence: r.confidence,
-    promoted_to_trait_id: r.promoted_to_trait_id, session_id: r.session_id, source_msg_id: r.source_msg_id,
+    session_id: r.session_id, source_msg_id: r.source_msg_id,
     created_at: toIsoJakarta(r.created_at),
     resolved_at: r.resolved_at !== null ? toIsoJakarta(r.resolved_at) : null,
   };
 }
 
-function sanitizeTrait(r: TraitRecord): TraitResult {
-  return {
-    id: r.id, type: r.type, label: r.label, confidence: r.confidence, evidence_count: r.evidence_count,
-    source_obs_ids: r.source_obs_ids,
-    first_seen: toIsoJakarta(r.first_seen), last_confirmed: toIsoJakarta(r.last_confirmed),
-  };
-}
-
 function sanitizeRelationship(r: RelationshipRecord): RelationshipResult {
   return {
-    id: r.id, name: r.name, role: r.role, dynamic: r.dynamic, related_ids: r.related_ids,
+    id: r.id, name: r.name, role: r.role, dynamic: r.dynamic, circle: r.circle,
+    related_ids: r.related_ids,
     source_session_id: r.source_session_id,
     last_mentioned: toIsoJakarta(r.last_mentioned), created_at: toIsoJakarta(r.created_at),
-  };
-}
-
-function sanitizeGoal(r: GoalRecord): GoalResult {
-  return {
-    id: r.id, title: r.title, category: r.category, status: r.status, target_date: r.target_date,
-    related_ids: r.related_ids, source_session_id: r.source_session_id,
-    created_at: toIsoJakarta(r.created_at), last_updated: toIsoJakarta(r.last_updated),
   };
 }
 
@@ -180,59 +139,10 @@ export interface MemoryHandlers {
     order?: 'newest' | 'oldest' | 'relevant';
   }): JournalResult[];
 
-  promoteTrait(args: {
-    label: string;
-    type: TraitType;
-    confidenceMode?: 'avg' | 'max';
-  }): TraitResult & { aggregated_from: number };
-
-  listTraits(): TraitResult[];
-
   saveRelationship(rec: {
-    name: string; role: string; dynamic?: string; related_ids?: string[];
+    name: string; role: string; dynamic?: string; circle?: Circle; related_ids?: string[];
   }): RelationshipResult;
   listRelationships(): RelationshipResult[];
-
-  saveGoal(rec: {
-    title: string; category?: string; status?: GoalStatus;
-    target_date?: string; related_ids?: string[];
-  }): GoalResult;
-  updateGoalStatus(id: string, status: GoalStatus): { updated: boolean };
-  listGoals(opts?: { status?: GoalStatus }): GoalResult[];
-}
-
-// ── promote_trait orchestration helper ──────────────────
-
-export function promoteTraitImpl(
-  store: MemoryStore,
-  args: { label: string; type: TraitType; confidenceMode?: 'avg' | 'max' }
-): TraitResult & { aggregated_from: number } {
-  const candidates = store.searchJournal({
-    type: 'trait_observation', limit: 100,
-  });
-  const obs = candidates.filter(
-    o => o.inferred_trait === args.label && o.promoted_to_trait_id === null
-  );
-
-  if (obs.length === 0) {
-    throw new Error(`No unpromoted observations found for trait '${args.label}'`);
-  }
-
-  const mode = args.confidenceMode ?? 'avg';
-  const confidences = obs.map(o => o.confidence ?? 0);
-  const aggConfidence = mode === 'max'
-    ? Math.max(...confidences)
-    : confidences.reduce((a, b) => a + b, 0) / confidences.length;
-
-  const trait = store.upsertTrait({
-    type: args.type, label: args.label,
-    confidence: aggConfidence, evidence_count: obs.length,
-    source_obs_ids: obs.map(o => o.id),
-  });
-
-  store.linkObservationsToTrait(obs.map(o => o.id), trait.id);
-
-  return { ...sanitizeTrait(trait), aggregated_from: obs.length };
 }
 
 // ── Build factory of MemoryHandlers from MemoryStore ────
@@ -264,7 +174,6 @@ export function buildMemoryHandlers(
       follow_up_needed: rec.follow_up_needed ?? 0,
       inferred_trait: null,
       confidence: null,
-      promoted_to_trait_id: null,
       session_id: sessionId,
       source_msg_id: rec.source_msg_id ?? null,
       resolved_at: null,
@@ -282,7 +191,6 @@ export function buildMemoryHandlers(
       follow_up_needed: 0,
       inferred_trait: rec.inferred_trait,
       confidence: rec.confidence,
-      promoted_to_trait_id: null,
       session_id: sessionId,
       source_msg_id: rec.source_msg_id ?? null,
       resolved_at: null,
@@ -292,31 +200,15 @@ export function buildMemoryHandlers(
 
     searchMemory: (filter) => store.searchJournal(filter).map(sanitizeJournal),
 
-    promoteTrait: (args) => promoteTraitImpl(store, args),
-
-    listTraits: () => store.listTraits().map(sanitizeTrait),
-
     saveRelationship: (rec) => sanitizeRelationship(store.upsertRelationship({
       name: rec.name, role: rec.role,
       dynamic: rec.dynamic ?? null,
+      circle: rec.circle ?? null,
       related_ids: rec.related_ids ?? null,
       source_session_id: sessionId,
     })),
 
     listRelationships: () => store.listRelationships().map(sanitizeRelationship),
-
-    saveGoal: (rec) => sanitizeGoal(store.insertGoal({
-      title: rec.title,
-      category: rec.category ?? null,
-      status: rec.status ?? 'active',
-      target_date: rec.target_date ?? null,
-      related_ids: rec.related_ids ?? null,
-      source_session_id: sessionId,
-    })),
-
-    updateGoalStatus: (id, status) => ({ updated: store.updateGoalStatus(id, status) }),
-
-    listGoals: (opts) => store.listGoals(opts).map(sanitizeGoal),
   };
 }
 
@@ -327,10 +219,7 @@ const journalTypeForSaveEnum = z.enum(['emotion', 'life_context', 'problem', 'ev
 const journalTypeFullEnum = z.enum(['emotion', 'life_context', 'problem', 'event', 'conversation_summary', 'trait_observation']);
 const journalStatusEnum = z.enum(['ongoing', 'resolved']);
 const intensityEnum = z.enum(['low', 'medium', 'high']);
-const traitTypeEnum = z.enum(['trait', 'habit']);
-const goalStatusEnum = z.enum(['active', 'completed', 'abandoned']);
 const eventOutcomeEnum = z.enum(['done', 'missed']);
-const goalCategoryEnum = z.enum(['career', 'health', 'finance', 'education', 'personal', 'family']);
 const orderEnum = z.enum(['newest', 'oldest', 'relevant']);
 
 // ── Helper: wrap handler call in success/error envelope ──
@@ -424,8 +313,10 @@ Examples:
 
   const saveTraitObservationTool = tool(
     "save_trait_observation",
-    `Record an observation that suggests a personality trait or habit. Use this BEFORE the trait is consolidated.
-Multiple observations of the same inferred_trait can later be promoted into a 'traits' entry via promote_trait.
+    `Record an observation that suggests a personality trait or habit pattern.
+These are free-form signals for later pattern recognition. When you see enough evidence
+for a stable trait/pattern, promote it to a profile entry (category='cognitive_style' or
+'value_belief') via save_profile — that's how persistent traits live now.
 
 Examples:
   save_trait_observation({ content: "User mengoreksi detail kecil 3x dalam diskusi ini", inferred_trait: "perfeksionis", confidence: 0.7 })
@@ -444,7 +335,7 @@ Examples:
 
   const resolveJournalTool = tool(
     "resolve_journal",
-    `Mark an ongoing journal entry as resolved (e.g., problem solved, event completed).
+    `Mark an ongoing journal entry as resolved (e.g., problem solved, event completed, aspiration achieved or abandoned).
 Find the entry's id via search_memory first.
 
 Examples:
@@ -464,7 +355,7 @@ Examples:
     "search_memory",
     `Search the journal of memory observations for the current user. Uses SQLite FTS5 (BM25 ranked) on content + inferred_trait.
 
-For listing profile/traits/relationships/goals, use the dedicated list_* tools instead.
+For listing profile/relationships, use the dedicated list_* tools instead.
 
 Query syntax: 'koper' (keyword), 'koper pilox' (implicit AND), '"koper pilox"' (phrase),
 'koper*' (prefix), 'koper OR ransel' (boolean), 'koper NOT hitam' (exclude).
@@ -498,46 +389,26 @@ Examples:
     }
   );
 
-  const promoteTraitTool = tool(
-    "promote_trait",
-    `Consolidate multiple trait_observation entries with the same inferred_trait into a single traits entry.
-Use this when you've seen enough evidence (e.g., 3+ observations) to confirm a trait.
-
-Examples:
-  promote_trait({ label: "perfeksionis", type: "trait" })
-  promote_trait({ label: "morning routine: olahraga jam 6", type: "habit", confidenceMode: "max" })`,
-    {
-      label: z.string().min(1).describe("inferred_trait label to promote (must match observation rows exactly)"),
-      type: traitTypeEnum.describe("'trait' (personality) or 'habit' (recurring behavior)"),
-      confidenceMode: z.enum(['avg', 'max']).optional().describe("How to aggregate confidences (default 'avg')"),
-    },
-    async (args) => {
-      try { return ok(handlers.promoteTrait(args)); } catch (err) { return fail(err); }
-    }
-  );
-
-  const listTraitsTool = tool(
-    "list_traits",
-    `List all distilled traits and habits for the user.
-Examples:
-  list_traits() → all`,
-    {},
-    async () => {
-      try { return listOk(handlers.listTraits()); } catch (err) { return fail(err); }
-    }
-  );
-
   const saveRelationshipTool = tool(
     "save_relationship",
     `Record or update a person in the user's life. Keyed by name — re-saving updates fields.
 
+CIRCLE semantics (how close to user):
+- "inner" — keluarga inti serumah / hampir tiap hari (istri, suami, anak, ortu serumah, saudara kandung). Always loaded in bundle.
+- "extended_family" — saudara di luar inti (mertua, keponakan, sepupu, paman, bibi).
+- "close" — sahabat, mentor, orang yang pengaruhi hidup signifikan.
+- "casual" — kenalan, tetangga, kolega biasa, PIC transaksi.
+- omit (null) — belum diketahui kedekatannya.
+
 Examples:
-  save_relationship({ name: "Budi", role: "atasan", dynamic: "memberi banyak guidance" })
-  save_relationship({ name: "Sari", role: "istri" })`,
+  save_relationship({ name: "Budi", role: "atasan", circle: "casual" })
+  save_relationship({ name: "Sari", role: "istri", circle: "inner" })
+  save_relationship({ name: "Andi", role: "sahabat SMA", circle: "close", dynamic: "sering curhat" })`,
     {
       name: z.string().min(1).describe("Person's name (used as unique key)"),
       role: z.string().min(1).describe("Their role (atasan, teman, istri, anak, dokter, etc.)"),
       dynamic: z.string().optional().describe("Nature of the relationship dynamic"),
+      circle: z.enum(['inner', 'extended_family', 'close', 'casual']).optional().describe("Closeness bucket (see tool description)"),
       related_ids: z.array(z.string()).optional(),
     },
     async (args) => {
@@ -554,64 +425,13 @@ Examples:
     }
   );
 
-  const saveGoalTool = tool(
-    "save_goal",
-    `Record a goal/aspiration. Insert-only — use update_goal_status to change state.
-
-Examples:
-  save_goal({ title: "Pindah kerja ke Samsung Busan", category: "career", target_date: "2026-06-01" })
-  save_goal({ title: "Olahraga rutin 3x seminggu", category: "health" })`,
-    {
-      title: z.string().min(1),
-      category: goalCategoryEnum.optional(),
-      status: goalStatusEnum.optional().describe("default 'active'"),
-      target_date: z.string().optional().describe("ISO date YYYY-MM-DD"),
-      related_ids: z.array(z.string()).optional(),
-    },
-    async (args) => {
-      try { return ok(handlers.saveGoal(args)); } catch (err) { return fail(err); }
-    }
-  );
-
-  const updateGoalStatusTool = tool(
-    "update_goal_status",
-    `Update a goal's status. Use 'completed' when achieved, 'abandoned' when no longer pursued.
-
-Examples:
-  update_goal_status({ id: "uuid", status: "completed" })
-  update_goal_status({ id: "uuid", status: "abandoned" })`,
-    {
-      id: z.string().min(1),
-      status: goalStatusEnum,
-    },
-    async (args) => {
-      try { return ok(handlers.updateGoalStatus(args.id, args.status)); } catch (err) { return fail(err); }
-    }
-  );
-
-  const listGoalsTool = tool(
-    "list_goals",
-    `List user's goals. Optionally filter by status.
-Examples:
-  list_goals() → all
-  list_goals({ status: "active" }) → only active goals`,
-    {
-      status: goalStatusEnum.optional(),
-    },
-    async (args) => {
-      try { return listOk(handlers.listGoals(args)); } catch (err) { return fail(err); }
-    }
-  );
-
   return createSdkMcpServer({
     name: "memory",
-    version: "2.0.0",
+    version: "3.0.0",
     tools: [
       saveProfileTool, listProfileTool,
       saveJournalTool, saveTraitObservationTool, resolveJournalTool, searchMemoryTool,
-      promoteTraitTool, listTraitsTool,
       saveRelationshipTool, listRelationshipsTool,
-      saveGoalTool, updateGoalStatusTool, listGoalsTool,
     ],
   });
 }

@@ -50,24 +50,13 @@ function dispatch(userDb: UserDb, op: ExtractionOp, sourceMsgId: string, session
       break;
     }
     case 'save_relationship': {
-      const { name, role, dynamic, related_ids } = op as any;
+      const { name, role, dynamic, circle, related_ids } = op as any;
       if (!name || !role) throw new Error('missing name/role');
+      const validCircles = ['inner', 'extended_family', 'close', 'casual'];
       userDb.memory.upsertRelationship({
         name, role,
         dynamic: dynamic ?? null,
-        related_ids: Array.isArray(related_ids) ? related_ids : null,
-        source_session_id: sessionPseudoId,
-      });
-      break;
-    }
-    case 'save_goal': {
-      const { title, category, status, target_date, related_ids } = op as any;
-      if (!title) throw new Error('missing title');
-      userDb.memory.insertGoal({
-        title,
-        category: category ?? null,
-        status: status === 'completed' || status === 'abandoned' ? status : 'active',
-        target_date: target_date ?? null,
+        circle: validCircles.includes(circle) ? circle : null,
         related_ids: Array.isArray(related_ids) ? related_ids : null,
         source_session_id: sessionPseudoId,
       });
@@ -88,7 +77,6 @@ function dispatch(userDb: UserDb, op: ExtractionOp, sourceMsgId: string, session
         follow_up_needed: 0,
         inferred_trait: null,
         confidence: null,
-        promoted_to_trait_id: null,
         session_id: sessionPseudoId,
         source_msg_id: sourceMsgId,
         resolved_at: null,
@@ -112,7 +100,6 @@ function dispatch(userDb: UserDb, op: ExtractionOp, sourceMsgId: string, session
         follow_up_needed: 0,
         inferred_trait,
         confidence,
-        promoted_to_trait_id: null,
         session_id: sessionPseudoId,
         source_msg_id: sourceMsgId,
         resolved_at: null,
@@ -134,7 +121,6 @@ function dispatch(userDb: UserDb, op: ExtractionOp, sourceMsgId: string, session
         follow_up_needed: 0,
         inferred_trait: null,
         confidence: null,
-        promoted_to_trait_id: null,
         session_id: sessionPseudoId,
         source_msg_id: sourceMsgId,
         resolved_at: null,

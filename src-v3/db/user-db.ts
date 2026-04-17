@@ -5,7 +5,7 @@ import { mkdirSync } from 'fs';
 import { join } from 'path';
 import {
   createMemoryStore, type MemoryStore,
-  type ProfileRecord, type TraitRecord, type JournalRecord,
+  type ProfileRecord, type JournalRecord, type RelationshipRecord,
 } from './memory.js';
 import { createMessageStore, type MessageStore } from './message.js';
 import { createSessionStore, type SessionStore } from './sessions.js';
@@ -16,8 +16,9 @@ import { createPopulateRunsStore, type PopulateRunsStore } from './populate-runs
 
 export interface AlwaysBundle {
   profile: ProfileRecord[];
-  traits: TraitRecord[];
+  relationships: RelationshipRecord[];
   ongoing: JournalRecord[];
+  recent: JournalRecord[];
   tasks: TaskRecord[];
   habits: HabitStatusInfo[];
 }
@@ -44,7 +45,7 @@ export function createUserDb(userId: string, baseDir: string = 'data/users'): Us
   db.pragma('foreign_keys = ON');
   db.pragma('journal_mode = WAL');
 
-  // Order matters: messages before journal (FK), traits before journal (FK)
+  // Order matters: messages before journal (FK)
   const messages = createMessageStore(db);
   const memory = createMemoryStore(db);
   const sessions = createSessionStore(db);
@@ -67,8 +68,9 @@ export function createUserDb(userId: string, baseDir: string = 'data/users'): Us
 
     return {
       profile: [...l3, ...l2critical, ...l2allNormal],
-      traits: memory.listTraits(),
+      relationships: memory.listRelationshipsBundle({ recentDays: 7, recentCap: 5, totalCap: 10 }),
       ongoing: memory.listOngoing(),
+      recent: memory.listRecentAnyStatus(5),
       tasks: tasks.listPending({ cap: 15 }),
       habits: habits.listActiveWithStatus({ cap: 10 }),
     };
