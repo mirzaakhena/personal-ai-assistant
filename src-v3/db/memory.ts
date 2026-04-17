@@ -205,6 +205,82 @@ export function createMemoryStore(db: Database.Database): MemoryStore {
     db.exec(`CREATE INDEX IF NOT EXISTS idx_relationships_circle ON relationships(circle)`);
   }
 
+  // v5.2 migration: existing pre-v5 DBs have journal with FK to dropped traits table.
+  // better-sqlite3 refuses to prepare INSERT statements against a table with a
+  // dangling FK. Rebuild journal without the FK (idempotent — only runs if needed).
+  const journalMeta = db.prepare(
+    "SELECT sql FROM sqlite_master WHERE type='table' AND name='journal'"
+  ).get() as { sql: string } | undefined;
+
+  if (journalMeta && journalMeta.sql.includes('REFERENCES traits')) {
+    const fkWasOn = db.pragma('foreign_keys', { simple: true }) === 1;
+    db.pragma('foreign_keys = OFF');
+    try {
+      db.exec(`
+        BEGIN TRANSACTION;
+
+        DROP TRIGGER IF EXISTS journal_fts_ai;
+        DROP TRIGGER IF EXISTS journal_fts_ad;
+        DROP TRIGGER IF EXISTS journal_fts_au;
+
+        CREATE TABLE journal_new (
+          id                     TEXT PRIMARY KEY,
+          type                   TEXT NOT NULL,
+          content                TEXT NOT NULL,
+          status                 TEXT,
+          intensity              TEXT,
+          recurrence_count       INTEGER NOT NULL DEFAULT 1,
+          related_ids            TEXT,
+          event_date             TEXT,
+          event_outcome          TEXT,
+          follow_up_needed       INTEGER NOT NULL DEFAULT 0,
+          inferred_trait         TEXT,
+          confidence             REAL,
+          promoted_to_trait_id   TEXT,
+          session_id             TEXT,
+          source_msg_id          TEXT REFERENCES messages(id) ON DELETE SET NULL,
+          created_at             INTEGER NOT NULL,
+          resolved_at            INTEGER
+        );
+
+        INSERT INTO journal_new (
+          rowid, id, type, content, status, intensity, recurrence_count, related_ids,
+          event_date, event_outcome, follow_up_needed, inferred_trait, confidence,
+          promoted_to_trait_id, session_id, source_msg_id, created_at, resolved_at
+        )
+        SELECT
+          rowid, id, type, content, status, intensity, recurrence_count, related_ids,
+          event_date, event_outcome, follow_up_needed, inferred_trait, confidence,
+          promoted_to_trait_id, session_id, source_msg_id, created_at, resolved_at
+        FROM journal;
+
+        DROP TABLE journal;
+        ALTER TABLE journal_new RENAME TO journal;
+
+        CREATE INDEX idx_journal_status ON journal(status);
+        CREATE INDEX idx_journal_type ON journal(type);
+        CREATE INDEX idx_journal_inferred_trait ON journal(inferred_trait);
+
+        CREATE TRIGGER journal_fts_ai AFTER INSERT ON journal BEGIN
+          INSERT INTO journal_fts(rowid, content, inferred_trait) VALUES (new.rowid, new.content, new.inferred_trait);
+        END;
+        CREATE TRIGGER journal_fts_ad AFTER DELETE ON journal BEGIN
+          INSERT INTO journal_fts(journal_fts, rowid, content, inferred_trait) VALUES ('delete', old.rowid, old.content, old.inferred_trait);
+        END;
+        CREATE TRIGGER journal_fts_au AFTER UPDATE ON journal BEGIN
+          INSERT INTO journal_fts(journal_fts, rowid, content, inferred_trait) VALUES ('delete', old.rowid, old.content, old.inferred_trait);
+          INSERT INTO journal_fts(rowid, content, inferred_trait) VALUES (new.rowid, new.content, new.inferred_trait);
+        END;
+
+        COMMIT;
+      `);
+      // Rebuild FTS5 index so it reflects the new journal rowids.
+      db.exec(`INSERT INTO journal_fts(journal_fts) VALUES('rebuild')`);
+    } finally {
+      if (fkWasOn) db.pragma('foreign_keys = ON');
+    }
+  }
+
   // FTS5 auto-populate on first run
   const fCounts = db.prepare(`
     SELECT
