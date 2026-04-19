@@ -14,4 +14,4 @@ memory.db.json
 # Local artifacts (logs, conversation dumps, ad-hoc debug scripts) — never commit
 *.log
 conversation-*.txt
-scripts/dump-*.ts
+scripts/dump-*.ts.wwebjs_auth.backup*
