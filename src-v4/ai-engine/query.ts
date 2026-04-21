@@ -33,7 +33,7 @@ export function createAIEngine(config: EngineConfig): AIEngine {
   const defaults = {
     model: requireModel(config.model),
     systemPrompt: config.systemPrompt,
-    maxTurns: config.maxTurns ?? parseInt(process.env.MAX_TURNS ?? '25', 10),
+    maxTurns: config.maxTurns ?? parseInt(process.env.MAX_TURNS ?? '50', 10),
     effort: config.effort ?? 'low',
     mcpServers: config.mcpServers ?? {},
     cwd: config.cwd,
