@@ -486,6 +486,21 @@ export function createConsoleGateway(config?: ConsoleGatewayConfig): Gateway {
   // import so a missing core/system-prompt.ts fails fast at boot.
   void CORE_SYSTEM_PROMPT;
 
+  function getActiveSessionsInternal(): ActiveSessionInfo[] {
+    const sessionId = userDbCache.get(userId).sessions.get();
+    if (!sessionId) return [];
+    const userDb = userDbCache.get(userId);
+    return [{
+      sessionId,
+      userId,
+      cwd: cwdForUser(userId),
+      messages: userDb.messages,
+      sessions: userDb.sessions,
+    }];
+  }
+
+  let stopping = false;
+
   return {
     async start(): Promise<void> {
       running = true;
@@ -542,6 +557,8 @@ export function createConsoleGateway(config?: ConsoleGatewayConfig): Gateway {
     },
 
     async stop(): Promise<void> {
+      if (stopping) return;
+      stopping = true;
       running = false;
       if (rl) {
         rl.close();
@@ -549,21 +566,35 @@ export function createConsoleGateway(config?: ConsoleGatewayConfig): Gateway {
       }
       if (triggerServer) await triggerServer.stop();
       await scheduler.stop();
+
+      // Summarize any active session so the next boot gets a proper
+      // wake-up briefing. Runs on /exit, SIGINT, and SIGTERM — all paths
+      // converge here.
+      const active = getActiveSessionsInternal();
+      if (active.length > 0) {
+        log.debug(`summarizing ${active.length} active session(s) before exit`);
+        await Promise.allSettled(
+          active.map((s) =>
+            summarizeSession({
+              sessionId: s.sessionId,
+              userId: s.userId,
+              reason: 'graceful_shutdown',
+              messages: s.messages,
+              sessions: s.sessions,
+              model: summarizeModel,
+              cwd: s.cwd,
+              timeoutMs: 15_000,
+            })
+          )
+        );
+      }
+
       userDbCache.closeAll();
       console.log('\nGoodbye!\n');
     },
 
     getActiveSessions(): ActiveSessionInfo[] {
-      const sessionId = userDbCache.get(userId).sessions.get();
-      if (!sessionId) return [];
-      const userDb = userDbCache.get(userId);
-      return [{
-        sessionId,
-        userId,
-        cwd: cwdForUser(userId),
-        messages: userDb.messages,
-        sessions: userDb.sessions,
-      }];
+      return getActiveSessionsInternal();
     },
   };
 }

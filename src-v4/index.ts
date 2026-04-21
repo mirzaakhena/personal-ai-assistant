@@ -4,7 +4,6 @@ import 'dotenv/config';
 import { join } from 'node:path';
 import { createConsoleGateway } from './gateway/console.js';
 import { createTelegramGateway } from './gateway/telegram.js';
-import { summarizeSession } from './core/summarize.js';
 import { createUserDbCache } from './db/user-db-cache.js';
 import { log } from './utils/logger.js';
 import type { Gateway } from './gateway/types.js';
@@ -12,7 +11,6 @@ import type { Gateway } from './gateway/types.js';
 const GATEWAY_KIND = (process.env.GATEWAY ?? 'console').toLowerCase();
 const DATA_DIR = process.env.DATA_DIR ?? 'data';
 const USERS_BASE_DIR = join(DATA_DIR, 'users');
-const SUMMARIZE_MODEL = process.env.SUMMARIZE_MODEL ?? 'claude-haiku-4-5';
 
 /**
  * v3→v4 session cleanup (one-time, idempotent).
@@ -69,26 +67,9 @@ async function shutdown(signal: string) {
   if (shuttingDown) return;
   shuttingDown = true;
   log.debug(`received ${signal}, shutting down...`);
-
+  // gateway.stop() is idempotent and handles session summarization
+  // internally (see gateway/console.ts and gateway/telegram.ts).
   try {
-    const active = gateway.getActiveSessions();
-    if (active.length > 0) {
-      log.debug(`summarizing ${active.length} active session(s) before exit`);
-      await Promise.allSettled(
-        active.map((s) =>
-          summarizeSession({
-            sessionId: s.sessionId,
-            userId: s.userId,
-            reason: 'graceful_shutdown',
-            messages: s.messages,
-            sessions: s.sessions,
-            model: SUMMARIZE_MODEL,
-            cwd: s.cwd,
-            timeoutMs: 15_000,
-          })
-        )
-      );
-    }
     await gateway.stop();
   } catch (err) {
     log.error('shutdown error', err);

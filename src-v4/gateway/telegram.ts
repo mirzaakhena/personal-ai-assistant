@@ -683,6 +683,25 @@ export function createTelegramGateway(config: TelegramGatewayConfig): Gateway {
 
   void CORE_SYSTEM_PROMPT;
 
+  function getActiveSessionsInternal(): ActiveSessionInfo[] {
+    const result: ActiveSessionInfo[] = [];
+    for (const uid of seenUsers) {
+      const userDb = userDbCache.get(uid);
+      const sessionId = userDb.sessions.get();
+      if (!sessionId) continue;
+      result.push({
+        sessionId,
+        userId: uid,
+        cwd: cwdForUser(uid),
+        messages: userDb.messages,
+        sessions: userDb.sessions,
+      });
+    }
+    return result;
+  }
+
+  let stopping = false;
+
   return {
     async start() {
       await scheduler.start();
@@ -694,27 +713,38 @@ export function createTelegramGateway(config: TelegramGatewayConfig): Gateway {
       });
     },
     async stop() {
+      if (stopping) return;
+      stopping = true;
       await bot.stop();
       if (triggerServer) await triggerServer.stop();
       await scheduler.stop();
+
+      // Summarize every active session before closing DB handles so the
+      // next boot gets proper wake-up briefings.
+      const active = getActiveSessionsInternal();
+      if (active.length > 0) {
+        log.debug(`[TG] summarizing ${active.length} active session(s) before exit`);
+        await Promise.allSettled(
+          active.map((s) =>
+            summarizeSession({
+              sessionId: s.sessionId,
+              userId: s.userId,
+              reason: 'graceful_shutdown',
+              messages: s.messages,
+              sessions: s.sessions,
+              model: summarizeModel,
+              cwd: s.cwd,
+              timeoutMs: 15_000,
+            })
+          )
+        );
+      }
+
       userDbCache.closeAll();
       log.debug('[TG] stopped');
     },
     getActiveSessions(): ActiveSessionInfo[] {
-      const result: ActiveSessionInfo[] = [];
-      for (const uid of seenUsers) {
-        const userDb = userDbCache.get(uid);
-        const sessionId = userDb.sessions.get();
-        if (!sessionId) continue;
-        result.push({
-          sessionId,
-          userId: uid,
-          cwd: cwdForUser(uid),
-          messages: userDb.messages,
-          sessions: userDb.sessions,
-        });
-      }
-      return result;
+      return getActiveSessionsInternal();
     },
   };
 }
