@@ -121,7 +121,8 @@ export function renderWakeUpBriefing(data: WakeUpBriefingData): string {
       `<recent_messages count="${data.fallbackRecentMessages.length}" note="fallback: summarization unavailable">`
     );
     for (const m of data.fallbackRecentMessages) {
-      const ts = new Date(m.timestamp * 1000).toISOString();
+      // m.timestamp is already in milliseconds (see db/message.ts insert callers).
+      const ts = new Date(m.timestamp).toISOString();
       const body = escapeXml(m.body ?? '');
       lines.push(`<msg from="${m.sender}" ts="${ts}"><body>${body}</body></msg>`);
     }
