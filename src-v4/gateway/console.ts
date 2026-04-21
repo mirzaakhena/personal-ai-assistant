@@ -12,8 +12,15 @@ import { createCronjobServer, type CronjobHandlers } from '../tools/cronjob.js';
 import { createTasksServer, buildTaskHandlers } from '../tools/tasks.js';
 import { createHabitsServer, buildHabitHandlers } from '../tools/habits.js';
 import { createSkillToolServer } from '../tools/skill.js';
+import {
+  createMessageHistoryServer,
+  type MessageHandlers,
+  type MessageSearchResult,
+} from '../tools/message-history.js';
 import { createCronScheduler } from '../cron/scheduler.js';
 import { createUserDbCache } from '../db/user-db-cache.js';
+import type { MessageRecord } from '../db/message.js';
+import { v4 as uuidv4 } from 'uuid';
 import { createTriggerServer } from '../trigger/server.js';
 import type { TriggerServer } from '../trigger/types.js';
 import { log } from '../utils/logger.js';
@@ -84,8 +91,46 @@ export function createConsoleGateway(config?: ConsoleGatewayConfig): Gateway {
   // for reviewing what the AI is currently operating on.
   let lastSystemPrompt: string | undefined;
 
-  const deliver: MessageDeliver = async (_uid, content) => {
+  const deliver: MessageDeliver = async (uid, content) => {
     console.log(`\n${content}\n`);
+    const userDb = userDbCache.get(uid);
+    userDb.messages.insert({
+      id: `console:assistant:${uuidv4()}`,
+      gateway: 'console',
+      session_id: userDb.sessions.get() ?? null,
+      sender: 'assistant',
+      timestamp: Date.now(),
+      type: 'text',
+      body: content,
+      has_media: 0,
+      media_mimetype: null,
+      media_filename: null,
+      media_size: null,
+      media_path: null,
+      quoted_msg_id: null,
+      is_forwarded: 0,
+      raw_json: null,
+    });
+  };
+
+  function toSearchResult(r: MessageRecord): MessageSearchResult {
+    return {
+      id: r.id,
+      timestamp: r.timestamp,
+      sender: r.sender,
+      body: r.body,
+      has_media: r.has_media === 1,
+      gateway: r.gateway,
+    };
+  }
+
+  const messageHandlersFactory = (uid: string): MessageHandlers => {
+    const store = userDbCache.get(uid).messages;
+    return {
+      search: (filter) => store.search(filter).map(toSearchResult),
+      getByIds: (ids) => store.getMessagesByIds(ids).map(toSearchResult),
+      count: () => store.count(),
+    };
   };
 
   const cronjobHandlersFactory = (uid: string): CronjobHandlers => ({
@@ -158,6 +203,7 @@ export function createConsoleGateway(config?: ConsoleGatewayConfig): Gateway {
         message: createMessageServer(deliver, queryUserId),
         memory: createMemoryServer(buildMemoryHandlers(userDb.memory, sessionId ?? null)),
         cronjob: createCronjobServer(cronjobHandlersFactory(queryUserId)),
+        messages: createMessageHistoryServer(messageHandlersFactory(queryUserId)),
         tasks: createTasksServer(buildTaskHandlers(userDb.tasks)),
         habits: createHabitsServer(buildHabitHandlers(userDb.habits)),
         skill: createSkillToolServer({ dataDir, userId: queryUserId }),
@@ -195,6 +241,24 @@ export function createConsoleGateway(config?: ConsoleGatewayConfig): Gateway {
       enqueue(job.userId, async () => {
         try {
           log.debug(`cron:${job.id} firing — ${job.scheduleHuman}`);
+          const cronUserDb = userDbCache.get(job.userId);
+          cronUserDb.messages.insert({
+            id: `system:cron:${uuidv4()}`,
+            gateway: 'console',
+            session_id: cronUserDb.sessions.get() ?? null,
+            sender: 'system',
+            timestamp: Date.now(),
+            type: 'text',
+            body: job.message,
+            has_media: 0,
+            media_mimetype: null,
+            media_filename: null,
+            media_size: null,
+            media_path: null,
+            quoted_msg_id: null,
+            is_forwarded: 0,
+            raw_json: null,
+          });
           const prompt = buildSystemMessagePrompt(job.message);
           await runQuery(job.userId, prompt);
           resolve();
@@ -215,6 +279,24 @@ export function createConsoleGateway(config?: ConsoleGatewayConfig): Gateway {
           enqueue(triggerUserId, async () => {
             try {
               log.debug(`trigger:${triggerUserId} — ${message}`);
+              const triggerUserDb = userDbCache.get(triggerUserId);
+              triggerUserDb.messages.insert({
+                id: `system:trigger:${uuidv4()}`,
+                gateway: 'console',
+                session_id: triggerUserDb.sessions.get() ?? null,
+                sender: 'system',
+                timestamp: Date.now(),
+                type: 'text',
+                body: message,
+                has_media: 0,
+                media_mimetype: null,
+                media_filename: null,
+                media_size: null,
+                media_path: null,
+                quoted_msg_id: null,
+                is_forwarded: 0,
+                raw_json: null,
+              });
               const prompt = buildSystemMessagePrompt(message);
               await runQuery(triggerUserId, prompt);
               resolve();
@@ -353,6 +435,27 @@ export function createConsoleGateway(config?: ConsoleGatewayConfig): Gateway {
   async function handleMessage(input: string): Promise<void> {
     const turn = incrementTurnCount(userId);
     log.debug(`turn ${turn}`);
+
+    // Record the incoming user message so search_messages can find it later.
+    // This is what enables "amnesia recovery" and <msg_ref/> lookup.
+    const userDb = userDbCache.get(userId);
+    userDb.messages.insert({
+      id: `console:user:${uuidv4()}`,
+      gateway: 'console',
+      session_id: userDb.sessions.get() ?? null,
+      sender: 'user',
+      timestamp: Date.now(),
+      type: 'text',
+      body: input,
+      has_media: 0,
+      media_mimetype: null,
+      media_filename: null,
+      media_size: null,
+      media_path: null,
+      quoted_msg_id: null,
+      is_forwarded: 0,
+      raw_json: null,
+    });
 
     const prompt = buildUserPrompt(input);
     try {
