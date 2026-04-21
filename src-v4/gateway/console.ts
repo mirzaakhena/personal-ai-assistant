@@ -79,6 +79,11 @@ export function createConsoleGateway(config?: ConsoleGatewayConfig): Gateway {
   // Pending-summarize flags per user — soft cutoff at turn threshold.
   const pendingSummarize = new Map<string, boolean>();
 
+  // Last assembled system prompt (core + wake-up briefing). Set whenever
+  // a fresh session is started; cleared on /new. Shown via /system_prompt
+  // for reviewing what the AI is currently operating on.
+  let lastSystemPrompt: string | undefined;
+
   const deliver: MessageDeliver = async (_uid, content) => {
     console.log(`\n${content}\n`);
   };
@@ -137,6 +142,7 @@ export function createConsoleGateway(config?: ConsoleGatewayConfig): Gateway {
         userDb,
       });
       systemPrompt = assembleSystemPrompt(renderWakeUpBriefing(briefingData));
+      lastSystemPrompt = systemPrompt;
       log.debug(
         `fresh session for ${queryUserId} — briefing: ${
           briefingData.lastSummary ? 'summary present' : 'no summary, fallback'
@@ -246,7 +252,25 @@ export function createConsoleGateway(config?: ConsoleGatewayConfig): Gateway {
     clearTurnCount(userId);
     clearStats(userId);
     pendingSummarize.set(userId, false);
+    lastSystemPrompt = undefined;
     console.log('\nSession cleared. Starting fresh.\n');
+  }
+
+  function handleSystemPrompt(): void {
+    if (!lastSystemPrompt) {
+      console.log(
+        '\nNo system prompt captured yet.\n' +
+        '- Send any message first (a fresh session will assemble one), or\n' +
+        '- Run /new to force a fresh session on the next message.\n' +
+        '(Resumed sessions reuse the SDK-cached compiled prompt; the ' +
+        'in-process cache only captures fresh-session assemblies.)\n'
+      );
+      return;
+    }
+    console.log('\n───────────── current system prompt ─────────────\n');
+    console.log(lastSystemPrompt);
+    console.log('\n───────────── end system prompt ─────────────\n');
+    console.log(`(${lastSystemPrompt.length} chars)\n`);
   }
 
   function handleStatus(): void {
@@ -370,7 +394,10 @@ export function createConsoleGateway(config?: ConsoleGatewayConfig): Gateway {
 
       console.log('');
       console.log('Personal AI Assistant v4 — Console Gateway');
-      console.log('Commands: /new (reset session), /status (show stats), /exit (quit)');
+      console.log(
+        'Commands: /new (reset session), /status (show stats), ' +
+        '/system_prompt (show active prompt), /exit (quit)'
+      );
       console.log('');
 
       const savedSession = getSessionId();
@@ -395,6 +422,9 @@ export function createConsoleGateway(config?: ConsoleGatewayConfig): Gateway {
             break;
           case '/status':
             handleStatus();
+            break;
+          case '/system_prompt':
+            handleSystemPrompt();
             break;
           case '/exit':
             running = false;
