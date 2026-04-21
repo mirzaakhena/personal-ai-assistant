@@ -54,6 +54,7 @@ import {
   formatResetsIn,
   formatResetsAtLocal,
 } from '../utils/context-limits.js';
+import { renderBarLine, contextPercentage } from '../utils/status-bar.js';
 import { enqueue } from '../utils/queue.js';
 
 const TYPING_MS_PER_CHAR = 30;
@@ -603,12 +604,14 @@ export function createTelegramGateway(config: TelegramGatewayConfig): Gateway {
         cacheReadTokens: l.cacheReadTokens,
       });
 
+      const ctxPct = contextPercentage(lastQueryProcessed, contextLimit);
       lines.push(
         '',
         '── Model & context ──',
         `Model:          ${stats.model ?? 'unknown'}`,
         `Context window: ${formatTokens(contextLimit)}`,
-        `Last query processed: ${formatTokens(lastQueryProcessed)} input tokens (across ${l.numTurns} sub-turns)`,
+        `Context:        ${renderBarLine(ctxPct, { color: false })}  (${formatTokens(lastQueryProcessed)} / ${formatTokens(contextLimit)})`,
+        `Last query:     ${formatTokens(lastQueryProcessed)} input tokens across ${l.numTurns} sub-turns`,
         '',
         '── This session ──',
         `Actual cost:    ${formatUsd(a.costUsd)} (last: ${formatUsd(l.costUsd)})`,
@@ -628,13 +631,15 @@ export function createTelegramGateway(config: TelegramGatewayConfig): Gateway {
     const rl = getRateLimit(uid);
     if (rl) {
       const utilPct =
-        rl.utilization !== null ? Math.round(rl.utilization * 100) : null;
+        rl.utilization !== null ? rl.utilization * 100 : null;
       lines.push(
         '',
         '── Rate limit (Claude subscription) ──',
         `Window:         ${rl.rateLimitType ?? 'unknown'}`,
         `Status:         ${rl.status}`,
-        utilPct !== null ? `Usage:          ${utilPct}%` : 'Usage:          —',
+        utilPct !== null
+          ? `Usage:          ${renderBarLine(utilPct, { color: false })}`
+          : 'Usage:          —',
         `Resets:         ${formatResetsAtLocal(rl.resetsAt)} WIB (in ${formatResetsIn(rl.resetsAt)})`
       );
     }

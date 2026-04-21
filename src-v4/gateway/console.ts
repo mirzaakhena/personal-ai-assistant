@@ -26,6 +26,7 @@ import { incrementTurnCount, getTurnCount, clearTurnCount } from '../utils/turns
 import { recordQuery, recordRateLimit, getStats, getRateLimit, clearStats } from '../utils/stats.js';
 import { formatUsd } from '../utils/pricing.js';
 import { getContextLimit, contextUsedFromUsage, formatTokens, formatResetsIn, formatResetsAtLocal } from '../utils/context-limits.js';
+import { renderBarLine, contextPercentage } from '../utils/status-bar.js';
 import { enqueue } from '../utils/queue.js';
 import { requireModel } from '../utils/model-config.js';
 
@@ -268,11 +269,13 @@ export function createConsoleGateway(config?: ConsoleGatewayConfig): Gateway {
         cacheReadTokens: l.cacheReadTokens,
       });
 
+      const ctxPct = contextPercentage(lastQueryProcessed, contextLimit);
       console.log('');
       console.log('  ── Model & context ──');
       console.log(`  Model:          ${stats.model ?? 'unknown'}`);
       console.log(`  Context window: ${formatTokens(contextLimit)}`);
-      console.log(`  Last query processed: ${formatTokens(lastQueryProcessed)} input tokens (across ${l.numTurns} sub-turns)`);
+      console.log(`  Context:        ${renderBarLine(ctxPct, { color: true })}  (${formatTokens(lastQueryProcessed)} / ${formatTokens(contextLimit)})`);
+      console.log(`  Last query:     ${formatTokens(lastQueryProcessed)} input tokens across ${l.numTurns} sub-turns`);
       console.log('');
       console.log('  ── This session ──');
       console.log(`  Actual cost:    ${formatUsd(a.costUsd)} (last: ${formatUsd(l.costUsd)})`);
@@ -290,12 +293,16 @@ export function createConsoleGateway(config?: ConsoleGatewayConfig): Gateway {
 
     const rl = getRateLimit(userId);
     if (rl) {
-      const utilPct = rl.utilization !== null ? Math.round(rl.utilization * 100) : null;
+      const utilPct = rl.utilization !== null ? rl.utilization * 100 : null;
       console.log('');
       console.log('  ── Rate limit (Claude subscription) ──');
       console.log(`  Window:         ${rl.rateLimitType ?? 'unknown'}`);
       console.log(`  Status:         ${rl.status}`);
-      console.log(utilPct !== null ? `  Usage:          ${utilPct}%` : '  Usage:          —');
+      console.log(
+        utilPct !== null
+          ? `  Usage:          ${renderBarLine(utilPct, { color: true })}`
+          : '  Usage:          —'
+      );
       console.log(`  Resets:         ${formatResetsAtLocal(rl.resetsAt)} WIB (in ${formatResetsIn(rl.resetsAt)})`);
     }
 
