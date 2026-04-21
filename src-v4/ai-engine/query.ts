@@ -33,7 +33,7 @@ export function createAIEngine(config: EngineConfig): AIEngine {
   const defaults = {
     model: requireModel(config.model),
     systemPrompt: config.systemPrompt,
-    maxTurns: config.maxTurns ?? 10,
+    maxTurns: config.maxTurns ?? parseInt(process.env.MAX_TURNS ?? '25', 10),
     effort: config.effort ?? 'low',
     mcpServers: config.mcpServers ?? {},
     cwd: config.cwd,
@@ -77,7 +77,8 @@ export function createAIEngine(config: EngineConfig): AIEngine {
       let error: QueryErrorInfo | undefined;
       let sendMessageCalled = false;
 
-      for await (const message of responses) {
+      try {
+        for await (const message of responses) {
         switch (message.type) {
           case 'system': {
             if (message.subtype === 'init') {
@@ -183,6 +184,23 @@ export function createAIEngine(config: EngineConfig): AIEngine {
             }
             break;
           }
+        }
+      }
+      } catch (err) {
+        // SDK's async iterator may throw after emitting a non-success `result`
+        // message (e.g. max-turns exceeded). We already captured that as a
+        // graceful error via the 'result' handler above. If we do NOT have
+        // one yet, synthesize one from the caught exception. Either way, we
+        // return a normal QueryResult with `error` populated instead of
+        // propagating the throw — that would kill the gateway loop.
+        if (!error) {
+          const msg = err instanceof Error ? err.message : String(err);
+          error = {
+            level: 'result',
+            reason: 'error_during_execution',
+            messages: [msg],
+          };
+          callbacks?.onError?.(error);
         }
       }
 

@@ -331,8 +331,26 @@ export function createConsoleGateway(config?: ConsoleGatewayConfig): Gateway {
     log.debug(`turn ${turn}`);
 
     const prompt = buildUserPrompt(input);
-    const result = await runQuery(userId, prompt);
-    recordQuery(userDbCache.get(userId), userId, result);
+    try {
+      const result = await runQuery(userId, prompt);
+      recordQuery(userDbCache.get(userId), userId, result);
+      if (result.error) {
+        // Non-success QueryResult — surface a concise message to the user so
+        // they know the turn didn't complete cleanly, without dropping them
+        // out of the gateway loop.
+        console.log(
+          `\n[${result.error.reason}] ${result.error.messages.join(' ')}\n` +
+          `(session preserved — next message continues)\n`
+        );
+      }
+    } catch (err) {
+      // Any unexpected throw (tool crash, DB error, etc.) — keep the loop
+      // alive rather than killing the process.
+      log.error('handleMessage: unexpected error', err);
+      console.log(
+        `\n[internal error] ${err instanceof Error ? err.message : String(err)}\n`
+      );
+    }
   }
 
   // Silence the "CORE_SYSTEM_PROMPT imported but unused" lint: we import it

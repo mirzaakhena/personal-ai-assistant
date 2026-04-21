@@ -577,6 +577,17 @@ export function createTelegramGateway(config: TelegramGatewayConfig): Gateway {
     try {
       const result = await runQuery(userId, prompt);
       recordQuery(userDbCache.get(userId), userId, result);
+      if (result.error) {
+        // Non-success QueryResult — notify user, keep bot alive.
+        try {
+          await bot.api.sendMessage(
+            chatId,
+            `[${result.error.reason}] ${result.error.messages.join(' ')}`
+          );
+        } catch {
+          // Swallow follow-on send errors; primary error already logged.
+        }
+      }
     } catch (err) {
       log.error(`[TG] runQuery failed for ${chatId}`, err);
     }
