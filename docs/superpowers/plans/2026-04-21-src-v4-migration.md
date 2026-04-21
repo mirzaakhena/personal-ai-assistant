@@ -52,6 +52,7 @@ Read the current tsconfig.json first, then replace `rootDir` and `include`:
     "moduleResolution": "NodeNext",
     "lib": ["ES2020", "DOM"],
     "outDir": "./dist",
+    "rootDir": "./",
     "strict": true,
     "esModuleInterop": true,
     "skipLibCheck": true,
@@ -66,7 +67,7 @@ Read the current tsconfig.json first, then replace `rootDir` and `include`:
 }
 ```
 
-(Note: removed `rootDir` because we now include two roots.)
+(Note: `rootDir` stays set — but widened to `./` because include now covers two source roots. TypeScript requires an explicit rootDir when multiple includes don't share a tighter common parent; setting it to `./` covers both src-v3 and src-v4 cleanly.)
 
 - [ ] **Step 3: Verify compilation baseline**
 
