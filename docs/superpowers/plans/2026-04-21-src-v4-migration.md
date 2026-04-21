@@ -127,15 +127,17 @@ git commit -m "feat(v4): copy utils foundation verbatim from v3"
 
 Seven files verbatim, two edited (message + sessions), one edited to split bundle.
 
-## Task 2: Copy DB files verbatim
+## Task 2: Copy DB files verbatim (5 files; user-db-cache deferred)
 
 **Files to create in `src-v4/db/` (copy from `src-v3/db/`):**
-- `memory.ts`, `cronjobs.ts`, `tasks.ts`, `habits.ts`, `user-db-cache.ts`, `query-costs.ts`
+- `memory.ts`, `cronjobs.ts`, `tasks.ts`, `habits.ts`, `query-costs.ts`
+
+**Deferred to Task 5:** `user-db-cache.ts` — imports `createUserDb` from `./user-db.js`, which does not exist in src-v4 until Task 5.
 
 - [ ] **Step 1: Copy files**
 
 ```bash
-for f in memory cronjobs tasks habits user-db-cache query-costs; do
+for f in memory cronjobs tasks habits query-costs; do
   cp "src-v3/db/$f.ts" "src-v4/db/$f.ts"
 done
 ```
@@ -628,11 +630,19 @@ Note: if v3 memory/tasks/habits stores don't already expose the counting methods
 Run: `pnpm vitest run src-v4/db/user-db.test.ts`
 Expected: PASS.
 
-- [ ] **Step 7: Commit**
+- [ ] **Step 7: Copy the deferred user-db-cache.ts now that user-db.ts exists**
 
 ```bash
-git add src-v4/db/user-db.ts src-v4/db/user-db.test.ts
-git commit -m "feat(v4): add getCoreIdentity and getContextHintCounts to db/user-db"
+cp src-v3/db/user-db-cache.ts src-v4/db/user-db-cache.ts
+```
+
+Update the leading `// src-v3/db/user-db-cache.ts` comment to src-v4. Run `pnpm type-check` again — must PASS.
+
+- [ ] **Step 8: Commit**
+
+```bash
+git add src-v4/db/user-db.ts src-v4/db/user-db.test.ts src-v4/db/user-db-cache.ts
+git commit -m "feat(v4): add getCoreIdentity + getContextHintCounts; copy user-db-cache"
 ```
 
 ---
