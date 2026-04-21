@@ -339,8 +339,12 @@ export function createTelegramGateway(config: TelegramGatewayConfig): Gateway {
     return result;
   }
 
+  // Telegram whitelist uses numeric chat IDs; per-user dirs use stringified.
+  const whitelistStrings = new Set(config.whitelist.map(String));
+
   const scheduler = createCronScheduler({
     userDbCache,
+    userIdFilter: (uid) => whitelistStrings.has(uid),
     onFire: (job) =>
       new Promise<void>((resolve, reject) => {
         enqueue(job.userId, async () => {

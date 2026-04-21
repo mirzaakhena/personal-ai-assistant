@@ -27,6 +27,14 @@ export interface CronSchedulerConfig {
   userDbCache: UserDbCache;
   /** Called when a cron fires. Consumer decides what to do. */
   onFire: (job: ScheduledJob) => Promise<void>;
+  /**
+   * Optional predicate for which user IDs this scheduler should reconcile at
+   * startup. If omitted, ALL known users are reconciled (v3 behavior). Each
+   * gateway should pass this so it does not cross-fire cronjobs belonging to
+   * users from a different gateway (e.g. console booting with leftover
+   * Telegram-user data in the same data dir).
+   */
+  userIdFilter?: (userId: string) => boolean;
 }
 
 export interface CronScheduler {
@@ -234,7 +242,14 @@ export function createCronScheduler(config: CronSchedulerConfig): CronScheduler 
 
     async start() {
       const now = Date.now();
-      const userIds = userDbCache.listKnownUsers();
+      const allKnown = userDbCache.listKnownUsers();
+      const userIds = config.userIdFilter
+        ? allKnown.filter(config.userIdFilter)
+        : allKnown;
+      const skipped = allKnown.length - userIds.length;
+      if (skipped > 0) {
+        log.debug(`[CRON] skipped ${skipped} user(s) outside this gateway's scope`);
+      }
       let totalOnce = 0;
       let totalRecurring = 0;
 

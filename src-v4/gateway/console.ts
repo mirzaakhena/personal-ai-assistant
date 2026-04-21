@@ -184,6 +184,7 @@ export function createConsoleGateway(config?: ConsoleGatewayConfig): Gateway {
 
   const scheduler = createCronScheduler({
     userDbCache,
+    userIdFilter: (uid) => uid === userId,
     onFire: (job) => new Promise<void>((resolve, reject) => {
       enqueue(job.userId, async () => {
         try {
