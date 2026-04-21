@@ -14,3 +14,11 @@ export function toIsoJakarta(ms: number): string {
 export function parseIsoToMs(iso: string): number {
   return new Date(iso).getTime();
 }
+
+/** Today's YYYY-MM-DD as of the given instant, in WIB (UTC+7). */
+export function todayInJakartaYMD(now: Date = new Date()): string {
+  const pad = (n: number) => String(n).padStart(2, '0');
+  const jakartaMs = now.getTime() + 7 * 60 * 60 * 1000;
+  const j = new Date(jakartaMs);
+  return `${j.getUTCFullYear()}-${pad(j.getUTCMonth() + 1)}-${pad(j.getUTCDate())}`;
+}

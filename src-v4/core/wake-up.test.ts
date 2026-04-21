@@ -9,7 +9,16 @@ describe('renderWakeUpBriefing', () => {
     now: new Date('2026-04-21T14:30:00Z'),
     timezone: 'WIB',
     identity: { name: 'Mirza', current_location: 'Jakarta', language: 'id' },
-    hints: { ongoing: 3, tasks: 2, habits: 5, relationships: 8 },
+    hints: {
+      ongoing: 3,
+      tasks: 2,
+      tasks_due_today: 1,
+      habits: 5,
+      habits_today_done: 3,
+      habits_today_total: 5,
+      habits_longest_streak: 14,
+      relationships: 8,
+    },
     lastSummary: {
       id: 'sum-1',
       session_id: 'abc123',
@@ -53,12 +62,33 @@ describe('renderWakeUpBriefing', () => {
     expect(out).not.toContain('language');
   });
 
-  it('includes context_hints with counts', () => {
+  it('includes context_hints with counts and today-scoped suffixes', () => {
     const out = renderWakeUpBriefing(baseData);
     expect(out).toContain('Ongoing situations: 3');
-    expect(out).toContain('Active tasks: 2');
-    expect(out).toContain('Active habits: 5');
+    expect(out).toContain('Active tasks: 2 (1 due today)');
+    expect(out).toContain('Active habits: 5 (3/5 done today, longest streak: 14)');
     expect(out).toContain('Relationships tracked: 8');
+  });
+
+  it('omits due-today and habit-progress suffixes when zero', () => {
+    const out = renderWakeUpBriefing({
+      ...baseData,
+      hints: {
+        ongoing: 0,
+        tasks: 0,
+        tasks_due_today: 0,
+        habits: 0,
+        habits_today_done: 0,
+        habits_today_total: 0,
+        habits_longest_streak: 0,
+        relationships: 0,
+      },
+    });
+    expect(out).toContain('Active tasks: 0');
+    expect(out).not.toContain('due today');
+    expect(out).toContain('Active habits: 0');
+    expect(out).not.toContain('done today');
+    expect(out).not.toContain('longest streak');
   });
 
   it('includes last_session_summary block with summary text', () => {

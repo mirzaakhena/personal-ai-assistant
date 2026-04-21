@@ -77,7 +77,16 @@ describe('getContextHintCounts', () => {
 
   it('returns zero counts for empty DB', () => {
     const c = getContextHintCounts(db);
-    expect(c).toEqual({ ongoing: 0, tasks: 0, habits: 0, relationships: 0 });
+    expect(c).toEqual({
+      ongoing: 0,
+      tasks: 0,
+      tasks_due_today: 0,
+      habits: 0,
+      habits_today_done: 0,
+      habits_today_total: 0,
+      habits_longest_streak: 0,
+      relationships: 0,
+    });
   });
 
   it('counts ongoing journals, pending tasks, active habits, relationships', () => {
@@ -115,5 +124,57 @@ describe('getContextHintCounts', () => {
     expect(c.tasks).toBe(2);
     expect(c.habits).toBe(1);
     expect(c.relationships).toBe(1);
+  });
+
+  it('counts tasks_due_today against today in WIB', () => {
+    // Freeze "now" at 2026-04-22T10:00:00 Jakarta (= UTC 03:00).
+    const now = new Date('2026-04-22T03:00:00.000Z');
+    const todayYMD = '2026-04-22';
+
+    db.tasks.insert({
+      type: 'errand', title: 'due today', status: 'pending', priority: 'medium',
+      trigger_keywords: [], due_date: todayYMD, notes: null, related_ids: null,
+    });
+    db.tasks.insert({
+      type: 'errand', title: 'due later', status: 'pending', priority: 'medium',
+      trigger_keywords: [], due_date: '2026-04-30', notes: null, related_ids: null,
+    });
+    db.tasks.insert({
+      type: 'errand', title: 'no due date', status: 'pending', priority: 'medium',
+      trigger_keywords: [], due_date: null, notes: null, related_ids: null,
+    });
+
+    const c = getContextHintCounts(db, now);
+    expect(c.tasks).toBe(3);
+    expect(c.tasks_due_today).toBe(1);
+  });
+
+  it('computes habits_today_done + total for daily-period habits only', () => {
+    // Daily boolean — will be logged, should count as done
+    const h1 = db.habits.insert({
+      title: 'baca', status: 'active',
+      cadence_type: 'boolean', cadence_config: { period: 'day' },
+      notes: null,
+    });
+    // Daily count target=3 — log only once, NOT satisfied
+    const h2 = db.habits.insert({
+      title: 'olahraga-sehari-3x', status: 'active',
+      cadence_type: 'count', cadence_config: { period: 'day', target: 3 },
+      notes: null,
+    });
+    // Weekly — should be ignored from today-scoped totals
+    db.habits.insert({
+      title: 'olahraga-mingguan', status: 'active',
+      cadence_type: 'count', cadence_config: { period: 'week', target: 3 },
+      notes: null,
+    });
+
+    db.habits.logCompletion({ habit_id: h1.id });
+    db.habits.logCompletion({ habit_id: h2.id });
+
+    const c = getContextHintCounts(db);
+    expect(c.habits).toBe(3);              // all active habits counted
+    expect(c.habits_today_total).toBe(2);  // only daily ones
+    expect(c.habits_today_done).toBe(1);   // only h1 satisfied (boolean with >=1 log)
   });
 });

@@ -13,6 +13,7 @@ import { createCronjobStore, type CronjobStore } from './cronjobs.js';
 import { createTaskStore, type TaskStore, type TaskRecord } from './tasks.js';
 import { createHabitStore, type HabitStore, type HabitStatusInfo } from './habits.js';
 import { createQueryCostStore, type QueryCostStore } from './query-costs.js';
+import { todayInJakartaYMD } from '../utils/time.js';
 
 export interface AlwaysBundle {
   profile: ProfileRecord[];
@@ -30,9 +31,21 @@ export interface CoreIdentity {
 }
 
 export interface ContextHintCounts {
+  /** Journal rows with status='ongoing' */
   ongoing: number;
+  /** Pending tasks (any due date) */
   tasks: number;
+  /** Subset of `tasks` whose due_date === today (WIB) */
+  tasks_due_today: number;
+  /** All active habits */
   habits: number;
+  /** Daily-period habits whose today's target is met (or boolean=done) */
+  habits_today_done: number;
+  /** Total count of daily-period habits (denominator for today_done) */
+  habits_today_total: number;
+  /** Max streak_periods across all active habits */
+  habits_longest_streak: number;
+  /** Total known relationships */
   relationships: number;
 }
 
@@ -124,16 +137,50 @@ export function getCoreIdentity(userDb: UserDb): CoreIdentity {
 
 /**
  * Count active/ongoing records across the four domain areas for context_hints.
+ * Also computes "today-scoped" summaries so the wake-up briefing can surface
+ * tasks due today and today's habit progress without forcing a tool call.
+ *
  * Uses existing list methods with high caps; data sizes are small (tens, not
  * thousands) so this stays fast without dedicated COUNT queries.
  */
-export function getContextHintCounts(userDb: UserDb): ContextHintCounts {
+export function getContextHintCounts(
+  userDb: UserDb,
+  now: Date = new Date()
+): ContextHintCounts {
+  const todayYMD = todayInJakartaYMD(now);
+  const tasks = userDb.tasks.listPending({ cap: 1000 });
+  const habits = userDb.habits.listActiveWithStatus({ cap: 1000 });
+
+  const tasks_due_today = tasks.filter((t) => t.due_date === todayYMD).length;
+
+  let habits_today_done = 0;
+  let habits_today_total = 0;
+  let habits_longest_streak = 0;
+  for (const h of habits) {
+    if (h.habit.cadence_config.period === 'day') {
+      habits_today_total += 1;
+      const target = h.target;
+      const done = h.done_this_period;
+      const satisfied = target === null ? done > 0 : done >= target;
+      if (satisfied) habits_today_done += 1;
+    }
+    if (h.streak_periods > habits_longest_streak) {
+      habits_longest_streak = h.streak_periods;
+    }
+  }
+
   return {
     ongoing: userDb.memory.listOngoing().length,
-    tasks: userDb.tasks.listPending({ cap: 1000 }).length,
-    habits: userDb.habits.listActiveWithStatus({ cap: 1000 }).length,
+    tasks: tasks.length,
+    tasks_due_today,
+    habits: habits.length,
+    habits_today_done,
+    habits_today_total,
+    habits_longest_streak,
     relationships: userDb.memory.listRelationshipsBundle({
-      recentDays: 36500, recentCap: 1000, totalCap: 1000
+      recentDays: 36500,
+      recentCap: 1000,
+      totalCap: 1000,
     }).length,
   };
 }

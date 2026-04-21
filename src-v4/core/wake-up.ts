@@ -28,7 +28,7 @@ export function buildWakeUpBriefing(opts: {
   } = opts;
 
   const identity = getCoreIdentity(userDb);
-  const hints = getContextHintCounts(userDb);
+  const hints = getContextHintCounts(userDb, now);
   const lastSummary = userDb.sessions.getLatestSummaryForUser(userId);
 
   let fallbackRecentMessages: MessageRecord[] | undefined;
@@ -76,8 +76,26 @@ export function renderWakeUpBriefing(data: WakeUpBriefingData): string {
   // context_hints
   lines.push('<context_hints>');
   lines.push(`  Ongoing situations: ${data.hints.ongoing}`);
-  lines.push(`  Active tasks: ${data.hints.tasks}`);
-  lines.push(`  Active habits: ${data.hints.habits}`);
+
+  const taskSuffix =
+    data.hints.tasks_due_today > 0
+      ? ` (${data.hints.tasks_due_today} due today)`
+      : '';
+  lines.push(`  Active tasks: ${data.hints.tasks}${taskSuffix}`);
+
+  const habitParts: string[] = [];
+  if (data.hints.habits_today_total > 0) {
+    habitParts.push(
+      `${data.hints.habits_today_done}/${data.hints.habits_today_total} done today`
+    );
+  }
+  if (data.hints.habits_longest_streak > 0) {
+    habitParts.push(`longest streak: ${data.hints.habits_longest_streak}`);
+  }
+  const habitSuffix =
+    habitParts.length > 0 ? ` (${habitParts.join(', ')})` : '';
+  lines.push(`  Active habits: ${data.hints.habits}${habitSuffix}`);
+
   lines.push(`  Relationships tracked: ${data.hints.relationships}`);
   lines.push(
     '  Use search_memory / list_tasks / list_habits / list_relationships when relevant.'
