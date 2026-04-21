@@ -85,18 +85,20 @@ git commit -m "chore(v4): bootstrap src-v4 directory scaffold"
 
 # Phase 1 — Utils foundation
 
-Ten pure-helper files copy verbatim. No behavior changes.
+Nine pure-helper files copy verbatim. No behavior changes. `stats.ts` is deferred to the end of Phase 3 because it type-imports from `db/user-db` and `ai-engine/types`, which do not exist in src-v4 until those phases.
 
-## Task 1: Copy utils verbatim
+## Task 1: Copy utils verbatim (9 files; stats.ts deferred)
 
 **Files to create in `src-v4/utils/` (copy from `src-v3/utils/`):**
-- `logger.ts`, `time.ts`, `queue.ts`, `model-config.ts`, `pricing.ts`, `context-limits.ts`, `media.ts`, `stats.ts`, `turns.ts`, `prompt.ts`
+- `logger.ts`, `time.ts`, `queue.ts`, `model-config.ts`, `pricing.ts`, `context-limits.ts`, `media.ts`, `turns.ts`, `prompt.ts`
 
-- [ ] **Step 1: Copy all 10 files**
+**Deferred to Task 6 (Phase 3 end):** `stats.ts` — waits for `db/user-db.ts` (Task 5) and `ai-engine/types.ts` (Task 6) to be present.
+
+- [ ] **Step 1: Copy all 9 files**
 
 ```bash
 cd /Users/mirza/Workspace/personal-ai-assistant6
-for f in logger time queue model-config pricing context-limits media stats turns prompt; do
+for f in logger time queue model-config pricing context-limits media turns prompt; do
   cp "src-v3/utils/$f.ts" "src-v4/utils/$f.ts"
 done
 ```
@@ -769,11 +771,21 @@ And inside `query(prompt, options?)`:
 Run: `pnpm type-check`
 Expected: PASS. (If any v3 file imports from v4 ai-engine, there would be errors; there should be none.)
 
-- [ ] **Step 5: Commit**
+- [ ] **Step 5: Copy deferred utils/stats.ts now that its type-import deps exist**
 
 ```bash
-git add src-v4/ai-engine
-git commit -m "feat(v4): ai-engine with per-user cwd, Skill enabled, systemPrompt required"
+cp src-v3/utils/stats.ts src-v4/utils/stats.ts
+```
+
+Update the leading `// src-v3/utils/stats.ts` comment to `// src-v4/utils/stats.ts`. The type imports (`UserDb` from `../db/user-db.js`, `QueryResult` + `RateLimitInfo` from `../ai-engine/types.js`) now resolve because Task 5 created `src-v4/db/user-db.ts` and this task created `src-v4/ai-engine/types.ts`.
+
+Run `pnpm type-check` again — must still PASS.
+
+- [ ] **Step 6: Commit**
+
+```bash
+git add src-v4/ai-engine src-v4/utils/stats.ts
+git commit -m "feat(v4): ai-engine with per-user cwd, Skill enabled, systemPrompt required (also: copy deferred utils/stats.ts)"
 ```
 
 ---
