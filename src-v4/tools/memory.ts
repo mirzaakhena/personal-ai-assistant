@@ -239,8 +239,15 @@ function listOk(results: object[]): { content: { type: 'text'; text: string }[] 
 export function createMemoryServer(handlers: MemoryHandlers) {
   const saveProfileTool = tool(
     "save_profile",
-    `Save or update a singleton fact about the user (identity, location, preference, value/belief, cognitive style, rule).
-Profile is keyed by (category, key) — re-saving with same key updates the value.
+    `Save or update a singleton fact about the user. UPSERTS on (category, key) — re-saving with the same key overwrites.
+
+IMPORTANT — check first to avoid fragmentation:
+Before calling this, call list_profile (optionally filtered by the relevant
+category) to find whether a canonical key already exists for the concept
+you're about to save. Reuse that key. Creating a parallel entry with a
+slightly different key for the same concept ("timezone" vs "display_tz",
+"home" vs "home_location") is the worst failure mode — it splits the
+user's record across multiple rows and makes future recall unreliable.
 
 Layer L3 = core identity (name, language, dob, location). Layer L2 = preferences/values/style/rules.
 
