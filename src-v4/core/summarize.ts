@@ -122,6 +122,12 @@ export async function summarizeSession(opts: {
       created_at: new Date().toISOString(),
     });
 
+    // Clear the active session row so the next boot / next user message
+    // starts a fresh session that picks up the just-saved summary via
+    // <last_session_summary> in the wake-up briefing. Without this, the
+    // SDK keeps resuming the old session and the summary never surfaces.
+    sessions.delete();
+
     return result;
   } catch (err) {
     log.error(`summarizeSession failed for session ${sessionId}`, err);

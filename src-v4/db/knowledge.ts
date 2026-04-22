@@ -39,20 +39,21 @@ const DDL = `
     PRIMARY KEY (category, key)
   );
   CREATE VIRTUAL TABLE IF NOT EXISTS knowledge_fts USING fts5(
+    key,
     value,
     content='knowledge',
     content_rowid='rowid',
     tokenize='unicode61 remove_diacritics 2'
   );
   CREATE TRIGGER IF NOT EXISTS knowledge_fts_ai AFTER INSERT ON knowledge BEGIN
-    INSERT INTO knowledge_fts(rowid, value) VALUES (new.rowid, new.value);
+    INSERT INTO knowledge_fts(rowid, key, value) VALUES (new.rowid, new.key, new.value);
   END;
   CREATE TRIGGER IF NOT EXISTS knowledge_fts_ad AFTER DELETE ON knowledge BEGIN
-    INSERT INTO knowledge_fts(knowledge_fts, rowid, value) VALUES ('delete', old.rowid, old.value);
+    INSERT INTO knowledge_fts(knowledge_fts, rowid, key, value) VALUES ('delete', old.rowid, old.key, old.value);
   END;
   CREATE TRIGGER IF NOT EXISTS knowledge_fts_au AFTER UPDATE ON knowledge BEGIN
-    INSERT INTO knowledge_fts(knowledge_fts, rowid, value) VALUES ('delete', old.rowid, old.value);
-    INSERT INTO knowledge_fts(rowid, value) VALUES (new.rowid, new.value);
+    INSERT INTO knowledge_fts(knowledge_fts, rowid, key, value) VALUES ('delete', old.rowid, old.key, old.value);
+    INSERT INTO knowledge_fts(rowid, key, value) VALUES (new.rowid, new.key, new.value);
   END;
 `;
 
