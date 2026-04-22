@@ -2,7 +2,8 @@
 
 import 'dotenv/config';
 import { join } from 'node:path';
-import { existsSync } from 'node:fs';
+import { existsSync, readdirSync } from 'node:fs';
+import Database from 'better-sqlite3';
 import { createConsoleGateway } from './gateway/console.js';
 import { createTelegramGateway } from './gateway/telegram.js';
 import { createUserDbCache } from './db/user-db-cache.js';
@@ -52,22 +53,41 @@ function cleanupV3Sessions(): void {
  *
  * The flag `v5_memory_migrated='true'` is set by scripts/migrate-v5-memory.ts
  * at the end of a successful migration run.
+ *
+ * Uses raw SQLite instead of createUserDb to avoid running v5 DDL against
+ * old-schema databases (which would crash on schema mismatches).
  */
 function checkV5Migration(): void {
-  const cache = createUserDbCache(USERS_BASE_DIR);
-  const users = cache.listKnownUsers();
+  if (!existsSync(USERS_BASE_DIR)) return;
+  const userIds = readdirSync(USERS_BASE_DIR, { withFileTypes: true })
+    .filter(d => d.isDirectory())
+    .map(d => d.name);
+
   const unmigrated: string[] = [];
-  for (const userId of users) {
-    // Only check users who already have an app.db — new users skip this.
+  for (const userId of userIds) {
     const dbPath = join(USERS_BASE_DIR, userId, 'app.db');
-    if (!existsSync(dbPath)) continue;
-    const userDb = cache.get(userId);
-    const migrated = userDb.sessions.getMeta('v5_memory_migrated');
-    if (migrated !== 'true') {
-      unmigrated.push(userId);
+    if (!existsSync(dbPath)) continue; // new user, no legacy data
+    const db = new Database(dbPath, { readonly: true });
+    try {
+      // session_meta table may not exist on old DBs — that means unmigrated.
+      const hasTable = db.prepare(
+        `SELECT name FROM sqlite_master WHERE type='table' AND name='session_meta'`
+      ).get() as { name: string } | undefined;
+      if (!hasTable) {
+        unmigrated.push(userId);
+        continue;
+      }
+      const row = db.prepare(
+        `SELECT value FROM session_meta WHERE key = 'v5_memory_migrated'`
+      ).get() as { value: string } | undefined;
+      if (row?.value !== 'true') {
+        unmigrated.push(userId);
+      }
+    } finally {
+      db.close();
     }
   }
-  cache.closeAll();
+
   if (unmigrated.length > 0) {
     console.error('');
     for (const userId of unmigrated) {
@@ -94,8 +114,11 @@ function pickGateway(): Gateway {
   });
 }
 
-cleanupV3Sessions();
+// v5 migration gate runs FIRST — before any v5 DDL touches user databases.
+// cleanupV3Sessions() uses createUserDb which applies v5 schema DDL; it must
+// only run after all existing user DBs have been confirmed as migrated.
 checkV5Migration();
+cleanupV3Sessions();
 
 const gateway = pickGateway();
 
