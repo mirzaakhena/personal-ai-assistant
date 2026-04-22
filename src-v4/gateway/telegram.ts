@@ -736,7 +736,7 @@ export function createTelegramGateway(config: TelegramGatewayConfig): Gateway {
               sessions: s.sessions,
               model: summarizeModel,
               cwd: s.cwd,
-              timeoutMs: 15_000,
+              timeoutMs: 30_000,
             })
           )
         );
