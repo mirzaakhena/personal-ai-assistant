@@ -1,21 +1,28 @@
 // src-v4/core/types.ts
 
-import type { CoreIdentity, ContextHintCounts } from '../db/user-db.js';
-import type { SessionSummaryRecord } from '../db/sessions.js';
+import type { ProfileKey } from '../db/profile.js';
+import type { PreferenceRow } from '../db/preferences.js';
+import type { KnowledgeCategory } from '../db/knowledge.js';
 import type { MessageRecord } from '../db/message.js';
+import type { SessionSummaryRecord } from '../db/sessions.js';
 
-/**
- * Data needed to render the wake-up briefing XML block.
- * Assembled by core/wake-up.ts, rendered into a string, and injected into
- * the {{WAKE_UP_BRIEFING}} slot of the core system prompt.
- */
+export interface WakeUpContextHints {
+  tasks: number;
+  tasks_due_today: number;
+  journal_recent_7d: number;
+  knowledge_total: number;
+  knowledge_by_category: Record<KnowledgeCategory, number>;
+}
+
 export interface WakeUpBriefingData {
   now: Date;
-  timezone: string; // e.g. "WIB"
-  identity: CoreIdentity;
-  hints: ContextHintCounts;
-  lastSummary?: SessionSummaryRecord;
-  fallbackRecentMessages?: MessageRecord[]; // used only if summarization unavailable
+  timezone: string;
+  last_user_msg_gap: string | null;
+  profile: Partial<Record<ProfileKey, string>>;
+  preferences: PreferenceRow[];
+  hints: WakeUpContextHints;
+  lastSummary: SessionSummaryRecord | null;
+  fallbackRecentMessages?: MessageRecord[];
 }
 
 export type SessionEndReason = 'turn_threshold' | 'graceful_shutdown' | 'manual';

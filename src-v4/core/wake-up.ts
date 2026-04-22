@@ -1,17 +1,10 @@
 // src-v4/core/wake-up.ts
 
 import type { UserDb } from '../db/user-db.js';
-import { getCoreIdentity, getContextHintCounts } from '../db/user-db.js';
+import { getProfile, getContextHintCounts } from '../db/user-db.js';
 import type { WakeUpBriefingData } from './types.js';
 import type { MessageRecord } from '../db/message.js';
 
-/**
- * Gather all the data needed to render a wake-up briefing for a user.
- *
- * - identity + hints come from the per-user DB
- * - lastSummary comes from session_summaries
- * - fallbackRecentMessages is loaded only if no summary is available
- */
 export function buildWakeUpBriefing(opts: {
   userId: string;
   now: Date;
@@ -20,108 +13,118 @@ export function buildWakeUpBriefing(opts: {
   fallbackRecentMessagesCount?: number;
 }): WakeUpBriefingData {
   const {
-    userId,
-    now,
-    timezone,
-    userDb,
+    userId, now, timezone, userDb,
     fallbackRecentMessagesCount = 10,
   } = opts;
 
-  const identity = getCoreIdentity(userDb);
+  const profile = getProfile(userDb);
+  const preferences = userDb.preferences.list();
   const hints = getContextHintCounts(userDb, now);
   const lastSummary = userDb.sessions.getLatestSummaryForUser(userId);
+  const last_user_msg_gap = computeLastUserMsgGap(userDb, now);
 
   let fallbackRecentMessages: MessageRecord[] | undefined;
   if (!lastSummary) {
     fallbackRecentMessages = userDb.messages.getRecentMessages({
-      limit: fallbackRecentMessagesCount,
-      since: 0,
+      limit: fallbackRecentMessagesCount, since: 0,
     });
   }
 
-  return { now, timezone, identity, hints, lastSummary, fallbackRecentMessages };
+  return { now, timezone, last_user_msg_gap, profile, preferences, hints, lastSummary: lastSummary ?? null, fallbackRecentMessages };
+}
+
+/** Delta between `now` and the most recent user message, formatted e.g. "3m", "19h 52m", "3d 14h". Null if none. */
+export function computeLastUserMsgGap(userDb: UserDb, now: Date): string | null {
+  const latest = userDb.messages.getLatestUserMessage();
+  if (!latest) return null;
+  const deltaMs = now.getTime() - latest.timestamp;
+  if (deltaMs < 0) return '0m';
+  return formatDuration(deltaMs);
+}
+
+function formatDuration(ms: number): string {
+  const minute = 60 * 1000;
+  const hour = 60 * minute;
+  const day = 24 * hour;
+
+  if (ms < minute) return `${Math.floor(ms / 1000)}s`;
+  if (ms < hour) return `${Math.floor(ms / minute)}m`;
+  if (ms < day) {
+    const h = Math.floor(ms / hour);
+    const m = Math.floor((ms % hour) / minute);
+    return m > 0 ? `${h}h ${m}m` : `${h}h`;
+  }
+  const d = Math.floor(ms / day);
+  const h = Math.floor((ms % day) / hour);
+  return h > 0 ? `${d}d ${h}h` : `${d}d`;
 }
 
 function escapeXml(s: string): string {
-  return s
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;');
+  return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
 }
 
-/**
- * Render a WakeUpBriefingData object to the XML string that gets injected
- * into the core system prompt.
- */
 export function renderWakeUpBriefing(data: WakeUpBriefingData): string {
   const lines: string[] = ['<wake_up_briefing>', ''];
 
-  // current_moment
-  const nowIso = data.now.toISOString();
+  // <current_moment>
+  const gapAttr = data.last_user_msg_gap
+    ? ` last_user_msg_gap="${data.last_user_msg_gap}"`
+    : '';
   lines.push(
-    `<current_moment now="${nowIso}" timezone="${data.timezone}"/>`,
+    `<current_moment now="${data.now.toISOString()}" timezone="${data.timezone}"${gapAttr}/>`,
     ''
   );
 
-  // core_identity
-  lines.push('<core_identity>');
-  if (data.identity.name !== undefined)
-    lines.push(`  - name: "${data.identity.name}"`);
-  if (data.identity.current_location !== undefined)
-    lines.push(`  - current_location: "${data.identity.current_location}"`);
-  if (data.identity.language !== undefined)
-    lines.push(`  - language: "${data.identity.language}"`);
-  lines.push('</core_identity>', '');
+  // <profile>
+  lines.push('<profile>');
+  for (const key of ['name', 'called_as', 'language', 'timezone', 'home_location', 'current_location', 'active_hours'] as const) {
+    const v = data.profile[key];
+    if (v !== undefined) lines.push(`  ${key}: "${escapeXml(v)}"`);
+  }
+  lines.push('</profile>', '');
 
-  // context_hints
+  // <preferences>
+  lines.push('<preferences>');
+  const rules = data.preferences.filter(p => p.kind === 'rule');
+  const styles = data.preferences.filter(p => p.kind === 'style');
+  if (rules.length > 0) {
+    lines.push('  Rules (must observe):');
+    for (const p of rules) lines.push(`  - ${p.key}: ${escapeXml(p.value)}`);
+    if (styles.length > 0) lines.push('');
+  }
+  if (styles.length > 0) {
+    lines.push('  Style (how to communicate & interact):');
+    for (const p of styles) lines.push(`  - ${p.key}: ${escapeXml(p.value)}`);
+  }
+  lines.push('</preferences>', '');
+
+  // <context_hints>
   lines.push('<context_hints>');
-  lines.push(`  Ongoing situations: ${data.hints.ongoing}`);
-
-  const taskSuffix =
-    data.hints.tasks_due_today > 0
-      ? ` (${data.hints.tasks_due_today} due today)`
-      : '';
-  lines.push(`  Active tasks: ${data.hints.tasks}${taskSuffix}`);
-
-  const habitParts: string[] = [];
-  if (data.hints.habits_today_total > 0) {
-    habitParts.push(
-      `${data.hints.habits_today_done}/${data.hints.habits_today_total} done today`
-    );
-  }
-  if (data.hints.habits_longest_streak > 0) {
-    habitParts.push(`longest streak: ${data.hints.habits_longest_streak}`);
-  }
-  const habitSuffix =
-    habitParts.length > 0 ? ` (${habitParts.join(', ')})` : '';
-  lines.push(`  Active habits: ${data.hints.habits}${habitSuffix}`);
-
-  lines.push(`  Relationships tracked: ${data.hints.relationships}`);
+  const dueToday = data.hints.tasks_due_today > 0 ? ` (${data.hints.tasks_due_today} due today)` : '';
+  lines.push(`  Active tasks: ${data.hints.tasks}${dueToday}`);
+  lines.push(`  Recent journal entries (last 7d): ${data.hints.journal_recent_7d}`);
+  const kb = data.hints.knowledge_by_category;
   lines.push(
-    '  Use search_memory / list_tasks / list_habits / list_relationships when relevant.'
+    `  Knowledge: ${data.hints.knowledge_total} entries — identity: ${kb.identity}, ` +
+    `person: ${kb.person}, routine: ${kb.routine}, context: ${kb.context}, insight: ${kb.insight}`
   );
+  lines.push('  Use search_knowledge / list_tasks / list_recent_journal when relevant.');
   lines.push('</context_hints>', '');
 
-  // last_session_summary OR fallback recent_messages
+  // <last_session_summary> OR fallback <recent_messages>
   if (data.lastSummary) {
     const s = data.lastSummary;
     lines.push(
       `<last_session_summary from_session="${s.session_id}" ended_at="${s.ended_at}" ended_reason="${s.ended_reason}" turns="${s.turns}">`,
-      '',
       s.summary,
-      '',
       '</last_session_summary>',
       ''
     );
-  } else if (
-    data.fallbackRecentMessages &&
-    data.fallbackRecentMessages.length > 0
-  ) {
+  } else if (data.fallbackRecentMessages && data.fallbackRecentMessages.length > 0) {
     lines.push(
       `<recent_messages count="${data.fallbackRecentMessages.length}" note="fallback: summarization unavailable">`
     );
     for (const m of data.fallbackRecentMessages) {
-      // m.timestamp is already in milliseconds (see db/message.ts insert callers).
       const ts = new Date(m.timestamp).toISOString();
       const body = escapeXml(m.body ?? '');
       lines.push(`<msg from="${m.sender}" ts="${ts}"><body>${body}</body></msg>`);
