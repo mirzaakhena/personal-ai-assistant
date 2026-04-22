@@ -72,9 +72,7 @@ export async function summarizeSession(opts: {
     messageFetchCap = 100,
   } = opts;
 
-  const sessionMessages = messages
-    .search({ limit: messageFetchCap, order: 'oldest' })
-    .filter((m) => m.session_id === sessionId);
+  const sessionMessages = messages.getMessagesForSession(sessionId, { limit: messageFetchCap });
 
   if (sessionMessages.length === 0) {
     log.debug(`summarizeSession: no messages for session ${sessionId}, skipping`);

@@ -38,6 +38,7 @@ export interface MessageStore {
   getById(id: string): MessageRecord | undefined;
   getMessagesByIds(ids: string[]): MessageRecord[];
   getRecentMessages(opts: { limit: number; since?: number }): MessageRecord[];
+  getMessagesForSession(sessionId: string, opts?: { limit?: number }): MessageRecord[];
   search(filter: SearchFilter): MessageRecord[];
   count(): number;
   getLatestUserMessage(): MessageRecord | null;
@@ -189,6 +190,13 @@ export function createMessageStore(db: Database.Database): MessageStore {
     getRecentMessages({ limit, since = 0 }) {
       const safeLimit = Math.max(1, Math.min(MAX_LIMIT, Math.floor(limit)));
       return stmtRecent.all(since, safeLimit);
+    },
+    getMessagesForSession(sessionId, opts) {
+      const limit = Math.max(1, Math.min(MAX_LIMIT, Math.floor(opts?.limit ?? MAX_LIMIT)));
+      const stmt = db.prepare<[string, number], MessageRecord>(
+        `SELECT * FROM messages WHERE session_id = ? ORDER BY timestamp ASC LIMIT ?`
+      );
+      return stmt.all(sessionId, limit);
     },
     search(filter) {
       const { sql, params } = buildSearchQuery(filter);
