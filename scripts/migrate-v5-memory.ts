@@ -266,6 +266,73 @@ export function slugifyContent(content: string, limit: number): string {
   return snake.slice(0, limit).replace(/_+$/, '');
 }
 
+// ── Source readers ──────────────────────────────────
+
+interface SourceSnapshot {
+  profile: LegacyProfileRow[];
+  relationships: LegacyRelationshipRow[];
+  habits: LegacyHabitRow[];
+  journalTraitObservations: LegacyJournalRow[];
+  journalOther: LegacyJournalRow[];
+  tasks: Array<{
+    id: string; title: string; notes: string | null;
+    status: string | null; due_date: string | null;
+    created_at: number; updated_at: number;
+  }>;
+}
+
+function readSource(db: Database.Database): SourceSnapshot {
+  const profile = db.prepare<[], LegacyProfileRow>(
+    `SELECT id, category, layer, key, value FROM profile`
+  ).all();
+
+  const relationships = db.prepare<[], LegacyRelationshipRow>(
+    `SELECT id, name, role, dynamic, circle FROM relationships`
+  ).all();
+
+  const habits = db.prepare<[], LegacyHabitRow>(
+    `SELECT id, title, cadence_type, cadence_config, notes FROM habits`
+  ).all();
+
+  const journalAll = db.prepare<[], LegacyJournalRow>(`
+    SELECT id, type, content, status, event_date, source_msg_id, created_at
+    FROM journal
+  `).all();
+
+  const journalTraitObservations = journalAll.filter(j => j.type === 'trait_observation');
+  const journalOther = journalAll.filter(
+    j => j.type !== 'trait_observation' && j.type !== 'conversation_summary'
+  );
+
+  const tasks = db.prepare<[]>(
+    `SELECT id, title, notes, status, due_date, created_at, updated_at FROM tasks`
+  ).all() as SourceSnapshot['tasks'];
+
+  return { profile, relationships, habits, journalTraitObservations, journalOther, tasks };
+}
+
+// ── Destructive DDL ─────────────────────────────────
+
+const DROP_OLD_TABLES = `
+  DROP TABLE IF EXISTS profile;
+  DROP TABLE IF EXISTS relationships;
+  DROP TABLE IF EXISTS habits;
+  DROP TABLE IF EXISTS habit_completions;
+  DROP TABLE IF EXISTS populate_runs;
+  DROP TABLE IF EXISTS journal_fts_config;
+  DROP TABLE IF EXISTS journal_fts_data;
+  DROP TABLE IF EXISTS journal_fts_docsize;
+  DROP TABLE IF EXISTS journal_fts_idx;
+  DROP TABLE IF EXISTS journal_fts;
+  DROP TABLE IF EXISTS tasks_fts_config;
+  DROP TABLE IF EXISTS tasks_fts_data;
+  DROP TABLE IF EXISTS tasks_fts_docsize;
+  DROP TABLE IF EXISTS tasks_fts_idx;
+  DROP TABLE IF EXISTS tasks_fts;
+  DROP TABLE IF EXISTS tasks;
+  DROP TABLE IF EXISTS journal;
+`;
+
 // ── Entry point ─────────────────────────────────────
 function main() {
   if (!existsSync(DB_PATH)) {
@@ -278,21 +345,28 @@ function main() {
   const backupPath = takeBackup(DB_PATH);
   console.log(`[migrate-v5] backup: ${backupPath}`);
 
-  if (DRY_RUN) {
-    console.log('[migrate-v5] dry-run: would proceed with migration steps now');
-    console.log('[migrate-v5] (no mutations performed)');
-    return;
-  }
-
   const db = new Database(DB_PATH);
   try {
-    db.pragma('foreign_keys = OFF'); // we'll drop + recreate tables
+    db.pragma('foreign_keys = OFF');
     db.pragma('journal_mode = WAL');
 
     console.log('[migrate-v5] reading source rows...');
-    // Steps B2-B5 add more imports + implementations here
-    console.log('[migrate-v5] scaffold only — no transformation yet');
+    const source = readSource(db);
+    console.log(`[migrate-v5]   profile=${source.profile.length} ` +
+                `relationships=${source.relationships.length} ` +
+                `habits=${source.habits.length} ` +
+                `journal.trait_observation=${source.journalTraitObservations.length} ` +
+                `journal.other=${source.journalOther.length} ` +
+                `tasks=${source.tasks.length}`);
 
+    if (DRY_RUN) {
+      console.log('[migrate-v5] dry-run: would drop old tables, create new, insert seeds');
+      return;
+    }
+
+    console.log('[migrate-v5] dropping old tables...');
+    db.exec(DROP_OLD_TABLES);
+    console.log('[migrate-v5] (scaffold — new tables + inserts in next tasks)');
     console.log('[migrate-v5] done');
   } finally {
     db.close();
