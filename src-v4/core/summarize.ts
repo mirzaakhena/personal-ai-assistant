@@ -105,7 +105,7 @@ export async function summarizeSession(opts: {
     const result: SummarizeResult = {
       sessionId,
       userId,
-      summary: raced.responseText,
+      summary: stripCodeFence(raced.responseText),
       turns: sessionMessages.length,
       endedAt,
       endedReason: reason,
@@ -133,4 +133,15 @@ export async function summarizeSession(opts: {
     log.error(`summarizeSession failed for session ${sessionId}`, err);
     return null;
   }
+}
+
+/**
+ * Haiku sometimes wraps its XML output in a markdown code fence
+ * (```xml ... ```) despite the prompt forbidding extra text. Strip it so
+ * the stored summary is clean XML that the wake-up briefing can inline.
+ */
+function stripCodeFence(text: string): string {
+  const trimmed = text.trim();
+  const match = trimmed.match(/^```(?:xml|html)?\s*\n([\s\S]*?)\n```\s*$/);
+  return match ? match[1].trim() : trimmed;
 }
