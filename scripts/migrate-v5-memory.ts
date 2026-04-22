@@ -466,7 +466,33 @@ function main() {
     console.log(`[migrate-v5]   profile=${counts.profile} preferences=${counts.preferences} ` +
                 `knowledge=${counts.knowledge} journal=${counts.journal} tasks=${counts.tasks}`);
 
-    console.log('[migrate-v5] done');
+    // Verification
+    console.log('[migrate-v5] verifying...');
+    if (counts.profile < EXPECTED.profile_min) {
+      throw new Error(`profile count ${counts.profile} < expected ${EXPECTED.profile_min}`);
+    }
+    if (counts.preferences !== EXPECTED.preferences_exact) {
+      throw new Error(`preferences count ${counts.preferences} !== ${EXPECTED.preferences_exact}`);
+    }
+    if (counts.knowledge < EXPECTED.knowledge_min) {
+      throw new Error(`knowledge count ${counts.knowledge} < expected ${EXPECTED.knowledge_min}`);
+    }
+
+    // Clear session id for v4→v5 cutover (parallel to v3→v4 pattern).
+    // The sessions table stores at most one row (id=1); deleting it forces a
+    // fresh session on next start — equivalent to "last_session_id = NULL".
+    console.log('[migrate-v5] clearing session for v5 cutover...');
+    db.prepare(`DELETE FROM sessions WHERE id = 1`).run();
+
+    // Set migration flag (ensure session_meta table exists first)
+    console.log('[migrate-v5] setting v5_memory_migrated flag...');
+    db.exec(`CREATE TABLE IF NOT EXISTS session_meta (key TEXT PRIMARY KEY, value TEXT NOT NULL)`);
+    db.prepare(`
+      INSERT INTO session_meta (key, value) VALUES ('v5_memory_migrated', 'true')
+      ON CONFLICT(key) DO UPDATE SET value = excluded.value
+    `).run();
+
+    console.log('[migrate-v5] done ✓');
   } finally {
     db.close();
   }
