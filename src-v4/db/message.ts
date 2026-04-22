@@ -40,6 +40,7 @@ export interface MessageStore {
   getRecentMessages(opts: { limit: number; since?: number }): MessageRecord[];
   search(filter: SearchFilter): MessageRecord[];
   count(): number;
+  getLatestUserMessage(): MessageRecord | null;
 }
 
 const DEFAULT_LIMIT = 20;
@@ -114,6 +115,15 @@ export function createMessageStore(db: Database.Database): MessageStore {
   const stmtGetById = db.prepare<[string], MessageRecord>(`SELECT * FROM messages WHERE id = ?`);
   const stmtCount = db.prepare<[], { n: number }>(`SELECT COUNT(*) AS n FROM messages`);
 
+  const selectLatestUser = db.prepare<[], MessageRecord>(`
+    SELECT * FROM messages WHERE sender = 'user'
+    ORDER BY timestamp DESC LIMIT 1
+  `);
+
+  function getLatestUserMessage(): MessageRecord | null {
+    return selectLatestUser.get() ?? null;
+  }
+
   // Returns messages with timestamp >= since, ordered ascending (oldest first),
   // limited to `limit` rows taken from the END of the window (most recent).
   const stmtRecent = db.prepare<[number, number], MessageRecord>(`
@@ -186,5 +196,6 @@ export function createMessageStore(db: Database.Database): MessageStore {
       return stmt.all(...params);
     },
     count() { return stmtCount.get()?.n ?? 0; },
+    getLatestUserMessage,
   };
 }
