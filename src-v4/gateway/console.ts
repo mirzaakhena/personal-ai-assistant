@@ -7,10 +7,12 @@ import type { Gateway, ActiveSessionInfo } from './types.js';
 import { createAIEngine } from '../ai-engine/index.js';
 import type { QueryResult, ContentBlock } from '../ai-engine/index.js';
 import { createMessageServer, type MessageDeliver } from '../tools/message.js';
-import { createMemoryServer, buildMemoryHandlers } from '../tools/memory.js';
+import { createProfileMcpServer, createProfileHandlers } from '../tools/profile.js';
+import { createPreferenceMcpServer, createPreferenceHandlers } from '../tools/preferences.js';
+import { createKnowledgeMcpServer, createKnowledgeHandlers } from '../tools/knowledge.js';
+import { createJournalMcpServer, createJournalHandlers } from '../tools/journal.js';
+import { createTaskMcpServer, createTaskHandlers } from '../tools/tasks.js';
 import { createCronjobServer, type CronjobHandlers } from '../tools/cronjob.js';
-import { createTasksServer, buildTaskHandlers } from '../tools/tasks.js';
-import { createHabitsServer, buildHabitHandlers } from '../tools/habits.js';
 import { createSkillToolServer } from '../tools/skill.js';
 import {
   createMessageHistoryServer,
@@ -201,11 +203,13 @@ export function createConsoleGateway(config?: ConsoleGatewayConfig): Gateway {
       cwd,
       mcpServers: {
         message: createMessageServer(deliver, queryUserId),
-        memory: createMemoryServer(buildMemoryHandlers(userDb.memory, sessionId ?? null)),
+        profile: createProfileMcpServer(createProfileHandlers(userDb.profile)),
+        preferences: createPreferenceMcpServer(createPreferenceHandlers(userDb.preferences)),
+        knowledge: createKnowledgeMcpServer(createKnowledgeHandlers(userDb.knowledge)),
+        journal: createJournalMcpServer(createJournalHandlers(userDb.journal)),
+        tasks: createTaskMcpServer(createTaskHandlers(userDb.tasks)),
         cronjob: createCronjobServer(cronjobHandlersFactory(queryUserId)),
         messages: createMessageHistoryServer(messageHandlersFactory(queryUserId)),
-        tasks: createTasksServer(buildTaskHandlers(userDb.tasks)),
-        habits: createHabitsServer(buildHabitHandlers(userDb.habits)),
         skill: createSkillToolServer({ dataDir, userId: queryUserId }),
       },
       callbacks: {
