@@ -10,18 +10,22 @@ import { log } from '../utils/logger.js';
 const SUMMARIZER_SYSTEM_PROMPT = `You are summarizing a conversation between a personal AI assistant and its user,
 for the assistant's future self to remember context after a restart or session reset.
 
-Output structure:
-1. One paragraph narrative: what the user was working on, where the conversation
-   was heading, their current emotional/mental state.
-2. 3-7 bulleted key points. Each key point ends with <msg_ref id="MSG_ID"/>
-   pointing to the message where the point was established.
-3. A closing short note on the user's mood or energy.
-
 Be concise but information-dense. Preserve nuance, not verbatim text. Your
 future self can fetch any referenced message if more detail is needed.
 
-Output in English regardless of the conversation language. Respond with the
-summary text only — no preamble, no closing remarks about the summary itself.`;
+Output in English regardless of the conversation language.
+
+Output format — produce exactly this XML structure, no other text:
+
+<narrative>
+One or two natural sentences summarizing what happened this session — what the user worked on, where the conversation was heading, and their mental/emotional state at the close.
+</narrative>
+<key_points>
+<key_point msg_ref="MESSAGE_ID">One sentence describing a salient moment.</key_point>
+<key_point msg_ref="MESSAGE_ID">Another salient moment.</key_point>
+(3 to 7 total; each msg_ref is the id of the most relevant message to that point)
+</key_points>
+<mood>Short phrase describing the user's emotional/energetic state at session end.</mood>`;
 
 function formatMessagesForSummarizer(msgs: MessageRecord[]): string {
   const parts = msgs.map((m) => {
