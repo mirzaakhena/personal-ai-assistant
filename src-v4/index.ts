@@ -2,6 +2,7 @@
 
 import 'dotenv/config';
 import { join } from 'node:path';
+import { existsSync } from 'node:fs';
 import { createConsoleGateway } from './gateway/console.js';
 import { createTelegramGateway } from './gateway/telegram.js';
 import { createUserDbCache } from './db/user-db-cache.js';
@@ -44,6 +45,41 @@ function cleanupV3Sessions(): void {
   cache.closeAll();
 }
 
+/**
+ * v5 memory migration gate — fail-fast if any existing user's DB hasn't been
+ * migrated. New users (no directory yet) are allowed through — they have no
+ * legacy data to migrate and will get a fresh v5 schema on first boot.
+ *
+ * The flag `v5_memory_migrated='true'` is set by scripts/migrate-v5-memory.ts
+ * at the end of a successful migration run.
+ */
+function checkV5Migration(): void {
+  const cache = createUserDbCache(USERS_BASE_DIR);
+  const users = cache.listKnownUsers();
+  const unmigrated: string[] = [];
+  for (const userId of users) {
+    // Only check users who already have an app.db — new users skip this.
+    const dbPath = join(USERS_BASE_DIR, userId, 'app.db');
+    if (!existsSync(dbPath)) continue;
+    const userDb = cache.get(userId);
+    const migrated = userDb.sessions.getMeta('v5_memory_migrated');
+    if (migrated !== 'true') {
+      unmigrated.push(userId);
+    }
+  }
+  cache.closeAll();
+  if (unmigrated.length > 0) {
+    console.error('');
+    for (const userId of unmigrated) {
+      console.error(`❌  v5 memory migration has not been run for user: ${userId}`);
+      console.error(`    Run: V5_MIGRATE_USER_ID=${userId} pnpm tsx scripts/migrate-v5-memory.ts`);
+      console.error(`    (this is a one-shot migration; it backs up app.db before running)`);
+      console.error('');
+    }
+    process.exit(1);
+  }
+}
+
 function pickGateway(): Gateway {
   if (GATEWAY_KIND === 'telegram') {
     return createTelegramGateway({
@@ -59,6 +95,7 @@ function pickGateway(): Gateway {
 }
 
 cleanupV3Sessions();
+checkV5Migration();
 
 const gateway = pickGateway();
 
