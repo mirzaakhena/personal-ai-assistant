@@ -11,6 +11,11 @@
 import Database from 'better-sqlite3';
 import { copyFileSync, existsSync } from 'node:fs';
 import { join } from 'node:path';
+import { createProfileStore } from '../src-v4/db/profile.js';
+import { createPreferenceStore } from '../src-v4/db/preferences.js';
+import { createKnowledgeStore, type KnowledgeCategory } from '../src-v4/db/knowledge.js';
+import { createJournalStore } from '../src-v4/db/journal.js';
+import { createTaskStore, type TaskStatus } from '../src-v4/db/tasks.js';
 
 // ── Config ──────────────────────────────────────────
 const USER_ID = process.env.V5_MIGRATE_USER_ID ?? 'console-user';
@@ -313,25 +318,114 @@ function readSource(db: Database.Database): SourceSnapshot {
 
 // ── Destructive DDL ─────────────────────────────────
 
+// FTS virtual tables must be dropped before their shadow tables disappear automatically.
+// Shadow tables (_config, _data, _docsize, _idx) cannot be dropped individually —
+// SQLite removes them automatically when the parent virtual table is dropped.
 const DROP_OLD_TABLES = `
+  DROP TABLE IF EXISTS journal_fts;
+  DROP TABLE IF EXISTS tasks_fts;
   DROP TABLE IF EXISTS profile;
   DROP TABLE IF EXISTS relationships;
   DROP TABLE IF EXISTS habits;
   DROP TABLE IF EXISTS habit_completions;
   DROP TABLE IF EXISTS populate_runs;
-  DROP TABLE IF EXISTS journal_fts_config;
-  DROP TABLE IF EXISTS journal_fts_data;
-  DROP TABLE IF EXISTS journal_fts_docsize;
-  DROP TABLE IF EXISTS journal_fts_idx;
-  DROP TABLE IF EXISTS journal_fts;
-  DROP TABLE IF EXISTS tasks_fts_config;
-  DROP TABLE IF EXISTS tasks_fts_data;
-  DROP TABLE IF EXISTS tasks_fts_docsize;
-  DROP TABLE IF EXISTS tasks_fts_idx;
-  DROP TABLE IF EXISTS tasks_fts;
   DROP TABLE IF EXISTS tasks;
   DROP TABLE IF EXISTS journal;
 `;
+
+// ── Migration ────────────────────────────────────────
+
+function applyMigration(db: Database.Database, source: SourceSnapshot): {
+  profile: number; preferences: number; knowledge: number;
+  journal: number; tasks: number;
+} {
+  // Instantiating the stores runs their DDL (CREATE TABLE IF NOT EXISTS).
+  const profile = createProfileStore(db);
+  const preferences = createPreferenceStore(db);
+  const knowledge = createKnowledgeStore(db);
+  const journal = createJournalStore(db);
+  const tasks = createTaskStore(db);
+
+  // profile
+  const profMap = deriveProfileFromLegacy(source.profile);
+  const profEntries = Object.entries(profMap).map(([k, v]) => ({ key: k as any, value: v }));
+  profile.setMany(profEntries);
+
+  // preferences
+  preferences.saveMany(buildPreferenceSeeds(source.profile));
+
+  // knowledge — base seeds (identity/routine/context/insight from legacy profile)
+  const baseSeeds = buildKnowledgeSeedsFromLegacyProfile(source.profile);
+  // knowledge — person (from relationships + inferred istri_tika)
+  const personSeeds = buildKnowledgeSeedsFromLegacyRelationships(source.relationships);
+  // knowledge — routine from habits (merged where overlaps exist)
+  const habitSeeds = buildKnowledgeSeedsFromLegacyHabits(source.habits);
+
+  // de-duplicate base + person + habit seeds by (category, key). Later wins.
+  const allSeeds = [...baseSeeds, ...personSeeds, ...habitSeeds];
+  const seen = new Set<string>();
+  const deduped = [];
+  for (const s of allSeeds.reverse()) {
+    const id = `${s.category}|${s.key}`;
+    if (!seen.has(id)) { deduped.push(s); seen.add(id); }
+  }
+  deduped.reverse();
+
+  knowledge.saveMany(deduped.map(s => ({ ...s, category: s.category as KnowledgeCategory })));
+
+  // knowledge — insight from journal.trait_observation, wholesale with per-insert collision disambiguation
+  for (const j of source.journalTraitObservations) {
+    const existingInsightKeys = knowledge.list({ category: 'insight' as KnowledgeCategory }).map(r => r.key);
+    const baseSlug = slugifyContent(j.content, 40);
+    const key = disambiguateKey('insight', baseSlug, existingInsightKeys);
+    knowledge.saveMany([{
+      category: 'insight' as KnowledgeCategory,
+      key,
+      value: j.content,
+      source_msg_id: j.source_msg_id ?? null,
+    }]);
+  }
+
+  // journal (pass-through event/emotion/life_context/problem)
+  for (const j of source.journalOther) {
+    journal.insertRaw({
+      id: j.id,
+      content: j.content,
+      event_date: j.event_date,
+      source_msg_id: j.source_msg_id,
+      created_at: j.created_at,
+    });
+  }
+
+  // tasks
+  const validStatus = new Set<TaskStatus>(['pending', 'done', 'cancelled']);
+  for (const t of source.tasks) {
+    const status: TaskStatus = validStatus.has(t.status as TaskStatus) ? t.status as TaskStatus : 'pending';
+    db.prepare(`
+      INSERT INTO tasks (id, title, notes, status, due_date, source_msg_id, created_at, updated_at)
+      VALUES (@id, @title, @notes, @status, @due_date, NULL, @created_at, @updated_at)
+    `).run({
+      id: t.id, title: t.title, notes: t.notes, status, due_date: t.due_date,
+      created_at: t.created_at, updated_at: t.updated_at,
+    });
+  }
+
+  return {
+    profile: profEntries.length,
+    preferences: preferences.list().length,
+    knowledge: knowledge.list().length,
+    journal: source.journalOther.length,
+    tasks: source.tasks.length,
+  };
+}
+
+/** If slug collides with existing keys, append _<n> suffix. */
+function disambiguateKey(_cat: string, slug: string, existing: string[]): string {
+  if (!existing.includes(slug)) return slug;
+  let i = 2;
+  while (existing.includes(`${slug}_${i}`)) i++;
+  return `${slug}_${i}`;
+}
 
 // ── Entry point ─────────────────────────────────────
 function main() {
@@ -366,7 +460,12 @@ function main() {
 
     console.log('[migrate-v5] dropping old tables...');
     db.exec(DROP_OLD_TABLES);
-    console.log('[migrate-v5] (scaffold — new tables + inserts in next tasks)');
+
+    console.log('[migrate-v5] applying migration...');
+    const counts = applyMigration(db, source);
+    console.log(`[migrate-v5]   profile=${counts.profile} preferences=${counts.preferences} ` +
+                `knowledge=${counts.knowledge} journal=${counts.journal} tasks=${counts.tasks}`);
+
     console.log('[migrate-v5] done');
   } finally {
     db.close();
