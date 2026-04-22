@@ -1,165 +1,192 @@
-// src-v4/core/wake-up.test.ts
-
-import { describe, it, expect } from 'vitest';
-import { renderWakeUpBriefing } from './wake-up.js';
-import type { WakeUpBriefingData } from './types.js';
+import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+import { mkdtempSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { createUserDb, type UserDb } from '../db/user-db.js';
+import { buildWakeUpBriefing, renderWakeUpBriefing, computeLastUserMsgGap } from './wake-up.js';
 
 describe('renderWakeUpBriefing', () => {
-  const baseData: WakeUpBriefingData = {
-    now: new Date('2026-04-21T14:30:00Z'),
-    timezone: 'WIB',
-    identity: { name: 'Mirza', current_location: 'Jakarta', language: 'id' },
-    hints: {
-      ongoing: 3,
-      tasks: 2,
-      tasks_due_today: 1,
-      habits: 5,
-      habits_today_done: 3,
-      habits_today_total: 5,
-      habits_longest_streak: 14,
-      relationships: 8,
-    },
-    lastSummary: {
+  let tmp: string; let db: UserDb;
+  beforeEach(() => { tmp = mkdtempSync(join(tmpdir(), 'v5-wu-')); db = createUserDb('u', tmp); });
+  afterEach(() => { db.close(); rmSync(tmp, { recursive: true, force: true }); });
+
+  it('renders empty profile and zero counts on fresh user', () => {
+    const data = buildWakeUpBriefing({
+      userId: 'u', now: new Date('2026-04-22T10:30:00+07:00'),
+      timezone: 'Asia/Jakarta', userDb: db,
+    });
+    const out = renderWakeUpBriefing(data);
+    expect(out).toContain('<profile>');
+    expect(out).toContain('</profile>');
+    expect(out).toContain('Active tasks: 0');
+    expect(out).toContain('Knowledge: 0 entries');
+  });
+
+  it('renders populated profile slots in fixed order', () => {
+    db.profile.setMany([
+      { key: 'name', value: 'Mirza' },
+      { key: 'language', value: 'id' },
+      { key: 'timezone', value: 'Asia/Seoul' },
+    ]);
+    const data = buildWakeUpBriefing({
+      userId: 'u', now: new Date(), timezone: 'Asia/Jakarta', userDb: db,
+    });
+    const out = renderWakeUpBriefing(data);
+    const nameIdx = out.indexOf('name: "Mirza"');
+    const langIdx = out.indexOf('language: "id"');
+    const tzIdx = out.indexOf('timezone: "Asia/Seoul"');
+    expect(nameIdx).toBeGreaterThan(-1);
+    expect(langIdx).toBeGreaterThan(nameIdx);
+    expect(tzIdx).toBeGreaterThan(langIdx);
+  });
+
+  it('groups preferences by kind', () => {
+    db.preferences.saveMany([
+      { kind: 'rule', key: 'food_halal', value: 'halal only' },
+      { kind: 'style', key: 'casual_register', value: 'friendly' },
+    ]);
+    const data = buildWakeUpBriefing({
+      userId: 'u', now: new Date(), timezone: 'Asia/Jakarta', userDb: db,
+    });
+    const out = renderWakeUpBriefing(data);
+    expect(out).toContain('Rules (must observe):');
+    expect(out).toContain('- food_halal: halal only');
+    expect(out).toContain('Style (how to communicate & interact):');
+    expect(out).toContain('- casual_register: friendly');
+  });
+
+  it('renders knowledge breakdown by category', () => {
+    db.knowledge.saveMany([
+      { category: 'identity', key: 'a', value: '1' },
+      { category: 'person', key: 'b', value: '2' },
+      { category: 'person', key: 'c', value: '3' },
+    ]);
+    const data = buildWakeUpBriefing({
+      userId: 'u', now: new Date(), timezone: 'Asia/Jakarta', userDb: db,
+    });
+    const out = renderWakeUpBriefing(data);
+    expect(out).toMatch(/Knowledge: 3 entries — identity: 1, person: 2, routine: 0, context: 0, insight: 0/);
+  });
+
+  it('omits last_user_msg_gap attribute when no user message exists', () => {
+    const data = buildWakeUpBriefing({
+      userId: 'u', now: new Date(), timezone: 'Asia/Jakarta', userDb: db,
+    });
+    const out = renderWakeUpBriefing(data);
+    expect(out).not.toContain('last_user_msg_gap');
+  });
+
+  it('includes last_session_summary block when summary exists', () => {
+    db.sessions.saveSummary({
       id: 'sum-1',
       session_id: 'abc123',
-      user_id: 'u1',
-      summary:
-        'Mirza sedang refactor v3 ke v4.\nKey points:\n- Decision X <msg_ref id="abc"/>',
+      user_id: 'u',
+      summary: 'Mirza sedang refactor v4 ke v5.',
       turns: 30,
       ended_at: '2026-04-21T20:00:00+07:00',
       ended_reason: 'turn_threshold',
       created_at: '2026-04-21T20:00:05+07:00',
-    },
-  };
-
-  it('produces a valid XML block wrapped in <wake_up_briefing>', () => {
-    const out = renderWakeUpBriefing(baseData);
-    expect(out.startsWith('<wake_up_briefing>')).toBe(true);
-    expect(out.endsWith('</wake_up_briefing>')).toBe(true);
-  });
-
-  it('includes current_moment with now and timezone attrs', () => {
-    const out = renderWakeUpBriefing(baseData);
-    expect(out).toContain('<current_moment');
-    expect(out).toContain('now="2026-04-21T14:30:00.000Z"');
-    expect(out).toContain('timezone="WIB"');
-  });
-
-  it('includes core_identity with name, location, language', () => {
-    const out = renderWakeUpBriefing(baseData);
-    expect(out).toContain('name: "Mirza"');
-    expect(out).toContain('current_location: "Jakarta"');
-    expect(out).toContain('language: "id"');
-  });
-
-  it('omits missing identity fields', () => {
-    const out = renderWakeUpBriefing({
-      ...baseData,
-      identity: { name: 'Ana' },
     });
-    expect(out).toContain('name: "Ana"');
-    expect(out).not.toContain('current_location');
-    expect(out).not.toContain('language');
-  });
-
-  it('includes context_hints with counts and today-scoped suffixes', () => {
-    const out = renderWakeUpBriefing(baseData);
-    expect(out).toContain('Ongoing situations: 3');
-    expect(out).toContain('Active tasks: 2 (1 due today)');
-    expect(out).toContain('Active habits: 5 (3/5 done today, longest streak: 14)');
-    expect(out).toContain('Relationships tracked: 8');
-  });
-
-  it('omits due-today and habit-progress suffixes when zero', () => {
-    const out = renderWakeUpBriefing({
-      ...baseData,
-      hints: {
-        ongoing: 0,
-        tasks: 0,
-        tasks_due_today: 0,
-        habits: 0,
-        habits_today_done: 0,
-        habits_today_total: 0,
-        habits_longest_streak: 0,
-        relationships: 0,
-      },
+    const data = buildWakeUpBriefing({
+      userId: 'u', now: new Date(), timezone: 'Asia/Jakarta', userDb: db,
     });
-    expect(out).toContain('Active tasks: 0');
-    expect(out).not.toContain('due today');
-    expect(out).toContain('Active habits: 0');
-    expect(out).not.toContain('done today');
-    expect(out).not.toContain('longest streak');
-  });
-
-  it('includes last_session_summary block with summary text', () => {
-    const out = renderWakeUpBriefing(baseData);
+    const out = renderWakeUpBriefing(data);
     expect(out).toContain('<last_session_summary');
     expect(out).toContain('from_session="abc123"');
     expect(out).toContain('turns="30"');
-    expect(out).toContain('Mirza sedang refactor');
+    expect(out).toContain('Mirza sedang refactor v4 ke v5.');
   });
 
-  it('omits last_session_summary when no summary provided', () => {
-    const out = renderWakeUpBriefing({
-      ...baseData,
-      lastSummary: undefined,
+  it('falls back to recent messages when no summary exists', () => {
+    db.messages.insert({
+      id: 'm1', gateway: 'console', session_id: null,
+      sender: 'user', timestamp: Date.now(), type: 'text', body: 'Halo',
+      has_media: 0, media_mimetype: null, media_filename: null,
+      media_size: null, media_path: null, quoted_msg_id: null,
+      is_forwarded: 0, raw_json: null,
     });
+    const data = buildWakeUpBriefing({
+      userId: 'u', now: new Date(), timezone: 'Asia/Jakarta', userDb: db,
+    });
+    const out = renderWakeUpBriefing(data);
+    expect(out).toContain('<recent_messages');
+    expect(out).toContain('Halo');
     expect(out).not.toContain('<last_session_summary');
   });
 
-  it('falls back to recent messages when summary missing but fallback provided', () => {
-    const out = renderWakeUpBriefing({
-      ...baseData,
-      lastSummary: undefined,
-      fallbackRecentMessages: [
-        {
-          id: 'm1',
-          gateway: 'console',
-          session_id: 'x',
-          sender: 'user',
-          timestamp: 1700000000000,
-          type: 'text',
-          body: 'Halo',
-          has_media: 0,
-          media_mimetype: null,
-          media_filename: null,
-          media_size: null,
-          media_path: null,
-          quoted_msg_id: null,
-          is_forwarded: 0,
-          raw_json: null,
-        },
-      ],
-    });
-    expect(out).toContain('<recent_messages');
-    expect(out).toContain('Halo');
-  });
-
   it('escapes XML special characters in fallback message bodies', () => {
-    const out = renderWakeUpBriefing({
-      ...baseData,
-      lastSummary: undefined,
-      fallbackRecentMessages: [
-        {
-          id: 'm1',
-          gateway: 'console',
-          session_id: 'x',
-          sender: 'user',
-          timestamp: 1700000000000,
-          type: 'text',
-          body: 'a & b <c>',
-          has_media: 0,
-          media_mimetype: null,
-          media_filename: null,
-          media_size: null,
-          media_path: null,
-          quoted_msg_id: null,
-          is_forwarded: 0,
-          raw_json: null,
-        },
-      ],
+    db.messages.insert({
+      id: 'm2', gateway: 'console', session_id: null,
+      sender: 'user', timestamp: Date.now(), type: 'text', body: 'a & b <c>',
+      has_media: 0, media_mimetype: null, media_filename: null,
+      media_size: null, media_path: null, quoted_msg_id: null,
+      is_forwarded: 0, raw_json: null,
     });
+    const data = buildWakeUpBriefing({
+      userId: 'u', now: new Date(), timezone: 'Asia/Jakarta', userDb: db,
+    });
+    const out = renderWakeUpBriefing(data);
     expect(out).toContain('a &amp; b &lt;c&gt;');
     expect(out).not.toContain('a & b <c>');
+  });
+});
+
+describe('computeLastUserMsgGap', () => {
+  let tmp: string; let db: UserDb;
+  beforeEach(() => { tmp = mkdtempSync(join(tmpdir(), 'v5-gap-')); db = createUserDb('u', tmp); });
+  afterEach(() => { db.close(); rmSync(tmp, { recursive: true, force: true }); });
+
+  it('returns null when no user messages exist', () => {
+    expect(computeLastUserMsgGap(db, new Date())).toBeNull();
+  });
+
+  it('formats gap as minutes when under an hour', () => {
+    const now = new Date('2026-04-22T10:30:00Z');
+    const threeMinAgo = now.getTime() - 3 * 60 * 1000;
+    db.messages.insert({
+      id: 'm1', gateway: 'console', session_id: null,
+      sender: 'user', timestamp: threeMinAgo, type: 'text', body: 'hi',
+      has_media: 0, media_mimetype: null, media_filename: null,
+      media_size: null, media_path: null, quoted_msg_id: null,
+      is_forwarded: 0, raw_json: null,
+    });
+    expect(computeLastUserMsgGap(db, now)).toBe('3m');
+  });
+
+  it('formats gap as hours+minutes when under a day', () => {
+    const now = new Date('2026-04-22T10:30:00Z');
+    const ago = now.getTime() - (19 * 60 + 52) * 60 * 1000;
+    db.messages.insert({
+      id: 'm2', gateway: 'console', session_id: null,
+      sender: 'user', timestamp: ago, type: 'text', body: 'hi',
+      has_media: 0, media_mimetype: null, media_filename: null,
+      media_size: null, media_path: null, quoted_msg_id: null,
+      is_forwarded: 0, raw_json: null,
+    });
+    expect(computeLastUserMsgGap(db, now)).toBe('19h 52m');
+  });
+
+  it('formats gap as days+hours when >= a day', () => {
+    const now = new Date('2026-04-22T10:30:00Z');
+    const ago = now.getTime() - (3 * 24 + 14) * 60 * 60 * 1000;
+    db.messages.insert({
+      id: 'm3', gateway: 'console', session_id: null,
+      sender: 'user', timestamp: ago, type: 'text', body: 'hi',
+      has_media: 0, media_mimetype: null, media_filename: null,
+      media_size: null, media_path: null, quoted_msg_id: null,
+      is_forwarded: 0, raw_json: null,
+    });
+    expect(computeLastUserMsgGap(db, now)).toBe('3d 14h');
+  });
+
+  it('ignores non-user messages for gap calculation', () => {
+    db.messages.insert({
+      id: 'm-ai', gateway: 'console', session_id: null,
+      sender: 'assistant', timestamp: Date.now() - 60 * 1000, type: 'text', body: 'reply',
+      has_media: 0, media_mimetype: null, media_filename: null,
+      media_size: null, media_path: null, quoted_msg_id: null,
+      is_forwarded: 0, raw_json: null,
+    });
+    expect(computeLastUserMsgGap(db, new Date())).toBeNull();
   });
 });
