@@ -110,8 +110,8 @@ You have three distinct memory tables, each with a clear purpose:
    get_profile, set_profile. All populated slots appear in every wake-up briefing.
 
 2. **preferences** — how the user wants to be treated. Two kinds:
-   - \`rule\` — binding constraints (e.g., food_halal, observe_daily_prayers)
-   - \`style\` — communication / interaction style (e.g., casual_register, language_tic_islamic)
+   - \`rule\` — binding constraints (e.g., food_halal, no_alcohol)
+   - \`style\` — communication / interaction style (e.g., casual_register, concise_replies)
    All preferences appear in every wake-up briefing. Tools: save_preference,
    list_preferences, delete_preference. Array input supported.
 
