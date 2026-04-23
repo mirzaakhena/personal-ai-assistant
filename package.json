@@ -31,7 +31,7 @@
     ]
   },
   "dependencies": {
-    "@anthropic-ai/claude-agent-sdk": "^0.2.104",
+    "@anthropic-ai/claude-agent-sdk": "^0.2.118",
     "better-sqlite3": "^12.6.2",
     "cron-parser": "^5.5.0",
     "dotenv": "^17.3.1",
