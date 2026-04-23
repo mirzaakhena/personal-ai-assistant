@@ -3,6 +3,8 @@
 // Context window size inference from model ID.
 // Source: Anthropic public pricing + model cards.
 
+import { TIMEZONE } from './model-config.js';
+
 const ONE_MILLION = 1_000_000;
 const TWO_HUNDRED_K = 200_000;
 
@@ -69,12 +71,11 @@ export function formatResetsIn(resetsAtSeconds: number | null): string {
   return `${m}m`;
 }
 
-/** Format unix-epoch-seconds reset time as "HH:MM" in Jakarta tz. */
+/** Format unix-epoch-seconds reset time as "HH:MM" in local tz. */
 export function formatResetsAtLocal(resetsAtSeconds: number | null): string {
   if (resetsAtSeconds === null) return '—';
   const ms = resetsAtSeconds * 1000;
-  // Format in Jakarta timezone (server default)
   return new Date(ms).toLocaleTimeString('en-GB', {
-    hour: '2-digit', minute: '2-digit', timeZone: 'Asia/Jakarta',
+    hour: '2-digit', minute: '2-digit', timeZone: TIMEZONE,
   });
 }

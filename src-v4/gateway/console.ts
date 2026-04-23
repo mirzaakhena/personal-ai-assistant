@@ -37,7 +37,7 @@ import { formatUsd } from '../utils/pricing.js';
 import { getContextLimit, contextUsedFromUsage, formatTokens, formatResetsIn, formatResetsAtLocal } from '../utils/context-limits.js';
 import { renderBarLine, contextPercentage } from '../utils/status-bar.js';
 import { enqueue } from '../utils/queue.js';
-import { requireModel } from '../utils/model-config.js';
+import { requireModel, TIMEZONE } from '../utils/model-config.js';
 
 export interface ConsoleGatewayConfig {
   /** Base data directory. Users live at <dataDir>/users/<userId>/. Default 'data'. */
@@ -50,7 +50,7 @@ export interface ConsoleGatewayConfig {
   triggerHost?: string | null;
   /** Trigger server port. Default 3100. */
   triggerPort?: number;
-  /** Timezone label for wake-up briefing. Default 'WIB'. */
+  /** Timezone for wake-up briefing. Default from TIMEZONE env var. */
   timezone?: string;
   /** Soft turn threshold for session summarization. Default 30. */
   summarizeTurnThreshold?: number;
@@ -63,7 +63,7 @@ export function createConsoleGateway(config?: ConsoleGatewayConfig): Gateway {
   const model = requireModel(config?.model);
   const dataDir = config?.dataDir ?? 'data';
   const usersBaseDir = join(dataDir, 'users');
-  const timezone = config?.timezone ?? 'WIB';
+  const timezone = config?.timezone ?? TIMEZONE;
   const summarizeTurnThreshold =
     config?.summarizeTurnThreshold ??
     parseInt(process.env.SUMMARIZE_TURN_THRESHOLD ?? '30', 10);

@@ -8,8 +8,7 @@ import { computeMissedExecutionTimes } from './utils.js';
 import type { CronjobInput, CronjobInfo } from '../tools/cronjob.js';
 import type { UserDbCache } from '../db/user-db-cache.js';
 import { log } from '../utils/logger.js';
-
-const TIMEZONE = 'Asia/Jakarta';
+import { TIMEZONE } from '../utils/model-config.js';
 
 /** Job representation passed to onFire callback */
 export interface ScheduledJob {

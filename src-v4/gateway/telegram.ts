@@ -40,7 +40,7 @@ import { buildWakeUpBriefing, renderWakeUpBriefing } from '../core/wake-up.js';
 import { summarizeSession } from '../core/summarize.js';
 import { ensureUserSkillDir } from '../skills/storage.js';
 import { incrementTurnCount, getTurnCount, clearTurnCount } from '../utils/turns.js';
-import { requireModel } from '../utils/model-config.js';
+import { requireModel, TIMEZONE } from '../utils/model-config.js';
 import {
   recordQuery,
   recordRateLimit,
@@ -133,7 +133,7 @@ export function createTelegramGateway(config: TelegramGatewayConfig): Gateway {
   const model = requireModel(config.model);
   const dataDir = config.dataDir ?? 'data';
   const usersBaseDir = join(dataDir, 'users');
-  const timezone = config.timezone ?? 'WIB';
+  const timezone = config.timezone ?? TIMEZONE;
   const summarizeTurnThreshold =
     config.summarizeTurnThreshold ??
     parseInt(process.env.SUMMARIZE_TURN_THRESHOLD ?? '30', 10);

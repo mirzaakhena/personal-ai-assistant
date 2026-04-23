@@ -1,8 +1,7 @@
 // src-v4/cron/utils.ts
 
 import { CronExpressionParser } from 'cron-parser';
-
-const TIMEZONE = 'Asia/Jakarta';
+import { TIMEZONE } from '../utils/model-config.js';
 
 /**
  * Compute all cron execution times between fromMs (exclusive) and toMs (exclusive).

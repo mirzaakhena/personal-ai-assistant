@@ -1,8 +1,7 @@
 // src-v4/utils/prompt.ts
 
 import type { ContentBlock, MediaContentBlock } from './media.js';
-
-const TIMEZONE = 'Asia/Jakarta';
+import { TIMEZONE } from './model-config.js';
 
 export type QuotedSender = 'user' | 'assistant';
 

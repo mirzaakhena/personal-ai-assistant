@@ -1,6 +1,6 @@
 // src-v4/utils/logger.ts
 
-const TIMEZONE = 'Asia/Jakarta';
+import { TIMEZONE } from './model-config.js';
 
 const GRAY  = '\x1b[90m';
 const RED   = '\x1b[31m';

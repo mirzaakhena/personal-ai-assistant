@@ -8,6 +8,8 @@
  * enabled expensive runtime surprises. Fail-fast instead — the caller must make the choice
  * deliberate.
  */
+export const TIMEZONE = process.env.TIMEZONE ?? 'Asia/Jakarta';
+
 export function requireModel(explicit?: string): string {
   if (explicit && explicit.length > 0) return explicit;
   const fromEnv = process.env.CLAUDE_MODEL;
