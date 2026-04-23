@@ -11,11 +11,11 @@
 import Database from 'better-sqlite3';
 import { copyFileSync, existsSync } from 'node:fs';
 import { join } from 'node:path';
-import { createProfileStore } from '../src-v4/db/profile.js';
-import { createPreferenceStore } from '../src-v4/db/preferences.js';
-import { createKnowledgeStore, type KnowledgeCategory } from '../src-v4/db/knowledge.js';
-import { createJournalStore } from '../src-v4/db/journal.js';
-import { createTaskStore, type TaskStatus } from '../src-v4/db/tasks.js';
+import { createProfileStore } from '../src/db/profile.js';
+import { createPreferenceStore } from '../src/db/preferences.js';
+import { createKnowledgeStore, type KnowledgeCategory } from '../src/db/knowledge.js';
+import { createJournalStore } from '../src/db/journal.js';
+import { createTaskStore, type TaskStatus } from '../src/db/tasks.js';
 
 // ── Config ──────────────────────────────────────────
 const USER_ID = process.env.V5_MIGRATE_USER_ID ?? 'console-user';

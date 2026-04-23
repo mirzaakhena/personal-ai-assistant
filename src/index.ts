@@ -1,77 +1,143 @@
-import dotenv from 'dotenv';
-import { existsSync, readFileSync, rmSync } from 'fs';
-import { join } from 'path';
-import { createWhatsAppGateway } from './gateway/whatsapp.js';
-import { createWebChatGateway } from './gateway/webchat.js';
-import { processMessage } from './handlers/message.js';
-import { createCronRegistry } from './cron/registry.js';
-import { reconcileOnStartup } from './cron/scheduler.js';
-import { startTriggerServer } from './trigger/server.js';
-import { initMemoryDb, closeMemoryDb } from './db/memory.js';
+// src/index.ts
+
+import 'dotenv/config';
+import { join } from 'node:path';
+import { existsSync, readdirSync } from 'node:fs';
+import Database from 'better-sqlite3';
+import { createConsoleGateway } from './gateway/console.js';
+import { createTelegramGateway } from './gateway/telegram.js';
+import { createUserDbCache } from './db/user-db-cache.js';
 import { log } from './utils/logger.js';
-import { PROJECT_DIR, RESTART_FLAG_FILE } from './core/constants.js';
-import type { MessageGateway } from './gateway/types.js';
+import type { Gateway } from './gateway/types.js';
 
-dotenv.config({ path: join(PROJECT_DIR, '.env') });
+const GATEWAY_KIND = (process.env.GATEWAY ?? 'console').toLowerCase();
+const DATA_DIR = process.env.DATA_DIR ?? 'data';
+const USERS_BASE_DIR = join(DATA_DIR, 'users');
 
-const WHITELIST_NUMBERS = new Set(
-  (process.env.WHITELIST_NUMBERS ?? '')
-    .split(',')
-    .map((n) => n.trim())
-    .filter(Boolean)
-);
-
-if (WHITELIST_NUMBERS.size === 0) {
-  log.error('[WARN] WHITELIST_NUMBERS is empty — no messages will be processed');
-}
-
-const registry = createCronRegistry();
-
-// Gateway selection
-const gatewayType = process.env.GATEWAY ?? 'whatsapp';
-let gateway: MessageGateway;
-
-if (gatewayType === 'webchat') {
-  const userId = process.env.WEBCHAT_USER_ID;
-  if (!userId) throw new Error('WEBCHAT_USER_ID env var is required for webchat gateway');
-  const port = parseInt(process.env.WEBCHAT_PORT ?? '3000', 10);
-  gateway = createWebChatGateway({ userId, port });
-} else {
-  gateway = createWhatsAppGateway({ whitelistNumbers: WHITELIST_NUMBERS });
-}
-
-const shutdown = async (signal: string) => {
-  log.debug(`[SHUTDOWN] received ${signal}, shutting down...`);
-  await closeMemoryDb();
-  await gateway.stop();
-  process.exit(0);
-};
-
-process.on('SIGINT', () => shutdown('SIGINT'));
-process.on('SIGTERM', () => shutdown('SIGTERM'));
-
-await initMemoryDb();
-
-// Start gateway first — must be ready before sending any messages
-await gateway.start((msg) => processMessage(gateway, msg, registry));
-
-// Reconcile cronjobs (schedules cron timers that fire later via gateway.sendMessage)
-reconcileOnStartup(registry, gateway);
-
-// Start internal trigger server for Claude Code Stop hook notifications
-startTriggerServer(gateway, registry);
-
-// Handle restart flag (WhatsApp-specific but harmless for other gateways)
-if (existsSync(RESTART_FLAG_FILE)) {
-  try {
-    const { chatId } = JSON.parse(readFileSync(RESTART_FLAG_FILE, 'utf-8'));
-    rmSync(RESTART_FLAG_FILE);
-    if (chatId) {
-      const userId = chatId.replace(/@.*$/, '');
-      await gateway.sendMessage(userId, '✅ Bot sudah aktif kembali.');
+/**
+ * v3→v4 session cleanup (one-time, idempotent).
+ *
+ * A user's stored sessionId from v3 must not be resumed under v4's prompt —
+ * the compiled system prompt differs fundamentally. We detect "never had a
+ * v4 session" by checking for any row in session_summaries; if none exists
+ * and a sessionId is present, we clear it so the user's next message
+ * triggers a fresh v4 session with a full wake-up briefing.
+ *
+ * Safe to run on every boot: once a user completes any v4 summarize, the
+ * cleanup becomes a no-op for them.
+ */
+function cleanupV3Sessions(): void {
+  const cache = createUserDbCache(USERS_BASE_DIR);
+  const users = cache.listKnownUsers();
+  let cleared = 0;
+  for (const userId of users) {
+    const userDb = cache.get(userId);
+    const sessionId = userDb.sessions.get();
+    if (!sessionId) continue;
+    const anyV4Summary = userDb.sessions.getLatestSummaryForUser(userId);
+    if (!anyV4Summary) {
+      userDb.sessions.delete();
+      cleared += 1;
     }
-  } catch (err) {
-    log.error(`[RESTART] failed to process restart flag: ${err}`);
-    rmSync(RESTART_FLAG_FILE, { force: true });
+  }
+  if (cleared > 0) {
+    log.debug(`v3→v4 cleanup: cleared ${cleared} stale sessionId(s)`);
+  }
+  cache.closeAll();
+}
+
+/**
+ * v5 memory migration gate — fail-fast if any existing user's DB hasn't been
+ * migrated. New users (no directory yet) are allowed through — they have no
+ * legacy data to migrate and will get a fresh v5 schema on first boot.
+ *
+ * The flag `v5_memory_migrated='true'` is set by scripts/migrate-v5-memory.ts
+ * at the end of a successful migration run.
+ *
+ * Uses raw SQLite instead of createUserDb to avoid running v5 DDL against
+ * old-schema databases (which would crash on schema mismatches).
+ */
+function checkV5Migration(): void {
+  if (!existsSync(USERS_BASE_DIR)) return;
+  const userIds = readdirSync(USERS_BASE_DIR, { withFileTypes: true })
+    .filter(d => d.isDirectory())
+    .map(d => d.name);
+
+  const unmigrated: string[] = [];
+  for (const userId of userIds) {
+    const dbPath = join(USERS_BASE_DIR, userId, 'app.db');
+    if (!existsSync(dbPath)) continue; // new user, no legacy data
+    const db = new Database(dbPath, { readonly: true });
+    try {
+      // session_meta table may not exist on old DBs — that means unmigrated.
+      const hasTable = db.prepare(
+        `SELECT name FROM sqlite_master WHERE type='table' AND name='session_meta'`
+      ).get() as { name: string } | undefined;
+      if (!hasTable) {
+        unmigrated.push(userId);
+        continue;
+      }
+      const row = db.prepare(
+        `SELECT value FROM session_meta WHERE key = 'v5_memory_migrated'`
+      ).get() as { value: string } | undefined;
+      if (row?.value !== 'true') {
+        unmigrated.push(userId);
+      }
+    } finally {
+      db.close();
+    }
+  }
+
+  if (unmigrated.length > 0) {
+    console.error('');
+    for (const userId of unmigrated) {
+      console.error(`❌  v5 memory migration has not been run for user: ${userId}`);
+      console.error(`    Run: V5_MIGRATE_USER_ID=${userId} pnpm tsx scripts/migrate-v5-memory.ts`);
+      console.error(`    (this is a one-shot migration; it backs up app.db before running)`);
+      console.error('');
+    }
+    process.exit(1);
   }
 }
+
+function pickGateway(): Gateway {
+  if (GATEWAY_KIND === 'telegram') {
+    return createTelegramGateway({
+      token: process.env.TELEGRAM_BOT_TOKEN ?? '',
+      whitelist: process.env.TELEGRAM_WHITELIST?.split(',').map(Number) ?? [],
+      dataDir: DATA_DIR,
+    });
+  }
+  return createConsoleGateway({
+    dataDir: DATA_DIR,
+    userId: process.env.CONSOLE_USER_ID ?? 'console-user',
+  });
+}
+
+// v5 migration gate runs FIRST — before any v5 DDL touches user databases.
+// cleanupV3Sessions() uses createUserDb which applies v5 schema DDL; it must
+// only run after all existing user DBs have been confirmed as migrated.
+checkV5Migration();
+cleanupV3Sessions();
+
+const gateway = pickGateway();
+
+let shuttingDown = false;
+async function shutdown(signal: string) {
+  if (shuttingDown) return;
+  shuttingDown = true;
+  log.debug(`received ${signal}, shutting down...`);
+  // gateway.stop() is idempotent and handles session summarization
+  // internally (see gateway/console.ts and gateway/telegram.ts).
+  try {
+    await gateway.stop();
+  } catch (err) {
+    log.error('shutdown error', err);
+  }
+  process.exit(0);
+}
+
+process.on('SIGINT', () => void shutdown('SIGINT'));
+process.on('SIGTERM', () => void shutdown('SIGTERM'));
+
+await gateway.start();

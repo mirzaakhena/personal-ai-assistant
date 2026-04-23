@@ -1,19 +1,36 @@
+// src/cron/registry.ts
+
 import type { ScheduledTask } from 'node-cron';
 
-export type CronRegistry = Map<string, ScheduledTask>;
+/**
+ * Tracks active node-cron ScheduledTask instances by job ID.
+ * In-memory — tasks are re-registered on startup via reconcile.
+ */
+export interface CronRegistry {
+  register(jobId: string, task: ScheduledTask): void;
+  unregister(jobId: string): void;
+  clear(): void;
+}
 
 export function createCronRegistry(): CronRegistry {
-  return new Map();
-}
+  const tasks = new Map<string, ScheduledTask>();
 
-export function registerCronTask(registry: CronRegistry, jobId: string, task: ScheduledTask): void {
-  registry.set(jobId, task);
-}
-
-export function unregisterCronTask(registry: CronRegistry, jobId: string): void {
-  const task = registry.get(jobId);
-  if (task) {
-    task.stop();
-    registry.delete(jobId);
-  }
+  return {
+    register(jobId, task) {
+      tasks.set(jobId, task);
+    },
+    unregister(jobId) {
+      const task = tasks.get(jobId);
+      if (task) {
+        task.stop();
+        tasks.delete(jobId);
+      }
+    },
+    clear() {
+      for (const task of tasks.values()) {
+        task.stop();
+      }
+      tasks.clear();
+    },
+  };
 }

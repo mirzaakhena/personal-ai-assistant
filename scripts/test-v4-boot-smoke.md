@@ -1,13 +1,13 @@
 # v4 Boot Smoke Test — 2026-04-21
 
-Quick boot-level verification that `src-v4/index.ts` starts and exits cleanly before cutover.
+Quick boot-level verification that `src/index.ts` starts and exits cleanly before cutover.
 
 ## Command
 
 ```bash
 printf '/exit\n' \
   | CLAUDE_MODEL=claude-sonnet-4-6 GATEWAY=console CONSOLE_USER_ID=v4-boot-smoke \
-    timeout 10 pnpm tsx src-v4/index.ts
+    timeout 10 pnpm tsx src/index.ts
 ```
 
 ## Observed (pass)

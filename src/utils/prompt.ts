@@ -1,68 +1,102 @@
-import { TIMEZONE } from '../core/constants.js';
-import type { MediaContentBlock } from './media.js';
+// src/utils/prompt.ts
 
-export type TextBlock = { type: 'text'; text: string };
-export type ContentBlock = TextBlock | MediaContentBlock;
+import type { ContentBlock, MediaContentBlock } from './media.js';
+import { TIMEZONE } from './model-config.js';
 
-function getFormattedDateTime(): { dateStr: string; timeStr: string } {
-  const now = new Date();
+export type QuotedSender = 'user' | 'assistant';
 
-  const dateStr = new Intl.DateTimeFormat("en-US", {
-    timeZone: TIMEZONE,
-    weekday: "long",
-    year: "numeric",
-    month: "long",
-    day: "numeric",
-  }).format(now);
-
-  const timeStr = new Intl.DateTimeFormat("en-US", {
-    timeZone: TIMEZONE,
-    hour: "2-digit",
-    minute: "2-digit",
-    second: "2-digit",
-    hour12: false,
-    timeZoneName: "short",
-  }).format(now);
-
-  return { dateStr, timeStr };
+export interface QuotedInfo {
+  /** The text of the quoted message */
+  content: string;
+  /** Who sent the quoted message */
+  sender: QuotedSender;
+  /** When the quoted message was originally sent (optional) */
+  at?: Date;
+  /** True if the quoted message was originally forwarded from elsewhere */
+  forwarded?: boolean;
 }
 
-export function buildUserPrompt(
-  message: string,
-  quotedMessage?: string,
-  mediaBlocks?: MediaContentBlock[]
-): ContentBlock[] {
-  const { dateStr, timeStr } = getFormattedDateTime();
+/** Format a Date as ISO 8601 with the local timezone offset derived from TIMEZONE. */
+function toIsoLocal(date: Date): string {
+  const pad = (n: number) => String(n).padStart(2, '0');
+  const utcMs = new Date(date.toLocaleString('en-US', { timeZone: 'UTC' })).getTime();
+  const localMs = new Date(date.toLocaleString('en-US', { timeZone: TIMEZONE })).getTime();
+  const offsetMs = localMs - utcMs;
+  const local = new Date(date.getTime() + offsetMs);
+  const sign = offsetMs >= 0 ? '+' : '-';
+  const absMin = Math.abs(offsetMs) / 60000;
+  const offset = `${sign}${pad(Math.floor(absMin / 60))}:${pad(absMin % 60)}`;
+  return `${local.getUTCFullYear()}-${pad(local.getUTCMonth() + 1)}-${pad(local.getUTCDate())}T${pad(local.getUTCHours())}:${pad(local.getUTCMinutes())}:${pad(local.getUTCSeconds())}${offset}`;
+}
 
-  const quotedBlock = quotedMessage
-    ? `\n[REPLYING TO]\n${quotedMessage}\n`
-    : '';
+/** Escape XML-significant characters in element body / attribute values. */
+function escapeXml(s: string): string {
+  return s
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;');
+}
 
-  const textContent = `[USER MESSAGE]
+/**
+ * Build the <user_message> XML block.
+ * Returns the structured XML text. Used for both string and ContentBlock[] return paths.
+ */
+function buildUserMessageText(message: string, quoted?: QuotedInfo, hasMedia?: boolean): string {
+  const ts = toIsoLocal(new Date());
+  const attrs = [`timestamp="${ts}"`];
+  if (hasMedia) attrs.push(`has_media="true"`);
 
-Timestamp: ${dateStr}, ${timeStr}
-${quotedBlock}
-[MESSAGE]
-${message || '(no caption)'}`;
+  const lines: string[] = [`<user_message ${attrs.join(' ')}>`];
 
-  const blocks: ContentBlock[] = [];
-
-  if (mediaBlocks && mediaBlocks.length > 0) {
-    blocks.push(...mediaBlocks);
+  if (quoted) {
+    const qAttrs = [`from="${quoted.sender}"`];
+    if (quoted.at) qAttrs.push(`timestamp="${toIsoLocal(quoted.at)}"`);
+    if (quoted.forwarded) qAttrs.push(`forwarded="true"`);
+    lines.push(`  <replying_to ${qAttrs.join(' ')}>`);
+    lines.push(`    <content>${escapeXml(quoted.content)}</content>`);
+    lines.push(`  </replying_to>`);
   }
 
-  blocks.push({ type: 'text', text: textContent });
-
-  return blocks;
+  const body = message.length > 0 ? message : (hasMedia ? '(no caption)' : '');
+  lines.push(`  <body>${escapeXml(body)}</body>`);
+  lines.push(`</user_message>`);
+  return lines.join('\n');
 }
 
-export function buildCronjobPrompt(message: string): string {
-  const { dateStr, timeStr } = getFormattedDateTime();
+/**
+ * Format a user message with timestamp, optional quoted context, and optional media.
+ * - No media → returns a plain string (backward compatible with console gateway etc.).
+ * - With media → returns ContentBlock[] where media blocks come first, then a text block.
+ */
+export function buildUserPrompt(
+  message: string,
+  quoted?: QuotedInfo,
+  mediaBlocks?: MediaContentBlock[]
+): string | ContentBlock[] {
+  if (!mediaBlocks || mediaBlocks.length === 0) {
+    return buildUserMessageText(message, quoted, false);
+  }
 
-  return `[CRONJOB MESSAGE]
-
-Timestamp: ${dateStr}, ${timeStr}
-
-[MESSAGE]
-${message}`;
+  const textBlock: ContentBlock = {
+    type: 'text',
+    text: buildUserMessageText(message, quoted, true),
+  };
+  return [...mediaBlocks, textBlock];
 }
+
+/**
+ * Format a system-triggered message (cron, trigger) with timestamp.
+ * System messages remain string-only.
+ */
+export function buildSystemMessagePrompt(message: string): string {
+  const ts = toIsoLocal(new Date());
+  return [
+    `<system_message timestamp="${ts}">`,
+    `  <body>${escapeXml(message)}</body>`,
+    `</system_message>`,
+  ].join('\n');
+}
+
+// re-export for backward compat (in case anything else imports TIMEZONE)
+export { TIMEZONE };

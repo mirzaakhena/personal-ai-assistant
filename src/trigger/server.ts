@@ -1,73 +1,111 @@
-import http from 'http';
-import { query } from '@anthropic-ai/claude-agent-sdk';
-import { buildCronjobPrompt } from '../utils/prompt.js';
-import { createQueryOptions } from '../core/options.js';
-import { enqueue } from '../utils/queue.js';
-import { saveSessionId } from '../db/sessions.js';
-import { log } from '../utils/logger.js';
-import { TRIGGER_PORT, TRIGGER_HOST, COST_USD_PRECISION } from '../core/constants.js';
-import type { MessageGateway } from '../gateway/types.js';
-import type { CronRegistry } from '../cron/registry.js';
-import type { MessageContext } from '../tools/message.js';
-import type { CronContext } from '../tools/cronjob.js';
-import type { MemoryContext } from '../tools/memory.js';
+// src/trigger/server.ts
 
-export function startTriggerServer(gateway: MessageGateway, registry: CronRegistry): void {
-  const server = http.createServer((req, res) => {
-    if (req.method !== 'POST' || req.url !== '/trigger') {
-      res.writeHead(404);
-      res.end('Not found');
+import { createServer, IncomingMessage, ServerResponse } from 'http';
+import type { TriggerHandler, TriggerServer } from './types.js';
+import { log } from '../utils/logger.js';
+
+export interface TriggerServerConfig {
+  /** Host to bind, default '127.0.0.1' */
+  host?: string;
+  /** Port to listen on, default 3100 */
+  port?: number;
+  /** Called when a valid trigger arrives */
+  onTrigger: TriggerHandler;
+}
+
+function sendJson(res: ServerResponse, status: number, body: unknown): void {
+  res.writeHead(status, { 'Content-Type': 'application/json' });
+  res.end(JSON.stringify(body));
+}
+
+function sendText(res: ServerResponse, status: number, text: string): void {
+  res.writeHead(status, { 'Content-Type': 'text/plain' });
+  res.end(text);
+}
+
+export function createTriggerServer(config: TriggerServerConfig): TriggerServer {
+  const host = config.host ?? '127.0.0.1';
+  const port = config.port ?? 3100;
+  let server: ReturnType<typeof createServer> | null = null;
+
+  function handleRequest(req: IncomingMessage, res: ServerResponse): void {
+    if (req.url !== '/trigger') {
+      sendText(res, 404, 'Not found');
+      return;
+    }
+
+    if (req.method !== 'POST') {
+      sendText(res, 405, 'Method not allowed');
       return;
     }
 
     let body = '';
-    req.on('data', (chunk: Buffer) => { body += chunk.toString(); });
+    req.on('data', (chunk: Buffer) => {
+      body += chunk.toString();
+    });
     req.on('end', () => {
+      let parsed: unknown;
       try {
-        const { message, phone_number } = JSON.parse(body) as { message: string; phone_number: string };
+        parsed = JSON.parse(body);
+      } catch {
+        sendJson(res, 400, { error: 'invalid_json' });
+        return;
+      }
 
-        if (!message || !phone_number) {
-          res.writeHead(400);
-          res.end('Missing message or phone_number');
-          return;
-        }
+      if (typeof parsed !== 'object' || parsed === null) {
+        sendJson(res, 400, { error: 'invalid_json' });
+        return;
+      }
 
-        // Respond immediately — don't block Claude Code
-        res.writeHead(200);
-        res.end('OK');
+      const { userId, message } = parsed as { userId?: unknown; message?: unknown };
 
-        // Process async via the existing queue (same pattern as cronjob executor)
-        enqueue(phone_number, async () => {
-          log.debug(`[TRIGGER] ${phone_number} — processing notification`);
+      if (typeof userId !== 'string' || userId.length === 0) {
+        sendJson(res, 400, { error: 'missing_field', field: 'userId' });
+        return;
+      }
 
-          const ctx: MessageContext = {
-            sendMessage: (content: string) => gateway.sendMessage(phone_number, content),
-          };
-          const cronCtx: CronContext = { registry, phoneNumber: phone_number, gateway };
-          const memCtx: MemoryContext = { phoneNumber: phone_number };
+      if (typeof message !== 'string' || message.length === 0) {
+        sendJson(res, 400, { error: 'missing_field', field: 'message' });
+        return;
+      }
 
-          const prompt = buildCronjobPrompt(message);
-          const options = await createQueryOptions(undefined, ctx, cronCtx, memCtx);
+      // Respond immediately before invoking handler (fire-and-forget)
+      sendJson(res, 200, { accepted: true });
 
-          const responses = query({ prompt, options });
-          for await (const msg of responses) {
-            if (msg.type === 'result') {
-              saveSessionId(phone_number, msg.session_id);
-              log.debug(`[TRIGGER] ${phone_number} done | $${msg.total_cost_usd.toFixed(COST_USD_PRECISION)}`);
-            }
-          }
-        });
-      } catch (err) {
-        log.error('[TRIGGER] failed to process request', err);
-        if (!res.headersSent) {
-          res.writeHead(500);
-          res.end('Internal error');
-        }
+      // Invoke handler async; catch and log any error so it doesn't crash process
+      config.onTrigger({ userId, message }).catch((err) => {
+        log.error(`[TRIGGER] handler failed for ${userId}`, err);
+      });
+    });
+    req.on('error', (err) => {
+      log.error('[TRIGGER] request stream error', err);
+      if (!res.headersSent) {
+        sendText(res, 500, 'Internal error');
       }
     });
-  });
+  }
 
-  server.listen(TRIGGER_PORT, TRIGGER_HOST, () => {
-    log.debug(`[TRIGGER] listening on ${TRIGGER_HOST}:${TRIGGER_PORT}`);
-  });
+  return {
+    async start(): Promise<void> {
+      return new Promise((resolve, reject) => {
+        server = createServer(handleRequest);
+        server.once('error', reject);
+        server.listen(port, host, () => {
+          log.debug(`[TRIGGER] listening on ${host}:${port}`);
+          resolve();
+        });
+      });
+    },
+
+    async stop(): Promise<void> {
+      if (!server) return;
+      return new Promise((resolve, reject) => {
+        server!.close((err) => {
+          if (err) reject(err);
+          else resolve();
+        });
+        server = null;
+      });
+    },
+  };
 }

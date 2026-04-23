@@ -1,96 +1,111 @@
-import type { Message } from 'whatsapp-web.js';
-import {
-  MAX_MEDIA_SIZE_BYTES,
-  SUPPORTED_IMAGE_TYPES,
-  SUPPORTED_DOCUMENT_TYPES,
-} from '../core/constants.js';
-import { log } from './logger.js';
+// src/utils/media.ts
 
-export type MediaContentBlock =
-  | {
-      type: 'image';
-      source: {
-        type: 'base64';
-        media_type: 'image/jpeg' | 'image/png' | 'image/gif' | 'image/webp';
-        data: string;
-      };
-    }
-  | {
-      type: 'document';
-      source: {
-        type: 'base64';
-        media_type: 'application/pdf';
-        data: string;
-      };
-    };
+const SUPPORTED_IMAGE_MIME = ['image/jpeg', 'image/png', 'image/gif', 'image/webp'] as const;
+const SUPPORTED_DOCUMENT_MIME = ['application/pdf'] as const;
 
-export interface DownloadedMedia {
+export const MAX_IMAGE_BYTES = 5 * 1024 * 1024;       // 5 MB
+export const MAX_DOCUMENT_BYTES = 30 * 1024 * 1024;   // 30 MB
+
+export type ImageMimeType = typeof SUPPORTED_IMAGE_MIME[number];
+export type DocumentMimeType = typeof SUPPORTED_DOCUMENT_MIME[number];
+
+export interface ImageContentBlock {
+  type: 'image';
+  source: { type: 'base64'; media_type: ImageMimeType; data: string };
+}
+
+export interface DocumentContentBlock {
+  type: 'document';
+  source: { type: 'base64'; media_type: DocumentMimeType; data: string };
+}
+
+export type MediaContentBlock = ImageContentBlock | DocumentContentBlock;
+
+export interface TextContentBlock {
+  type: 'text';
+  text: string;
+}
+
+export type ContentBlock = TextContentBlock | MediaContentBlock;
+
+/** Input passed by a gateway to validation — base64 data plus source-reported MIME */
+export interface MediaInput {
+  /** Base64-encoded media data */
   data: string;
+  /** MIME type as reported by the source (Telegram, WhatsApp, etc.) */
   mimetype: string;
-  filename: string | null;
+  /** Optional filename for documents */
+  filename?: string;
 }
 
-export async function downloadAndValidateMedia(
-  message: Message
-): Promise<DownloadedMedia | { error: string }> {
-  if (!message.hasMedia) {
-    return { error: 'Message has no media' };
-  }
+export type ValidationError =
+  | { kind: 'unsupported_type'; mimetype: string }
+  | { kind: 'too_large'; sizeBytes: number; limitBytes: number };
 
-  try {
-    const media = await message.downloadMedia();
-
-    if (!media) {
-      return { error: 'Failed to download media.' };
-    }
-
-    const { mimetype, data, filename } = media;
-
-    if (
-      !SUPPORTED_IMAGE_TYPES.has(mimetype) &&
-      !SUPPORTED_DOCUMENT_TYPES.has(mimetype)
-    ) {
-      return {
-        error: `Unsupported file format: ${mimetype}. Supported formats: JPEG, PNG, GIF, WebP images and PDF documents.`,
-      };
-    }
-
-    const sizeBytes = Buffer.from(data, 'base64').length;
-    if (sizeBytes > MAX_MEDIA_SIZE_BYTES) {
-      const sizeMB = (sizeBytes / (1024 * 1024)).toFixed(1);
-      const limitMB = (MAX_MEDIA_SIZE_BYTES / (1024 * 1024)).toFixed(0);
-      return {
-        error: `File too large (${sizeMB}MB). Maximum allowed size is ${limitMB}MB.`,
-      };
-    }
-
-    return { data, mimetype, filename: filename ?? null };
-  } catch (err) {
-    log.error(`Media download failed: ${err}`);
-    return { error: 'Failed to download media. Please try again.' };
-  }
+function isImageMime(m: string): m is ImageMimeType {
+  return (SUPPORTED_IMAGE_MIME as readonly string[]).includes(m);
 }
 
-export function buildMediaContentBlock(
-  media: DownloadedMedia
-): MediaContentBlock {
-  if (SUPPORTED_IMAGE_TYPES.has(media.mimetype)) {
+function isDocumentMime(m: string): m is DocumentMimeType {
+  return (SUPPORTED_DOCUMENT_MIME as readonly string[]).includes(m);
+}
+
+/**
+ * Validate a media input and build a ContentBlock ready to pass to Claude.
+ */
+export function validateAndBuildBlock(input: MediaInput):
+  | { ok: true; block: MediaContentBlock }
+  | { ok: false; error: ValidationError } {
+  const { data, mimetype } = input;
+
+  if (!isImageMime(mimetype) && !isDocumentMime(mimetype)) {
+    return { ok: false, error: { kind: 'unsupported_type', mimetype } };
+  }
+
+  const sizeBytes = Buffer.from(data, 'base64').length;
+
+  if (isImageMime(mimetype)) {
+    if (sizeBytes > MAX_IMAGE_BYTES) {
+      return { ok: false, error: { kind: 'too_large', sizeBytes, limitBytes: MAX_IMAGE_BYTES } };
+    }
     return {
-      type: 'image',
-      source: {
-        type: 'base64',
-        media_type: media.mimetype as 'image/jpeg' | 'image/png' | 'image/gif' | 'image/webp',
-        data: media.data,
+      ok: true,
+      block: {
+        type: 'image',
+        source: { type: 'base64', media_type: mimetype, data },
       },
     };
   }
 
+  // document
+  if (sizeBytes > MAX_DOCUMENT_BYTES) {
+    return { ok: false, error: { kind: 'too_large', sizeBytes, limitBytes: MAX_DOCUMENT_BYTES } };
+  }
   return {
-    type: 'document',
-    source: {
-      type: 'base64',
-      media_type: 'application/pdf',
-      data: media.data,
+    ok: true,
+    block: {
+      type: 'document',
+      source: { type: 'base64', media_type: mimetype as DocumentMimeType, data },
     },
   };
+}
+
+/**
+ * Format a validation error as a user-friendly message (default Indonesian).
+ */
+export function formatValidationError(error: ValidationError, lang: 'id' | 'en' = 'id'): string {
+  if (error.kind === 'unsupported_type') {
+    if (lang === 'en') {
+      return `Unsupported file type: ${error.mimetype}. Supported: JPEG, PNG, GIF, WebP images and PDF documents.`;
+    }
+    return `Tipe file tidak didukung: ${error.mimetype}. Format yang didukung: JPEG, PNG, GIF, WebP (gambar) dan PDF (dokumen).`;
+  }
+  // too_large
+  const sizeMB = (error.sizeBytes / (1024 * 1024)).toFixed(1);
+  const limitMB = (error.limitBytes / (1024 * 1024)).toFixed(0);
+  const isImage = error.limitBytes === MAX_IMAGE_BYTES;
+  if (lang === 'en') {
+    return `File too large (${sizeMB} MB). Maximum ${limitMB} MB for ${isImage ? 'images' : 'documents'}.`;
+  }
+  return `File terlalu besar (${sizeMB} MB). Maksimum ${limitMB} MB untuk ${isImage ? 'gambar' : 'dokumen'}.`;
 }

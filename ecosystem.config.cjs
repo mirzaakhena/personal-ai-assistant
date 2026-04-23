@@ -14,8 +14,8 @@
  *   The app imports 'dotenv/config' at startup, so a .env file in `cwd`
  *   is loaded automatically. You don't need PM2's env_file option.
  *
- * Why script points at dist/src-v4/index.js, not src-v4/index.ts:
- *   tsc emits src-v4 → dist/src-v4. Running compiled JS avoids the tsx
+ * Why script points at dist/src/index.js, not src/index.ts:
+ *   tsc emits src → dist/src. Running compiled JS avoids the tsx
  *   transpile-on-load overhead (small but nonzero). If you prefer to
  *   skip `pnpm build` and run TypeScript directly, change `script` and
  *   `interpreter` as noted below.
@@ -24,14 +24,14 @@ module.exports = {
   apps: [
     {
       name: 'pai-v4',
-      script: './dist/src-v4/index.js',
+      script: './dist/src/index.js',
       interpreter: 'node',
 
       // Alternative: run TypeScript directly via tsx (no build step).
       // Uncomment this block and comment out `script` + `interpreter` above.
       //
       // script: 'node_modules/tsx/dist/cli.mjs',
-      // args: 'src-v4/index.ts',
+      // args: 'src/index.ts',
 
       cwd: __dirname,
 

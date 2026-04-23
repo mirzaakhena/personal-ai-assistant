@@ -10,9 +10,9 @@
 
 import 'dotenv/config';
 import Database from 'better-sqlite3';
-import { createMessageStore } from '../src-v4/db/message.js';
-import { createSessionStore } from '../src-v4/db/sessions.js';
-import { summarizeSession } from '../src-v4/core/summarize.js';
+import { createMessageStore } from '../src/db/message.js';
+import { createSessionStore } from '../src/db/sessions.js';
+import { summarizeSession } from '../src/core/summarize.js';
 
 async function main() {
   const db = new Database(':memory:');
