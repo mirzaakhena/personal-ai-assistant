@@ -3,7 +3,7 @@
 import * as readline from 'readline/promises';
 import { stdin, stdout } from 'process';
 import { join } from 'node:path';
-import type { Gateway, ActiveSessionInfo } from './types.js';
+import type { Gateway } from './types.js';
 import { createAIEngine } from '../ai-engine/index.js';
 import type { QueryResult, ContentBlock } from '../ai-engine/index.js';
 import { createMessageServer, type MessageDeliver } from '../tools/message.js';
@@ -29,7 +29,6 @@ import { log } from '../utils/logger.js';
 import { buildUserPrompt, buildSystemMessagePrompt } from '../utils/prompt.js';
 import { assembleSystemPrompt, CORE_SYSTEM_PROMPT } from '../core/system-prompt.js';
 import { buildWakeUpBriefing, renderWakeUpBriefing } from '../core/wake-up.js';
-import { summarizeSession } from '../core/summarize.js';
 import { ensureUserSkillDir } from '../skills/storage.js';
 import { incrementTurnCount, getTurnCount, clearTurnCount } from '../utils/turns.js';
 import { recordQuery, recordRateLimit, getStats, getRateLimit, clearStats } from '../utils/stats.js';
@@ -52,10 +51,8 @@ export interface ConsoleGatewayConfig {
   triggerPort?: number;
   /** Timezone for wake-up briefing. Default from TIMEZONE env var. */
   timezone?: string;
-  /** Soft turn threshold for session summarization. Default 30. */
-  summarizeTurnThreshold?: number;
-  /** Summarizer model. Default 'claude-haiku-4-5'. */
-  summarizeModel?: string;
+  /** Soft turn threshold for SDK session reset. Default 30. */
+  turnResetThreshold?: number;
 }
 
 export function createConsoleGateway(config?: ConsoleGatewayConfig): Gateway {
@@ -64,11 +61,9 @@ export function createConsoleGateway(config?: ConsoleGatewayConfig): Gateway {
   const dataDir = config?.dataDir ?? 'data';
   const usersBaseDir = join(dataDir, 'users');
   const timezone = config?.timezone ?? TIMEZONE;
-  const summarizeTurnThreshold =
-    config?.summarizeTurnThreshold ??
-    parseInt(process.env.SUMMARIZE_TURN_THRESHOLD ?? '30', 10);
-  const summarizeModel =
-    config?.summarizeModel ?? process.env.SUMMARIZE_MODEL ?? 'claude-haiku-4-5';
+  const turnResetThreshold =
+    config?.turnResetThreshold ??
+    parseInt(process.env.TURN_RESET_THRESHOLD ?? '30', 10);
 
   const userDbCache = createUserDbCache(usersBaseDir);
 
@@ -85,8 +80,9 @@ export function createConsoleGateway(config?: ConsoleGatewayConfig): Gateway {
     cwd: cwdForUser(userId),
   });
 
-  // Pending-summarize flags per user — soft cutoff at turn threshold.
-  const pendingSummarize = new Map<string, boolean>();
+  // Pending-reset flags per user — soft cutoff at turn threshold.
+  // When true, next exchange starts with a fresh SDK session + full briefing.
+  const pendingSessionReset = new Map<string, boolean>();
 
   // Last assembled system prompt (core + wake-up briefing). Set whenever
   // a fresh session is started; cleared on /new. Shown via /system_prompt
@@ -143,36 +139,29 @@ export function createConsoleGateway(config?: ConsoleGatewayConfig): Gateway {
   });
 
   /**
-   * If the user's turn count has crossed the summarize threshold in the
-   * previous exchange, summarize the session and reset session state so
-   * the next query starts fresh with a new briefing.
+   * If the user's turn count has crossed the reset threshold in the
+   * previous exchange, drop the SDK session pointer so the next query
+   * starts fresh with a new briefing (containing the last N messages
+   * verbatim). No summarization — fresh context comes from the
+   * wake-up briefing's <recent_messages> block.
    */
-  async function maybeSummarizeBeforeRun(queryUserId: string): Promise<void> {
-    if (!pendingSummarize.get(queryUserId)) return;
+  async function maybeResetSessionBeforeRun(queryUserId: string): Promise<void> {
+    if (!pendingSessionReset.get(queryUserId)) return;
     const userDb = userDbCache.get(queryUserId);
     const oldSessionId = userDb.sessions.get();
     if (oldSessionId) {
-      log.debug(`soft-cutoff reached for ${queryUserId}: summarizing ${oldSessionId}`);
-      await summarizeSession({
-        sessionId: oldSessionId,
-        userId: queryUserId,
-        reason: 'turn_threshold',
-        messages: userDb.messages,
-        sessions: userDb.sessions,
-        model: summarizeModel,
-        cwd: cwdForUser(queryUserId),
-      });
+      log.debug(`soft-cutoff reached for ${queryUserId}: resetting session ${oldSessionId}`);
       userDb.sessions.delete();
       clearTurnCount(queryUserId);
     }
-    pendingSummarize.set(queryUserId, false);
+    pendingSessionReset.set(queryUserId, false);
   }
 
   /** Shared query execution — used by user input, cron fire, and triggers */
   async function runQuery(queryUserId: string, prompt: string | ContentBlock[]): Promise<QueryResult> {
     await ensureUserSkillDir({ dataDir, userId: queryUserId });
 
-    await maybeSummarizeBeforeRun(queryUserId);
+    await maybeResetSessionBeforeRun(queryUserId);
 
     const userDb = userDbCache.get(queryUserId);
     const sessionId = userDb.sessions.get();
@@ -191,9 +180,7 @@ export function createConsoleGateway(config?: ConsoleGatewayConfig): Gateway {
       systemPrompt = assembleSystemPrompt(renderWakeUpBriefing(briefingData));
       lastSystemPrompt = systemPrompt;
       log.debug(
-        `fresh session for ${queryUserId} — briefing: ${
-          briefingData.lastSummary ? 'summary present' : 'no summary, fallback'
-        }`
+        `fresh session for ${queryUserId} — briefing: ${briefingData.recentMessages.length} recent msg(s)`
       );
     }
 
@@ -230,9 +217,9 @@ export function createConsoleGateway(config?: ConsoleGatewayConfig): Gateway {
 
     // Check turn count against soft threshold AFTER the exchange completes.
     const turnAfter = getTurnCount(queryUserId);
-    if (turnAfter >= summarizeTurnThreshold) {
-      pendingSummarize.set(queryUserId, true);
-      log.debug(`turn ${turnAfter} reached threshold ${summarizeTurnThreshold}; will summarize on next exchange`);
+    if (turnAfter >= turnResetThreshold) {
+      pendingSessionReset.set(queryUserId, true);
+      log.debug(`turn ${turnAfter} reached threshold ${turnResetThreshold}; will reset session on next exchange`);
     }
 
     return result;
@@ -321,23 +308,10 @@ export function createConsoleGateway(config?: ConsoleGatewayConfig): Gateway {
 
   function handleNew(): void {
     const userDb = userDbCache.get(userId);
-    const oldSessionId = userDb.sessions.get();
-    if (oldSessionId) {
-      // Fire-and-forget summarize for the old session so context carries over.
-      void summarizeSession({
-        sessionId: oldSessionId,
-        userId,
-        reason: 'manual',
-        messages: userDb.messages,
-        sessions: userDb.sessions,
-        model: summarizeModel,
-        cwd: cwdForUser(userId),
-      });
-    }
     userDb.sessions.delete();
     clearTurnCount(userId);
     clearStats(userId);
-    pendingSummarize.set(userId, false);
+    pendingSessionReset.set(userId, false);
     lastSystemPrompt = undefined;
     console.log('\nSession cleared. Starting fresh.\n');
   }
@@ -368,7 +342,7 @@ export function createConsoleGateway(config?: ConsoleGatewayConfig): Gateway {
     console.log('');
     console.log(`  Session:        ${sessionId ?? 'none'}`);
     console.log(`  Current turn:   ${turnCount} (this session)`);
-    console.log(`  Turn threshold: ${summarizeTurnThreshold} (summarize-on-next-exchange)`);
+    console.log(`  Turn threshold: ${turnResetThreshold} (reset-on-next-exchange)`);
     if (stats) {
       const a = stats.accumulated;
       const l = stats.lastQuery;
@@ -490,19 +464,6 @@ export function createConsoleGateway(config?: ConsoleGatewayConfig): Gateway {
   // import so a missing core/system-prompt.ts fails fast at boot.
   void CORE_SYSTEM_PROMPT;
 
-  function getActiveSessionsInternal(): ActiveSessionInfo[] {
-    const sessionId = userDbCache.get(userId).sessions.get();
-    if (!sessionId) return [];
-    const userDb = userDbCache.get(userId);
-    return [{
-      sessionId,
-      userId,
-      cwd: cwdForUser(userId),
-      messages: userDb.messages,
-      sessions: userDb.sessions,
-    }];
-  }
-
   let stopping = false;
 
   return {
@@ -571,34 +532,18 @@ export function createConsoleGateway(config?: ConsoleGatewayConfig): Gateway {
       if (triggerServer) await triggerServer.stop();
       await scheduler.stop();
 
-      // Summarize any active session so the next boot gets a proper
-      // wake-up briefing. Runs on /exit, SIGINT, and SIGTERM — all paths
+      // Drop the active session pointer so the next boot starts fresh
+      // with a full wake-up briefing (containing the last N messages
+      // verbatim). Runs on /exit, SIGINT, and SIGTERM — all paths
       // converge here.
-      const active = getActiveSessionsInternal();
-      if (active.length > 0) {
-        log.debug(`summarizing ${active.length} active session(s) before exit`);
-        await Promise.allSettled(
-          active.map((s) =>
-            summarizeSession({
-              sessionId: s.sessionId,
-              userId: s.userId,
-              reason: 'graceful_shutdown',
-              messages: s.messages,
-              sessions: s.sessions,
-              model: summarizeModel,
-              cwd: s.cwd,
-              timeoutMs: 30_000,
-            })
-          )
-        );
+      const active = userDbCache.get(userId);
+      if (active.sessions.get()) {
+        log.debug(`clearing active session for ${userId} before exit`);
+        active.sessions.delete();
       }
 
       userDbCache.closeAll();
       console.log('\nGoodbye!\n');
-    },
-
-    getActiveSessions(): ActiveSessionInfo[] {
-      return getActiveSessionsInternal();
     },
   };
 }

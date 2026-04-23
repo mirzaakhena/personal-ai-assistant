@@ -3,7 +3,7 @@
 import { Bot } from 'grammy';
 import { v4 as uuidv4 } from 'uuid';
 import { join } from 'node:path';
-import type { Gateway, ActiveSessionInfo } from './types.js';
+import type { Gateway } from './types.js';
 import { createAIEngine } from '../ai-engine/index.js';
 import type { QueryResult, ContentBlock } from '../ai-engine/index.js';
 import {
@@ -37,7 +37,6 @@ import {
 } from '../utils/prompt.js';
 import { assembleSystemPrompt, CORE_SYSTEM_PROMPT } from '../core/system-prompt.js';
 import { buildWakeUpBriefing, renderWakeUpBriefing } from '../core/wake-up.js';
-import { summarizeSession } from '../core/summarize.js';
 import { ensureUserSkillDir } from '../skills/storage.js';
 import { incrementTurnCount, getTurnCount, clearTurnCount } from '../utils/turns.js';
 import { requireModel, TIMEZONE } from '../utils/model-config.js';
@@ -121,8 +120,8 @@ export interface TelegramGatewayConfig {
   triggerHost?: string | null;
   triggerPort?: number;
   timezone?: string;
-  summarizeTurnThreshold?: number;
-  summarizeModel?: string;
+  /** Soft turn threshold for SDK session reset. Default 30. */
+  turnResetThreshold?: number;
 }
 
 export function createTelegramGateway(config: TelegramGatewayConfig): Gateway {
@@ -134,11 +133,9 @@ export function createTelegramGateway(config: TelegramGatewayConfig): Gateway {
   const dataDir = config.dataDir ?? 'data';
   const usersBaseDir = join(dataDir, 'users');
   const timezone = config.timezone ?? TIMEZONE;
-  const summarizeTurnThreshold =
-    config.summarizeTurnThreshold ??
-    parseInt(process.env.SUMMARIZE_TURN_THRESHOLD ?? '30', 10);
-  const summarizeModel =
-    config.summarizeModel ?? process.env.SUMMARIZE_MODEL ?? 'claude-haiku-4-5';
+  const turnResetThreshold =
+    config.turnResetThreshold ??
+    parseInt(process.env.TURN_RESET_THRESHOLD ?? '30', 10);
   const userDbCache = createUserDbCache(usersBaseDir);
   const whitelist = new Set(config.whitelist);
 
@@ -157,12 +154,13 @@ export function createTelegramGateway(config: TelegramGatewayConfig): Gateway {
 
   const bot = new Bot(config.token);
 
-  // Track users we've seen during this process lifetime, so getActiveSessions
-  // can report all of them for graceful-shutdown summarization.
+  // Track users we've seen during this process lifetime, so shutdown
+  // can clear all their active-session pointers.
   const seenUsers = new Set<string>();
 
-  // Per-user pending-summarize flag (soft cutoff at turn threshold).
-  const pendingSummarize = new Map<string, boolean>();
+  // Per-user pending-reset flag — soft cutoff at turn threshold.
+  // When true, next exchange starts with a fresh SDK session + briefing.
+  const pendingSessionReset = new Map<string, boolean>();
 
   async function downloadTelegramFile(fileId: string): Promise<string> {
     const file = await bot.api.getFile(fileId);
@@ -246,25 +244,16 @@ export function createTelegramGateway(config: TelegramGatewayConfig): Gateway {
     };
   };
 
-  async function maybeSummarizeBeforeRun(uid: string): Promise<void> {
-    if (!pendingSummarize.get(uid)) return;
+  async function maybeResetSessionBeforeRun(uid: string): Promise<void> {
+    if (!pendingSessionReset.get(uid)) return;
     const userDb = userDbCache.get(uid);
     const oldSessionId = userDb.sessions.get();
     if (oldSessionId) {
-      log.debug(`[TG] soft-cutoff reached for ${uid}: summarizing ${oldSessionId}`);
-      await summarizeSession({
-        sessionId: oldSessionId,
-        userId: uid,
-        reason: 'turn_threshold',
-        messages: userDb.messages,
-        sessions: userDb.sessions,
-        model: summarizeModel,
-        cwd: cwdForUser(uid),
-      });
+      log.debug(`[TG] soft-cutoff reached for ${uid}: resetting session ${oldSessionId}`);
       userDb.sessions.delete();
       clearTurnCount(uid);
     }
-    pendingSummarize.set(uid, false);
+    pendingSessionReset.set(uid, false);
   }
 
   async function runQuery(
@@ -275,7 +264,7 @@ export function createTelegramGateway(config: TelegramGatewayConfig): Gateway {
 
     await ensureUserSkillDir({ dataDir, userId: queryUserId });
 
-    await maybeSummarizeBeforeRun(queryUserId);
+    await maybeResetSessionBeforeRun(queryUserId);
 
     const userDb = userDbCache.get(queryUserId);
     const sessionId = userDb.sessions.get();
@@ -293,9 +282,7 @@ export function createTelegramGateway(config: TelegramGatewayConfig): Gateway {
       });
       systemPrompt = assembleSystemPrompt(renderWakeUpBriefing(briefingData));
       log.debug(
-        `[TG] fresh session for ${queryUserId} — briefing: ${
-          briefingData.lastSummary ? 'summary present' : 'no summary, fallback'
-        }`
+        `[TG] fresh session for ${queryUserId} — briefing: ${briefingData.recentMessages.length} recent msg(s)`
       );
     }
 
@@ -331,10 +318,10 @@ export function createTelegramGateway(config: TelegramGatewayConfig): Gateway {
     userDb.sessions.save(result.sessionId);
 
     const turnAfter = getTurnCount(queryUserId);
-    if (turnAfter >= summarizeTurnThreshold) {
-      pendingSummarize.set(queryUserId, true);
+    if (turnAfter >= turnResetThreshold) {
+      pendingSessionReset.set(queryUserId, true);
       log.debug(
-        `[TG] turn ${turnAfter} reached threshold ${summarizeTurnThreshold}; will summarize on next exchange`
+        `[TG] turn ${turnAfter} reached threshold ${turnResetThreshold}; will reset session on next exchange`
       );
     }
 
@@ -526,22 +513,10 @@ export function createTelegramGateway(config: TelegramGatewayConfig): Gateway {
       if (text === '/new') {
         log.chat(`${chatId} → /new`);
         const userDb = userDbCache.get(userId);
-        const oldSessionId = userDb.sessions.get();
-        if (oldSessionId) {
-          void summarizeSession({
-            sessionId: oldSessionId,
-            userId,
-            reason: 'manual',
-            messages: userDb.messages,
-            sessions: userDb.sessions,
-            model: summarizeModel,
-            cwd: cwdForUser(userId),
-          });
-        }
         userDb.sessions.delete();
         clearTurnCount(userId);
         clearStats(userId);
-        pendingSummarize.set(userId, false);
+        pendingSessionReset.set(userId, false);
         await bot.api.sendMessage(chatId, 'Session cleared. Starting fresh.');
         return;
       }
@@ -606,7 +581,7 @@ export function createTelegramGateway(config: TelegramGatewayConfig): Gateway {
     const lines = [
       `Session:        ${sessionId ?? 'none'}`,
       `Current turn:   ${turnCount} (this session)`,
-      `Turn threshold: ${summarizeTurnThreshold}`,
+      `Turn threshold: ${turnResetThreshold}`,
     ];
 
     if (stats) {
@@ -685,23 +660,6 @@ export function createTelegramGateway(config: TelegramGatewayConfig): Gateway {
 
   void CORE_SYSTEM_PROMPT;
 
-  function getActiveSessionsInternal(): ActiveSessionInfo[] {
-    const result: ActiveSessionInfo[] = [];
-    for (const uid of seenUsers) {
-      const userDb = userDbCache.get(uid);
-      const sessionId = userDb.sessions.get();
-      if (!sessionId) continue;
-      result.push({
-        sessionId,
-        userId: uid,
-        cwd: cwdForUser(uid),
-        messages: userDb.messages,
-        sessions: userDb.sessions,
-      });
-    }
-    return result;
-  }
-
   let stopping = false;
 
   return {
@@ -721,32 +679,22 @@ export function createTelegramGateway(config: TelegramGatewayConfig): Gateway {
       if (triggerServer) await triggerServer.stop();
       await scheduler.stop();
 
-      // Summarize every active session before closing DB handles so the
-      // next boot gets proper wake-up briefings.
-      const active = getActiveSessionsInternal();
-      if (active.length > 0) {
-        log.debug(`[TG] summarizing ${active.length} active session(s) before exit`);
-        await Promise.allSettled(
-          active.map((s) =>
-            summarizeSession({
-              sessionId: s.sessionId,
-              userId: s.userId,
-              reason: 'graceful_shutdown',
-              messages: s.messages,
-              sessions: s.sessions,
-              model: summarizeModel,
-              cwd: s.cwd,
-              timeoutMs: 30_000,
-            })
-          )
-        );
+      // Drop each seen user's active-session pointer so the next boot
+      // starts fresh with a full wake-up briefing.
+      let cleared = 0;
+      for (const uid of seenUsers) {
+        const userDb = userDbCache.get(uid);
+        if (userDb.sessions.get()) {
+          userDb.sessions.delete();
+          cleared += 1;
+        }
+      }
+      if (cleared > 0) {
+        log.debug(`[TG] cleared ${cleared} active session pointer(s) before exit`);
       }
 
       userDbCache.closeAll();
       log.debug('[TG] stopped');
-    },
-    getActiveSessions(): ActiveSessionInfo[] {
-      return getActiveSessionsInternal();
     },
   };
 }

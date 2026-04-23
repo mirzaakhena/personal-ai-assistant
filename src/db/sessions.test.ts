@@ -5,70 +5,39 @@ import { mkdtempSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import Database from 'better-sqlite3';
-import { createSessionStore, type SessionSummaryRecord, type SessionStore } from './sessions.js';
+import { createSessionStore, type SessionStore } from './sessions.js';
 
-describe('SessionStore summaries', () => {
+describe('SessionStore active session pointer', () => {
   let db: Database.Database;
-  let store: ReturnType<typeof createSessionStore>;
+  let store: SessionStore;
 
   beforeEach(() => {
     db = new Database(':memory:');
     store = createSessionStore(db);
   });
 
-  it('saves and fetches latest session summary by user', () => {
-    const rec: SessionSummaryRecord = {
-      id: 'sum-1',
-      session_id: 'sess-abc',
-      user_id: 'u1',
-      summary: 'Narrative...',
-      turns: 20,
-      ended_at: '2026-04-21T20:00:00+07:00',
-      ended_reason: 'turn_threshold',
-      created_at: '2026-04-21T20:00:05+07:00',
-    };
-    store.saveSummary(rec);
-
-    const got = store.getLatestSummaryForUser('u1');
-    expect(got?.id).toBe('sum-1');
-    expect(got?.summary).toBe('Narrative...');
-  });
-
-  it('returns undefined when no summary for user', () => {
-    expect(store.getLatestSummaryForUser('nobody')).toBeUndefined();
-  });
-
-  it('getLatestSummaryForUser returns most recent by ended_at', () => {
-    store.saveSummary({
-      id: 'sum-old',
-      session_id: 's1',
-      user_id: 'u1',
-      summary: 'old',
-      turns: 10,
-      ended_at: '2026-04-21T10:00:00+07:00',
-      ended_reason: 'turn_threshold',
-      created_at: '2026-04-21T10:00:01+07:00',
-    });
-    store.saveSummary({
-      id: 'sum-new',
-      session_id: 's2',
-      user_id: 'u1',
-      summary: 'new',
-      turns: 15,
-      ended_at: '2026-04-21T20:00:00+07:00',
-      ended_reason: 'graceful_shutdown',
-      created_at: '2026-04-21T20:00:01+07:00',
-    });
-
-    const got = store.getLatestSummaryForUser('u1');
-    expect(got?.id).toBe('sum-new');
-  });
-
-  it('existing SessionStore methods still work (backward compat)', () => {
+  it('save + get round-trips the active session id', () => {
     store.save('sess-resume-id');
     expect(store.get()).toBe('sess-resume-id');
+  });
+
+  it('delete clears the active session pointer', () => {
+    store.save('sess-abc');
     store.delete();
     expect(store.get()).toBeUndefined();
+  });
+
+  it('save upserts — only one row at id=1', () => {
+    store.save('first');
+    store.save('second');
+    expect(store.get()).toBe('second');
+  });
+
+  it('getLastActivity reflects the latest save', () => {
+    const before = Date.now();
+    store.save('sess-x');
+    const ts = store.getLastActivity();
+    expect(ts).toBeGreaterThanOrEqual(before);
   });
 });
 

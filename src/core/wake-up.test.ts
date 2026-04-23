@@ -76,31 +76,27 @@ describe('renderWakeUpBriefing', () => {
     expect(out).not.toContain('last_user_msg_gap');
   });
 
-  it('includes last_session_summary block when summary exists', () => {
-    db.sessions.saveSummary({
-      id: 'sum-1',
-      session_id: 'abc123',
-      user_id: 'u',
-      summary: 'Mirza sedang refactor v4 ke v5.',
-      turns: 30,
-      ended_at: '2026-04-21T20:00:00+07:00',
-      ended_reason: 'turn_threshold',
-      created_at: '2026-04-21T20:00:05+07:00',
-    });
+  it('always renders <recent_messages> block (empty on fresh user)', () => {
     const data = buildWakeUpBriefing({
       userId: 'u', now: new Date(), timezone: 'Asia/Jakarta', userDb: db,
     });
     const out = renderWakeUpBriefing(data);
-    expect(out).toContain('<last_session_summary');
-    expect(out).toContain('from_session="abc123"');
-    expect(out).toContain('turns="30"');
-    expect(out).toContain('Mirza sedang refactor v4 ke v5.');
+    expect(out).toContain('<recent_messages count="0">');
+    expect(out).not.toContain('<last_session_summary');
   });
 
-  it('falls back to recent messages when no summary exists', () => {
+  it('renders recent messages verbatim in chronological order with timestamps', () => {
+    const t0 = Date.UTC(2026, 3, 22, 10, 0, 0);
     db.messages.insert({
       id: 'm1', gateway: 'console', session_id: null,
-      sender: 'user', timestamp: Date.now(), type: 'text', body: 'Halo',
+      sender: 'user', timestamp: t0, type: 'text', body: 'Halo',
+      has_media: 0, media_mimetype: null, media_filename: null,
+      media_size: null, media_path: null, quoted_msg_id: null,
+      is_forwarded: 0, raw_json: null,
+    });
+    db.messages.insert({
+      id: 'm2', gateway: 'console', session_id: null,
+      sender: 'assistant', timestamp: t0 + 60_000, type: 'text', body: 'Hai!',
       has_media: 0, media_mimetype: null, media_filename: null,
       media_size: null, media_path: null, quoted_msg_id: null,
       is_forwarded: 0, raw_json: null,
@@ -109,12 +105,38 @@ describe('renderWakeUpBriefing', () => {
       userId: 'u', now: new Date(), timezone: 'Asia/Jakarta', userDb: db,
     });
     const out = renderWakeUpBriefing(data);
-    expect(out).toContain('<recent_messages');
-    expect(out).toContain('Halo');
-    expect(out).not.toContain('<last_session_summary');
+    expect(out).toContain('<recent_messages count="2">');
+    const haloIdx = out.indexOf('Halo');
+    const haiIdx = out.indexOf('Hai!');
+    expect(haloIdx).toBeGreaterThan(-1);
+    expect(haiIdx).toBeGreaterThan(haloIdx);
+    expect(out).toContain(`ts="${new Date(t0).toISOString()}"`);
+    expect(out).toContain('from="user"');
+    expect(out).toContain('from="assistant"');
   });
 
-  it('escapes XML special characters in fallback message bodies', () => {
+  it('honors custom recentMessagesCount limit', () => {
+    for (let i = 0; i < 5; i++) {
+      db.messages.insert({
+        id: `m${i}`, gateway: 'console', session_id: null,
+        sender: 'user', timestamp: Date.now() + i, type: 'text', body: `msg-${i}`,
+        has_media: 0, media_mimetype: null, media_filename: null,
+        media_size: null, media_path: null, quoted_msg_id: null,
+        is_forwarded: 0, raw_json: null,
+      });
+    }
+    const data = buildWakeUpBriefing({
+      userId: 'u', now: new Date(), timezone: 'Asia/Jakarta', userDb: db,
+      recentMessagesCount: 2,
+    });
+    const out = renderWakeUpBriefing(data);
+    expect(out).toContain('<recent_messages count="2">');
+    expect(out).toContain('msg-3');
+    expect(out).toContain('msg-4');
+    expect(out).not.toContain('msg-0');
+  });
+
+  it('escapes XML special characters in recent message bodies', () => {
     db.messages.insert({
       id: 'm2', gateway: 'console', session_id: null,
       sender: 'user', timestamp: Date.now(), type: 'text', body: 'a & b <c>',

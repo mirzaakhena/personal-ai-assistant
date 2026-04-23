@@ -4,7 +4,6 @@ import type { ProfileKey } from '../db/profile.js';
 import type { PreferenceRow } from '../db/preferences.js';
 import type { KnowledgeCategory } from '../db/knowledge.js';
 import type { MessageRecord } from '../db/message.js';
-import type { SessionSummaryRecord } from '../db/sessions.js';
 
 export interface WakeUpContextHints {
   tasks: number;
@@ -21,17 +20,5 @@ export interface WakeUpBriefingData {
   profile: Partial<Record<ProfileKey, string>>;
   preferences: PreferenceRow[];
   hints: WakeUpContextHints;
-  lastSummary: SessionSummaryRecord | null;
-  fallbackRecentMessages?: MessageRecord[];
-}
-
-export type SessionEndReason = 'turn_threshold' | 'graceful_shutdown' | 'manual';
-
-export interface SummarizeResult {
-  sessionId: string;
-  userId: string;
-  summary: string; // narrative + key points with <msg_ref/> markers
-  turns: number;
-  endedAt: Date;
-  endedReason: SessionEndReason;
+  recentMessages: MessageRecord[];
 }

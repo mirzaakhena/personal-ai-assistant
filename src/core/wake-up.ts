@@ -3,34 +3,30 @@
 import type { UserDb } from '../db/user-db.js';
 import { getProfile, getContextHintCounts } from '../db/user-db.js';
 import type { WakeUpBriefingData } from './types.js';
-import type { MessageRecord } from '../db/message.js';
+
+const DEFAULT_RECENT_MESSAGES_COUNT = 20;
 
 export function buildWakeUpBriefing(opts: {
   userId: string;
   now: Date;
   timezone: string;
   userDb: UserDb;
-  fallbackRecentMessagesCount?: number;
+  recentMessagesCount?: number;
 }): WakeUpBriefingData {
   const {
-    userId, now, timezone, userDb,
-    fallbackRecentMessagesCount = 10,
+    now, timezone, userDb,
+    recentMessagesCount = DEFAULT_RECENT_MESSAGES_COUNT,
   } = opts;
 
   const profile = getProfile(userDb);
   const preferences = userDb.preferences.list();
   const hints = getContextHintCounts(userDb, now);
-  const lastSummary = userDb.sessions.getLatestSummaryForUser(userId);
   const last_user_msg_gap = computeLastUserMsgGap(userDb, now);
+  const recentMessages = userDb.messages.getRecentMessages({
+    limit: recentMessagesCount, since: 0,
+  });
 
-  let fallbackRecentMessages: MessageRecord[] | undefined;
-  if (!lastSummary) {
-    fallbackRecentMessages = userDb.messages.getRecentMessages({
-      limit: fallbackRecentMessagesCount, since: 0,
-    });
-  }
-
-  return { now, timezone, last_user_msg_gap, profile, preferences, hints, lastSummary: lastSummary ?? null, fallbackRecentMessages };
+  return { now, timezone, last_user_msg_gap, profile, preferences, hints, recentMessages };
 }
 
 /** Delta between `now` and the most recent user message, formatted e.g. "3m", "19h 52m", "3d 14h". Null if none. */
@@ -111,26 +107,15 @@ export function renderWakeUpBriefing(data: WakeUpBriefingData): string {
   lines.push('  Use search_knowledge / list_tasks / list_recent_journal when relevant.');
   lines.push('</context_hints>', '');
 
-  // <last_session_summary> OR fallback <recent_messages>
-  if (data.lastSummary) {
-    const s = data.lastSummary;
-    lines.push(
-      `<last_session_summary from_session="${s.session_id}" ended_at="${s.ended_at}" ended_reason="${s.ended_reason}" turns="${s.turns}">`,
-      s.summary,
-      '</last_session_summary>',
-      ''
-    );
-  } else if (data.fallbackRecentMessages && data.fallbackRecentMessages.length > 0) {
-    lines.push(
-      `<recent_messages count="${data.fallbackRecentMessages.length}" note="fallback: summarization unavailable">`
-    );
-    for (const m of data.fallbackRecentMessages) {
-      const ts = new Date(m.timestamp).toISOString();
-      const body = escapeXml(m.body ?? '');
-      lines.push(`<msg from="${m.sender}" ts="${ts}"><body>${body}</body></msg>`);
-    }
-    lines.push('</recent_messages>', '');
+  // <recent_messages> — last N messages verbatim, chronological order.
+  // This is the primary fresh-context layer. Empty on first-ever boot.
+  lines.push(`<recent_messages count="${data.recentMessages.length}">`);
+  for (const m of data.recentMessages) {
+    const ts = new Date(m.timestamp).toISOString();
+    const body = escapeXml(m.body ?? '');
+    lines.push(`<msg from="${m.sender}" ts="${ts}"><body>${body}</body></msg>`);
   }
+  lines.push('</recent_messages>', '');
 
   lines.push('</wake_up_briefing>');
   return lines.join('\n');

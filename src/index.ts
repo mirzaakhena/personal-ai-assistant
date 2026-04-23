@@ -6,45 +6,12 @@ import { existsSync, readdirSync } from 'node:fs';
 import Database from 'better-sqlite3';
 import { createConsoleGateway } from './gateway/console.js';
 import { createTelegramGateway } from './gateway/telegram.js';
-import { createUserDbCache } from './db/user-db-cache.js';
 import { log } from './utils/logger.js';
 import type { Gateway } from './gateway/types.js';
 
 const GATEWAY_KIND = (process.env.GATEWAY ?? 'console').toLowerCase();
 const DATA_DIR = process.env.DATA_DIR ?? 'data';
 const USERS_BASE_DIR = join(DATA_DIR, 'users');
-
-/**
- * v3→v4 session cleanup (one-time, idempotent).
- *
- * A user's stored sessionId from v3 must not be resumed under v4's prompt —
- * the compiled system prompt differs fundamentally. We detect "never had a
- * v4 session" by checking for any row in session_summaries; if none exists
- * and a sessionId is present, we clear it so the user's next message
- * triggers a fresh v4 session with a full wake-up briefing.
- *
- * Safe to run on every boot: once a user completes any v4 summarize, the
- * cleanup becomes a no-op for them.
- */
-function cleanupV3Sessions(): void {
-  const cache = createUserDbCache(USERS_BASE_DIR);
-  const users = cache.listKnownUsers();
-  let cleared = 0;
-  for (const userId of users) {
-    const userDb = cache.get(userId);
-    const sessionId = userDb.sessions.get();
-    if (!sessionId) continue;
-    const anyV4Summary = userDb.sessions.getLatestSummaryForUser(userId);
-    if (!anyV4Summary) {
-      userDb.sessions.delete();
-      cleared += 1;
-    }
-  }
-  if (cleared > 0) {
-    log.debug(`v3→v4 cleanup: cleared ${cleared} stale sessionId(s)`);
-  }
-  cache.closeAll();
-}
 
 /**
  * v5 memory migration gate — fail-fast if any existing user's DB hasn't been
@@ -115,10 +82,7 @@ function pickGateway(): Gateway {
 }
 
 // v5 migration gate runs FIRST — before any v5 DDL touches user databases.
-// cleanupV3Sessions() uses createUserDb which applies v5 schema DDL; it must
-// only run after all existing user DBs have been confirmed as migrated.
 checkV5Migration();
-cleanupV3Sessions();
 
 const gateway = pickGateway();
 
@@ -127,8 +91,8 @@ async function shutdown(signal: string) {
   if (shuttingDown) return;
   shuttingDown = true;
   log.debug(`received ${signal}, shutting down...`);
-  // gateway.stop() is idempotent and handles session summarization
-  // internally (see gateway/console.ts and gateway/telegram.ts).
+  // gateway.stop() is idempotent; it drops each user's active-session
+  // pointer so the next boot starts with a fresh wake-up briefing.
   try {
     await gateway.stop();
   } catch (err) {

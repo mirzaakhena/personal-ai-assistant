@@ -28,6 +28,12 @@ describe('assembleSystemPrompt', () => {
     expect(CORE_SYSTEM_PROMPT).toContain('search_messages');
   });
 
+  it('<on_wake_up> promotes <recent_messages> as primary context and reconciles stale cron messages', () => {
+    expect(CORE_SYSTEM_PROMPT).toContain('<recent_messages>');
+    expect(CORE_SYSTEM_PROMPT).toContain('primary fresh-context');
+    expect(CORE_SYSTEM_PROMPT).toMatch(/stale/i);
+  });
+
   it('CORE_SYSTEM_PROMPT does not reference dropped v3 domain specifics', () => {
     const forbidden = ['prayer', 'Busan', 'KST', 'sholat', 'save_profile category='];
     for (const term of forbidden) {

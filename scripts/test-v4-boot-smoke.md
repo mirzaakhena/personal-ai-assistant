@@ -25,10 +25,9 @@ The full golden path scenarios from `docs/superpowers/specs/2026-04-21-src-v4-de
 
 1. Fresh user greeting + profile save
 2. Skill write via conversation
-3. Turn threshold → summarize cycle
-4. SIGINT mid-conversation → summarize
-5. Resume briefing after restart
-6. `<msg_ref/>` round-trip
-7. Cold-start continuity with synthetic summary
+3. Turn threshold → session reset (fresh briefing on next turn)
+4. SIGINT mid-conversation → session pointer cleared, next boot is fresh
+5. Resume briefing after restart: <recent_messages> reflects last N verbatim
+6. Cron firing mid-conversation reconciles against <recent_messages>
 
 Run these manually after cutover (Task 22) before relying on v4 for production traffic.

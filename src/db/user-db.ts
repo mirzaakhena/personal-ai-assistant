@@ -43,7 +43,10 @@ export function createUserDb(userId: string, baseDir: string = 'data/users'): Us
   const dbPath = join(dir, 'app.db');
   const db = new Database(dbPath);
   db.pragma('foreign_keys = ON');
-  db.pragma('journal_mode = WAL');
+  // DELETE mode keeps the DB as a single file (no .db-wal / .db-shm clutter).
+  // Trade-off vs WAL: slightly slower writes and reader/writer mutual lock —
+  // acceptable for this single-process, single-user workload.
+  db.pragma('journal_mode = DELETE');
 
   // Order matters only for FK dependencies; all are independent here.
   const messages = createMessageStore(db);
