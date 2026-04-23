@@ -16,12 +16,17 @@ export interface QuotedInfo {
   forwarded?: boolean;
 }
 
-/** Format a Date as ISO 8601 with +07:00 (WIB) offset. */
-function toIsoJakartaFromDate(date: Date): string {
+/** Format a Date as ISO 8601 with the local timezone offset derived from TIMEZONE. */
+function toIsoLocal(date: Date): string {
   const pad = (n: number) => String(n).padStart(2, '0');
-  const ms = date.getTime() + 7 * 60 * 60 * 1000;
-  const j = new Date(ms);
-  return `${j.getUTCFullYear()}-${pad(j.getUTCMonth() + 1)}-${pad(j.getUTCDate())}T${pad(j.getUTCHours())}:${pad(j.getUTCMinutes())}:${pad(j.getUTCSeconds())}+07:00`;
+  const utcMs = new Date(date.toLocaleString('en-US', { timeZone: 'UTC' })).getTime();
+  const localMs = new Date(date.toLocaleString('en-US', { timeZone: TIMEZONE })).getTime();
+  const offsetMs = localMs - utcMs;
+  const local = new Date(date.getTime() + offsetMs);
+  const sign = offsetMs >= 0 ? '+' : '-';
+  const absMin = Math.abs(offsetMs) / 60000;
+  const offset = `${sign}${pad(Math.floor(absMin / 60))}:${pad(absMin % 60)}`;
+  return `${local.getUTCFullYear()}-${pad(local.getUTCMonth() + 1)}-${pad(local.getUTCDate())}T${pad(local.getUTCHours())}:${pad(local.getUTCMinutes())}:${pad(local.getUTCSeconds())}${offset}`;
 }
 
 /** Escape XML-significant characters in element body / attribute values. */
@@ -38,7 +43,7 @@ function escapeXml(s: string): string {
  * Returns the structured XML text. Used for both string and ContentBlock[] return paths.
  */
 function buildUserMessageText(message: string, quoted?: QuotedInfo, hasMedia?: boolean): string {
-  const ts = toIsoJakartaFromDate(new Date());
+  const ts = toIsoLocal(new Date());
   const attrs = [`timestamp="${ts}"`];
   if (hasMedia) attrs.push(`has_media="true"`);
 
@@ -46,7 +51,7 @@ function buildUserMessageText(message: string, quoted?: QuotedInfo, hasMedia?: b
 
   if (quoted) {
     const qAttrs = [`from="${quoted.sender}"`];
-    if (quoted.at) qAttrs.push(`timestamp="${toIsoJakartaFromDate(quoted.at)}"`);
+    if (quoted.at) qAttrs.push(`timestamp="${toIsoLocal(quoted.at)}"`);
     if (quoted.forwarded) qAttrs.push(`forwarded="true"`);
     lines.push(`  <replying_to ${qAttrs.join(' ')}>`);
     lines.push(`    <content>${escapeXml(quoted.content)}</content>`);
@@ -85,7 +90,7 @@ export function buildUserPrompt(
  * System messages remain string-only.
  */
 export function buildSystemMessagePrompt(message: string): string {
-  const ts = toIsoJakartaFromDate(new Date());
+  const ts = toIsoLocal(new Date());
   return [
     `<system_message timestamp="${ts}">`,
     `  <body>${escapeXml(message)}</body>`,
