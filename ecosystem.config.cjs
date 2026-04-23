@@ -1,14 +1,14 @@
 /**
- * PM2 ecosystem config for personal-ai-assistant v4.
+ * PM2 ecosystem config for personal-ai-assistant.
  *
  * Usage:
  *   pnpm build                              # compile TS → dist/
- *   pm2 start ecosystem.config.cjs
+ *   pm2 start ecosystem.config.cjs          # first-time register
  *   pm2 save                                # persist list across reboots
  *   pm2 startup                             # install init-system hook
- *   pm2 logs pai-v4                         # tail logs
- *   pm2 restart pai-v4                      # SIGINT → summarize → restart
- *   pm2 stop pai-v4                         # SIGINT → summarize → stop
+ *   pm2 logs pai                            # tail logs
+ *   pm2 restart pai                         # SIGINT → clear session → restart
+ *   pm2 stop pai                            # SIGINT → clear session → stop
  *
  * .env loading:
  *   The app imports 'dotenv/config' at startup, so a .env file in `cwd`
@@ -23,7 +23,7 @@
 module.exports = {
   apps: [
     {
-      name: 'pai-v4',
+      name: 'pai',
       script: './dist/src/index.js',
       interpreter: 'node',
 
@@ -47,21 +47,17 @@ module.exports = {
       min_uptime: '10s',                // restart attempts within 10s count as crash-loop
       max_restarts: 10,                 // bail if crash-looping
 
-      // ⚠️ CRITICAL: graceful-shutdown summarize takes ~5–15s per active session
-      // (LLM call + DB write). PM2's default kill_timeout (1600ms) kills the
-      // process mid-summarize, which is how wake-up briefings end up showing
-      // "fallback: summarization unavailable" forever. 30s gives summarize
-      // enough headroom.
-      kill_timeout: 30000,
+      // Graceful-shutdown path drops each user's session pointer + closes DB
+      // handles — fast (<1s). 10s headroom is plenty.
+      kill_timeout: 10000,
 
       // PM2 sends SIGINT by default on stop/restart. Our index.ts handles it.
-      // (SIGTERM also works if you configure it elsewhere.)
       // kill_signal: 'SIGINT',          // default — leave commented
 
       // Logging
       log_date_format: 'YYYY-MM-DD HH:mm:ss Z',
-      out_file: './logs/pai-v4.out.log',
-      error_file: './logs/pai-v4.err.log',
+      out_file: './logs/pai.out.log',
+      error_file: './logs/pai.err.log',
       merge_logs: true,
 
       env: {
@@ -74,8 +70,7 @@ module.exports = {
         // TELEGRAM_BOT_TOKEN: 'set in .env',
         // TELEGRAM_WHITELIST: '628123456789',
         // DATA_DIR: '/absolute/path/to/data',
-        // SUMMARIZE_TURN_THRESHOLD: '30',
-        // SUMMARIZE_MODEL: 'claude-haiku-4-5',
+        // TURN_RESET_THRESHOLD: '30',
         // MAX_TURNS: '50',
       },
     },
