@@ -23,6 +23,7 @@ import { createPreferenceMcpServer, createPreferenceHandlers } from '../tools/pr
 import { createKnowledgeMcpServer, createKnowledgeHandlers } from '../tools/knowledge.js';
 import { createJournalMcpServer, createJournalHandlers } from '../tools/journal.js';
 import { createTaskMcpServer, createTaskHandlers } from '../tools/tasks.js';
+import { createLedgerMcpServer, createLedgerHandlers } from '../tools/ledger.js';
 import { createCronjobServer, type CronjobHandlers } from '../tools/cronjob.js';
 import { createSkillToolServer } from '../tools/skill.js';
 import { createCronScheduler } from '../cron/scheduler.js';
@@ -332,6 +333,7 @@ export function createTelegramGateway(config: TelegramGatewayConfig): Gateway {
         knowledge: createKnowledgeMcpServer(createKnowledgeHandlers(userDb.knowledge)),
         journal: createJournalMcpServer(createJournalHandlers(userDb.journal)),
         tasks: createTaskMcpServer(createTaskHandlers(userDb.tasks)),
+        ledger: createLedgerMcpServer(createLedgerHandlers(userDb.ledger)),
         cronjob: createCronjobServer(cronjobHandlersFactory(queryUserId)),
         messages: createMessageHistoryServer(messageHandlersFactory(queryUserId)),
         skill: createSkillToolServer({ dataDir, userId: queryUserId }),
