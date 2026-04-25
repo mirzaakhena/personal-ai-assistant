@@ -25,8 +25,16 @@ export function buildWakeUpBriefing(opts: {
   const recentMessages = userDb.messages.getRecentMessages({
     limit: recentMessagesCount, since: 0,
   });
+  const activeEventTasks = userDb.tasks.listEventTasks({ cap: 20 }).map((t) => ({
+    id: t.id,
+    pattern: t.trigger_pattern ?? '',
+    title: t.title,
+  }));
 
-  return { now, timezone, last_user_msg_gap, profile, preferences, hints, recentMessages };
+  return {
+    now, timezone, last_user_msg_gap, profile, preferences, hints,
+    recentMessages, activeEventTasks,
+  };
 }
 
 /** Delta between `now` and the most recent user message, formatted e.g. "3m", "19h 52m", "3d 14h". Null if none. */

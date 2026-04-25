@@ -13,6 +13,12 @@ export interface WakeUpContextHints {
   knowledge_by_category: Record<KnowledgeCategory, number>;
 }
 
+export interface ActiveEventTask {
+  id: string;
+  pattern: string;
+  title: string;
+}
+
 export interface WakeUpBriefingData {
   now: Date;
   timezone: string;
@@ -21,4 +27,5 @@ export interface WakeUpBriefingData {
   preferences: PreferenceRow[];
   hints: WakeUpContextHints;
   recentMessages: MessageRecord[];
+  activeEventTasks: ActiveEventTask[];
 }
