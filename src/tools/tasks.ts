@@ -2,7 +2,7 @@
 
 import { createSdkMcpServer, tool } from "@anthropic-ai/claude-agent-sdk";
 import { z } from "zod";
-import type { TaskStore, TaskRecord, TaskStatus } from '../db/tasks.js';
+import type { TaskStore, TaskRecord, TaskStatus, TaskTriggerType } from '../db/tasks.js';
 import { TASK_STATUSES } from '../db/tasks.js';
 import { toIsoJakarta } from '../utils/time.js';
 
@@ -13,6 +13,8 @@ export interface TaskResult {
   status: TaskStatus;
   due_date: string | null;
   source_msg_id: string | null;
+  trigger_type: TaskTriggerType | null;
+  trigger_pattern: string | null;
   created_at: string;
   updated_at: string;
 }
@@ -21,6 +23,7 @@ function sanitize(r: TaskRecord): TaskResult {
   return {
     id: r.id, title: r.title, notes: r.notes, status: r.status,
     due_date: r.due_date, source_msg_id: r.source_msg_id,
+    trigger_type: r.trigger_type, trigger_pattern: r.trigger_pattern,
     created_at: toIsoJakarta(r.created_at),
     updated_at: toIsoJakarta(r.updated_at),
   };

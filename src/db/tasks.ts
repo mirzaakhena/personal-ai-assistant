@@ -6,6 +6,9 @@ import { randomUUID } from 'node:crypto';
 export const TASK_STATUSES = ['pending', 'done', 'cancelled'] as const;
 export type TaskStatus = (typeof TASK_STATUSES)[number];
 
+export const TASK_TRIGGER_TYPES = ['time', 'event', 'always'] as const;
+export type TaskTriggerType = (typeof TASK_TRIGGER_TYPES)[number];
+
 export interface TaskRecord {
   id: string;
   title: string;
@@ -13,6 +16,8 @@ export interface TaskRecord {
   status: TaskStatus;
   due_date: string | null;
   source_msg_id: string | null;
+  trigger_type: TaskTriggerType | null;
+  trigger_pattern: string | null;
   created_at: number;
   updated_at: number;
 }
@@ -23,6 +28,8 @@ export interface TaskStore {
     notes?: string;
     due_date?: string;
     source_msg_id?: string;
+    trigger_type?: TaskTriggerType;
+    trigger_pattern?: string;
   }): TaskRecord;
   update(id: string, patch: {
     status?: TaskStatus;
@@ -37,25 +44,46 @@ export interface TaskStore {
 
 const DDL = `
   CREATE TABLE IF NOT EXISTS tasks (
-    id             TEXT PRIMARY KEY,
-    title          TEXT NOT NULL,
-    notes          TEXT,
-    status         TEXT NOT NULL DEFAULT 'pending',
-    due_date       TEXT,
-    source_msg_id  TEXT,
-    created_at     INTEGER NOT NULL,
-    updated_at     INTEGER NOT NULL
+    id              TEXT PRIMARY KEY,
+    title           TEXT NOT NULL,
+    notes           TEXT,
+    status          TEXT NOT NULL DEFAULT 'pending',
+    due_date        TEXT,
+    source_msg_id   TEXT,
+    trigger_type    TEXT,
+    trigger_pattern TEXT,
+    created_at      INTEGER NOT NULL,
+    updated_at      INTEGER NOT NULL
   );
   CREATE INDEX IF NOT EXISTS idx_tasks_status ON tasks(status);
   CREATE INDEX IF NOT EXISTS idx_tasks_due ON tasks(due_date) WHERE due_date IS NOT NULL;
 `;
 
+const TRIGGER_INDEX_DDL = `
+  CREATE INDEX IF NOT EXISTS idx_tasks_trigger ON tasks(trigger_type) WHERE trigger_type IS NOT NULL;
+`;
+
+function ensureTriggerColumns(db: Database.Database): void {
+  const cols = db.prepare(`PRAGMA table_info(tasks)`).all() as { name: string }[];
+  const existing = new Set(cols.map((c) => c.name));
+  if (!existing.has('trigger_type')) {
+    db.exec(`ALTER TABLE tasks ADD COLUMN trigger_type TEXT`);
+  }
+  if (!existing.has('trigger_pattern')) {
+    db.exec(`ALTER TABLE tasks ADD COLUMN trigger_pattern TEXT`);
+  }
+}
+
 export function createTaskStore(db: Database.Database): TaskStore {
   db.exec(DDL);
+  ensureTriggerColumns(db);
+  db.exec(TRIGGER_INDEX_DDL);
 
   const insert = db.prepare<TaskRecord>(`
-    INSERT INTO tasks (id, title, notes, status, due_date, source_msg_id, created_at, updated_at)
-    VALUES (@id, @title, @notes, @status, @due_date, @source_msg_id, @created_at, @updated_at)
+    INSERT INTO tasks (id, title, notes, status, due_date, source_msg_id,
+                       trigger_type, trigger_pattern, created_at, updated_at)
+    VALUES (@id, @title, @notes, @status, @due_date, @source_msg_id,
+            @trigger_type, @trigger_pattern, @created_at, @updated_at)
   `);
   const selectById = db.prepare<{ id: string }, TaskRecord>(`SELECT * FROM tasks WHERE id = @id`);
   const selectPending = db.prepare<{ cap: number }, TaskRecord>(
@@ -68,7 +96,11 @@ export function createTaskStore(db: Database.Database): TaskStore {
 
   function create(rec: {
     title: string; notes?: string; due_date?: string; source_msg_id?: string;
+    trigger_type?: TaskTriggerType; trigger_pattern?: string;
   }): TaskRecord {
+    if (rec.trigger_type && !TASK_TRIGGER_TYPES.includes(rec.trigger_type)) {
+      throw new Error(`invalid TaskTriggerType: ${rec.trigger_type}`);
+    }
     const now = Date.now();
     const row: TaskRecord = {
       id: randomUUID(),
@@ -77,6 +109,8 @@ export function createTaskStore(db: Database.Database): TaskStore {
       status: 'pending',
       due_date: rec.due_date ?? null,
       source_msg_id: rec.source_msg_id ?? null,
+      trigger_type: rec.trigger_type ?? null,
+      trigger_pattern: rec.trigger_pattern ?? null,
       created_at: now,
       updated_at: now,
     };
