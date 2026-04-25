@@ -87,6 +87,57 @@ describe('tasks store (v5)', () => {
     ).toThrow(/invalid TaskTriggerType/);
   });
 
+  it('listEventTasks returns only pending tasks with trigger_type=event', () => {
+    const s = createTaskStore(db);
+    s.create({ title: 'plain', });
+    s.create({ title: 'time-trigger', trigger_type: 'time', trigger_pattern: '0 18 * * *' });
+    const e1 = s.create({
+      title: 'beli batere, sikat gigi, sabun',
+      trigger_type: 'event',
+      trigger_pattern: 'kalau ke indomaret',
+    });
+    const e2 = s.create({
+      title: 'makan silverqueen',
+      trigger_type: 'event',
+      trigger_pattern: 'kalau ARC keluar',
+    });
+    s.update(e2.id, { status: 'done' });
+
+    const events = s.listEventTasks({ cap: 10 });
+    expect(events).toHaveLength(1);
+    expect(events[0].id).toBe(e1.id);
+    expect(events[0].trigger_pattern).toBe('kalau ke indomaret');
+  });
+
+  it('listEventTasks honors the cap and orders newest-first', async () => {
+    const s = createTaskStore(db);
+    for (let i = 0; i < 5; i++) {
+      s.create({
+        title: `task-${i}`,
+        trigger_type: 'event',
+        trigger_pattern: `pattern-${i}`,
+      });
+      // small delay so created_at differs
+      await new Promise((r) => setTimeout(r, 2));
+    }
+    const limited = s.listEventTasks({ cap: 3 });
+    expect(limited).toHaveLength(3);
+    expect(limited[0].title).toBe('task-4');
+    expect(limited[2].title).toBe('task-2');
+  });
+
+  it('listEventTasks defaults cap to 20 when unspecified', () => {
+    const s = createTaskStore(db);
+    for (let i = 0; i < 25; i++) {
+      s.create({
+        title: `t${i}`,
+        trigger_type: 'event',
+        trigger_pattern: `p${i}`,
+      });
+    }
+    expect(s.listEventTasks({}).length).toBe(20);
+  });
+
   it('legacy DB without trigger columns is auto-migrated on store init', () => {
     db.exec(`DROP TABLE IF EXISTS tasks`);
     db.exec(`

@@ -38,6 +38,7 @@ export interface TaskStore {
     due_date?: string | null;
   }): { updated: boolean; task?: TaskRecord };
   listPending(filter: { status?: TaskStatus; cap?: number }): TaskRecord[];
+  listEventTasks(filter: { cap?: number }): TaskRecord[];
   get(id: string): TaskRecord | null;
   delete(id: string): boolean;
 }
@@ -91,6 +92,12 @@ export function createTaskStore(db: Database.Database): TaskStore {
   );
   const selectByStatus = db.prepare<{ status: string; cap: number }, TaskRecord>(
     `SELECT * FROM tasks WHERE status = @status ORDER BY updated_at DESC LIMIT @cap`
+  );
+  const selectEvents = db.prepare<{ cap: number }, TaskRecord>(
+    `SELECT * FROM tasks
+     WHERE status = 'pending' AND trigger_type = 'event'
+     ORDER BY created_at DESC
+     LIMIT @cap`
   );
   const del = db.prepare<{ id: string }>(`DELETE FROM tasks WHERE id = @id`);
 
@@ -148,9 +155,13 @@ export function createTaskStore(db: Database.Database): TaskStore {
     return selectPending.all({ cap });
   }
 
+  function listEventTasks(filter: { cap?: number }): TaskRecord[] {
+    return selectEvents.all({ cap: filter.cap ?? 20 });
+  }
+
   function get(id: string): TaskRecord | null { return selectById.get({ id }) ?? null; }
 
   function deleteOne(id: string): boolean { return del.run({ id }).changes > 0; }
 
-  return { create, update, listPending, get, delete: deleteOne };
+  return { create, update, listPending, listEventTasks, get, delete: deleteOne };
 }
