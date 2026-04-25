@@ -1,7 +1,7 @@
 // src/gateway/telegram.ts
 
 import { Bot } from 'grammy';
-import type { Message } from 'grammy/types';
+import type { Message, ReactionType } from 'grammy/types';
 import { v4 as uuidv4 } from 'uuid';
 import { join } from 'node:path';
 import type { Gateway } from './types.js';
@@ -13,6 +13,11 @@ import {
   type MediaContentBlock,
 } from '../utils/media.js';
 import { createMessageServer, type MessageDeliver } from '../tools/message.js';
+import { createReactionServer, type MessageReactor } from '../tools/reaction.js';
+import {
+  createReactionsHistoryServer,
+  type ReactionHandlers,
+} from '../tools/reactions-history.js';
 import { createProfileMcpServer, createProfileHandlers } from '../tools/profile.js';
 import { createPreferenceMcpServer, createPreferenceHandlers } from '../tools/preferences.js';
 import { createKnowledgeMcpServer, createKnowledgeHandlers } from '../tools/knowledge.js';
@@ -173,6 +178,19 @@ export function createTelegramGateway(config: TelegramGatewayConfig): Gateway {
     return Buffer.from(arrayBuffer).toString('base64');
   }
 
+  const react: MessageReactor = async (userId, messageId, emoji) => {
+    const chatId = Number(userId);
+    const reaction: ReactionType[] =
+      emoji.length > 0 ? [{ type: 'emoji', emoji } as ReactionType] : [];
+    try {
+      await bot.api.setMessageReaction(chatId, messageId, reaction);
+      log.chat(`${chatId} ⇠ react ${emoji || '(cleared)'} on msg ${messageId}`);
+    } catch (err) {
+      log.error(`[TG] setMessageReaction failed for ${chatId}/${messageId}`, err);
+      throw err;
+    }
+  };
+
   const deliver: MessageDeliver = async (userId, content, options) => {
     const chatId = Number(userId);
     const pause = options?.pauseBeforeTyping ?? 0;
@@ -245,6 +263,14 @@ export function createTelegramGateway(config: TelegramGatewayConfig): Gateway {
     };
   };
 
+  const reactionHandlersFactory = (uid: string): ReactionHandlers => {
+    const store = userDbCache.get(uid).reactions;
+    return {
+      listRecent: (limit) => store.listRecent(limit),
+      listByMessageId: (messageId) => store.listByMessageId(messageId),
+    };
+  };
+
   async function maybeResetSessionBeforeRun(uid: string): Promise<void> {
     if (!pendingSessionReset.get(uid)) return;
     const userDb = userDbCache.get(uid);
@@ -293,6 +319,8 @@ export function createTelegramGateway(config: TelegramGatewayConfig): Gateway {
       cwd,
       mcpServers: {
         message: createMessageServer(deliver, queryUserId),
+        reaction: createReactionServer(react, queryUserId),
+        reactionsHistory: createReactionsHistoryServer(reactionHandlersFactory(queryUserId)),
         profile: createProfileMcpServer(createProfileHandlers(userDb.profile)),
         preferences: createPreferenceMcpServer(createPreferenceHandlers(userDb.preferences)),
         knowledge: createKnowledgeMcpServer(createKnowledgeHandlers(userDb.knowledge)),
@@ -551,7 +579,8 @@ export function createTelegramGateway(config: TelegramGatewayConfig): Gateway {
     }
 
     const quoted = extractQuoted(firstReply as RawReplyToMessage | undefined);
-    const prompt = buildUserPrompt(combinedCaption, quoted, mediaBlocks);
+    const primaryMessageId = messages[0]?.message_id;
+    const prompt = buildUserPrompt(combinedCaption, quoted, mediaBlocks, primaryMessageId);
 
     const turn = incrementTurnCount(userId);
     log.chat(`${chatId} → ${combinedCaption} [+${mediaBlocks.length} media (album)]`);
@@ -714,7 +743,8 @@ export function createTelegramGateway(config: TelegramGatewayConfig): Gateway {
     const prompt = buildUserPrompt(
       text,
       quoted,
-      mediaBlocks.length > 0 ? mediaBlocks : undefined
+      mediaBlocks.length > 0 ? mediaBlocks : undefined,
+      ctx.message.message_id
     );
 
     const turn = incrementTurnCount(userId);
@@ -742,6 +772,72 @@ export function createTelegramGateway(config: TelegramGatewayConfig): Gateway {
     } catch (err) {
       log.error(`[TG] runQuery failed for ${chatId}`, err);
     }
+  });
+
+  bot.on('message_reaction', async (ctx) => {
+    const reaction = ctx.messageReaction;
+    if (!reaction) return;
+    const chatId = reaction.chat.id;
+    if (!whitelist.has(chatId)) {
+      log.debug(`[TG] blocked reaction from chat: ${chatId}`);
+      return;
+    }
+
+    const userId = String(chatId);
+    const messageFullId = `${chatId}:${reaction.message_id}`;
+    const extractEmojis = (list: readonly ReactionType[]): string[] =>
+      list
+        .filter((r) => r.type === 'emoji')
+        .map((r) => (r as { type: 'emoji'; emoji: string }).emoji);
+    const oldEmojis = extractEmojis(reaction.old_reaction);
+    const newEmojis = extractEmojis(reaction.new_reaction);
+
+    const userDb = userDbCache.get(userId);
+    userDb.reactions.insert({
+      message_id: messageFullId,
+      actor: 'user',
+      old_emojis: oldEmojis,
+      new_emojis: newEmojis,
+      timestamp: Date.now(),
+    });
+
+    log.chat(
+      `${chatId} → react ${newEmojis.join('') || '(cleared)'} on msg ${reaction.message_id}`
+    );
+
+    let body: string;
+    if (newEmojis.length === 0 && oldEmojis.length > 0) {
+      body = `User cleared their reaction (was ${oldEmojis.join(' ')}) on message_id=${reaction.message_id}.`;
+    } else if (oldEmojis.length === 0) {
+      body = `User reacted with ${newEmojis.join(' ')} on message_id=${reaction.message_id}.`;
+    } else {
+      body = `User changed reaction on message_id=${reaction.message_id}: ${oldEmojis.join(' ')} → ${newEmojis.join(' ')}.`;
+    }
+    const reacted = userDb.messages.getById(messageFullId);
+    if (reacted?.body) {
+      const excerpt = reacted.body.length > 120 ? `${reacted.body.slice(0, 120)}…` : reacted.body;
+      body += ` Message body: "${excerpt}"`;
+    }
+
+    enqueue(userId, async () => {
+      try {
+        const prompt = buildSystemMessagePrompt(body);
+        const result = await runQuery(userId, prompt);
+        recordQuery(userDb, userId, result);
+        if (result.error) {
+          try {
+            await bot.api.sendMessage(
+              chatId,
+              `[${result.error.reason}] ${result.error.messages.join(' ')}`
+            );
+          } catch {
+            // swallow
+          }
+        }
+      } catch (err) {
+        log.error(`[TG] reaction runQuery failed for ${chatId}`, err);
+      }
+    });
   });
 
   function buildStatusReport(opts: {
@@ -843,6 +939,7 @@ export function createTelegramGateway(config: TelegramGatewayConfig): Gateway {
 
       log.debug(`[TG] starting bot (whitelist: ${whitelist.size} chats)`);
       void bot.start({
+        allowed_updates: ['message', 'message_reaction'],
         onStart: (info) => log.debug(`[TG] bot @${info.username} online`),
       });
     },

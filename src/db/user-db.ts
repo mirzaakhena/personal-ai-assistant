@@ -12,6 +12,7 @@ import { createSessionStore, type SessionStore } from './sessions.js';
 import { createCronjobStore, type CronjobStore } from './cronjobs.js';
 import { createTaskStore, type TaskStore } from './tasks.js';
 import { createQueryCostStore, type QueryCostStore } from './query-costs.js';
+import { createReactionStore, type ReactionStore } from './reactions.js';
 import { todayInJakartaYMD } from '../utils/time.js';
 
 export interface ContextHintCounts {
@@ -33,6 +34,7 @@ export interface UserDb {
   cronjobs: CronjobStore;
   tasks: TaskStore;
   queryCosts: QueryCostStore;
+  reactions: ReactionStore;
   close(): void;
 }
 
@@ -58,11 +60,12 @@ export function createUserDb(userId: string, baseDir: string = 'data/users'): Us
   const cronjobs = createCronjobStore(db);
   const tasks = createTaskStore(db);
   const queryCosts = createQueryCostStore(db);
+  const reactions = createReactionStore(db);
 
   return {
     userId,
     profile, preferences, knowledge, journal,
-    messages, sessions, cronjobs, tasks, queryCosts,
+    messages, sessions, cronjobs, tasks, queryCosts, reactions,
     close: () => db.close(),
   };
 }

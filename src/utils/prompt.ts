@@ -42,9 +42,15 @@ function escapeXml(s: string): string {
  * Build the <user_message> XML block.
  * Returns the structured XML text. Used for both string and ContentBlock[] return paths.
  */
-function buildUserMessageText(message: string, quoted?: QuotedInfo, hasMedia?: boolean): string {
+function buildUserMessageText(
+  message: string,
+  quoted?: QuotedInfo,
+  hasMedia?: boolean,
+  messageId?: number
+): string {
   const ts = toIsoLocal(new Date());
   const attrs = [`timestamp="${ts}"`];
+  if (messageId !== undefined) attrs.push(`message_id="${messageId}"`);
   if (hasMedia) attrs.push(`has_media="true"`);
 
   const lines: string[] = [`<user_message ${attrs.join(' ')}>`];
@@ -72,15 +78,16 @@ function buildUserMessageText(message: string, quoted?: QuotedInfo, hasMedia?: b
 export function buildUserPrompt(
   message: string,
   quoted?: QuotedInfo,
-  mediaBlocks?: MediaContentBlock[]
+  mediaBlocks?: MediaContentBlock[],
+  messageId?: number
 ): string | ContentBlock[] {
   if (!mediaBlocks || mediaBlocks.length === 0) {
-    return buildUserMessageText(message, quoted, false);
+    return buildUserMessageText(message, quoted, false, messageId);
   }
 
   const textBlock: ContentBlock = {
     type: 'text',
-    text: buildUserMessageText(message, quoted, true),
+    text: buildUserMessageText(message, quoted, true, messageId),
   };
   return [...mediaBlocks, textBlock];
 }
