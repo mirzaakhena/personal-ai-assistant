@@ -11,40 +11,56 @@ describe('assembleSystemPrompt', () => {
     expect(out).not.toContain('{{WAKE_UP_BRIEFING}}');
   });
 
-  it('preserves the core section tags', () => {
+  it('preserves the three invariant sections', () => {
     const out = assembleSystemPrompt('');
     expect(out).toContain('<reply_rule>');
     expect(out).toContain('<input_format>');
-    expect(out).toContain('<initiative>');
-    expect(out).toContain('<memory_discipline>');
-    expect(out).toContain('<skills>');
     expect(out).toContain('<on_wake_up>');
   });
 
-  it('CORE_SYSTEM_PROMPT surfaces the critical reply rule and cronjob emphasis', () => {
-    expect(CORE_SYSTEM_PROMPT).toContain('`send_message`');
-    expect(CORE_SYSTEM_PROMPT).toContain('never plain text');
-    expect(CORE_SYSTEM_PROMPT).toContain('heartbeat');
-    expect(CORE_SYSTEM_PROMPT).toContain('search_messages');
+  it('does NOT carry behavior sections (migrated to CLAUDE.md)', () => {
+    expect(CORE_SYSTEM_PROMPT).not.toContain('<initiative>');
+    expect(CORE_SYSTEM_PROMPT).not.toContain('<memory_discipline>');
+    expect(CORE_SYSTEM_PROMPT).not.toContain('<skills>');
   });
 
-  it('<on_wake_up> promotes <recent_messages> as primary context and reconciles stale cron messages', () => {
+  it('does NOT enumerate domain stores (migrated to CLAUDE.md)', () => {
+    // These tokens used to live in <memory_discipline>; they belong in
+    // CLAUDE.md now, not in the engine prompt.
+    expect(CORE_SYSTEM_PROMPT).not.toContain('SEARCH BEFORE SAVE');
+    expect(CORE_SYSTEM_PROMPT).not.toContain('BATCH WITH ARRAYS');
+    expect(CORE_SYSTEM_PROMPT).not.toContain('heartbeat');
+  });
+
+  it('still surfaces the critical reply rule', () => {
+    expect(CORE_SYSTEM_PROMPT).toContain('`send_message`');
+    expect(CORE_SYSTEM_PROMPT).toContain('never plain text');
+  });
+
+  it('still references CLAUDE.md and skills as the behavior layers', () => {
+    expect(CORE_SYSTEM_PROMPT).toContain('CLAUDE.md');
+    expect(CORE_SYSTEM_PROMPT).toMatch(/skills?\//i);
+  });
+
+  it('<on_wake_up> promotes <recent_messages> as primary context', () => {
     expect(CORE_SYSTEM_PROMPT).toContain('<recent_messages>');
     expect(CORE_SYSTEM_PROMPT).toContain('primary fresh-context');
+  });
+
+  it('<on_wake_up> handles stale cron messages', () => {
     expect(CORE_SYSTEM_PROMPT).toMatch(/stale/i);
   });
 
-  it('CORE_SYSTEM_PROMPT does not reference dropped v3 domain specifics', () => {
-    const forbidden = ['prayer', 'Busan', 'KST', 'sholat', 'save_profile category='];
+  it('does not reference removed v3 specifics', () => {
+    const forbidden = ['prayer', 'Busan', 'KST', 'sholat', 'habit', 'Time-keeper'];
     for (const term of forbidden) {
       expect(CORE_SYSTEM_PROMPT).not.toContain(term);
     }
   });
 
-  it('CORE_SYSTEM_PROMPT does not reference removed concepts (habit, auto-injected)', () => {
-    expect(CORE_SYSTEM_PROMPT).not.toContain('habit');
-    expect(CORE_SYSTEM_PROMPT).not.toContain('auto-injected');
-    expect(CORE_SYSTEM_PROMPT).not.toContain('six capacities');
-    expect(CORE_SYSTEM_PROMPT).not.toContain('Time-keeper');
+  it('is bounded in size (engine prompt holds invariants only)', () => {
+    // Hard ceiling: pre-refactor was ~2400 chars. Target is well under
+    // half that. This guards against accidental drift back to verbose.
+    expect(CORE_SYSTEM_PROMPT.length).toBeLessThan(1800);
   });
 });
