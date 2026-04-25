@@ -43,7 +43,11 @@ import {
 } from '../utils/prompt.js';
 import { assembleSystemPrompt, CORE_SYSTEM_PROMPT } from '../core/system-prompt.js';
 import { buildWakeUpBriefing, renderWakeUpBriefing } from '../core/wake-up.js';
-import { ensureUserSkillDir } from '../skills/storage.js';
+import {
+  ensureUserSkillDir,
+  ensureUserClaudeMd,
+  ensureMetaSkill,
+} from '../skills/storage.js';
 import { incrementTurnCount, getTurnCount, clearTurnCount } from '../utils/turns.js';
 import { requireModel, TIMEZONE } from '../utils/model-config.js';
 import {
@@ -290,6 +294,8 @@ export function createTelegramGateway(config: TelegramGatewayConfig): Gateway {
     seenUsers.add(queryUserId);
 
     await ensureUserSkillDir({ dataDir, userId: queryUserId });
+    await ensureUserClaudeMd({ dataDir, userId: queryUserId });
+    await ensureMetaSkill({ dataDir, userId: queryUserId });
 
     await maybeResetSessionBeforeRun(queryUserId);
 
