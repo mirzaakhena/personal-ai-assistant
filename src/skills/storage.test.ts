@@ -202,3 +202,64 @@ describe('ensureUserClaudeMd', () => {
     expect(second).toBe(first);
   });
 });
+
+describe('ensureMetaSkill', () => {
+  let dataDir: string;
+  const userId = 'u1';
+
+  beforeEach(() => {
+    dataDir = mkdtempSync(join(tmpdir(), 'v4-meta-skill-'));
+  });
+  afterEach(() => {
+    rmSync(dataDir, { recursive: true, force: true });
+  });
+
+  it('creates the writing-skills meta-skill at the canonical path', async () => {
+    await ensureMetaSkill({ dataDir, userId });
+    const p = join(
+      dataDir,
+      'users',
+      userId,
+      '.claude',
+      'skills',
+      'writing-skills',
+      'SKILL.md'
+    );
+    expect(existsSync(p)).toBe(true);
+    const content = readFileSync(p, 'utf8');
+    expect(content).toContain('name: writing-skills');
+    expect(content).toContain('# Writing Skills');
+    expect(content).toMatch(/created_at: /);
+    expect(content).toMatch(/updated_at: /);
+  });
+
+  it('does NOT overwrite an existing writing-skills/SKILL.md', async () => {
+    const dir = join(dataDir, 'users', userId, '.claude', 'skills', 'writing-skills');
+    const p = join(dir, 'SKILL.md');
+    const { mkdirSync, writeFileSync } = await import('node:fs');
+    mkdirSync(dir, { recursive: true });
+    writeFileSync(p, '# user customized writing-skills\n', 'utf8');
+
+    await ensureMetaSkill({ dataDir, userId });
+
+    const content = readFileSync(p, 'utf8');
+    expect(content).toBe('# user customized writing-skills\n');
+  });
+
+  it('is idempotent', async () => {
+    await ensureMetaSkill({ dataDir, userId });
+    const p = join(
+      dataDir,
+      'users',
+      userId,
+      '.claude',
+      'skills',
+      'writing-skills',
+      'SKILL.md'
+    );
+    const first = readFileSync(p, 'utf8');
+    await ensureMetaSkill({ dataDir, userId });
+    const second = readFileSync(p, 'utf8');
+    expect(second).toBe(first);
+  });
+});

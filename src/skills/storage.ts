@@ -141,11 +141,33 @@ export async function ensureUserClaudeMd(opts: {
   await fs.writeFile(filePath, CLAUDE_MD_TEMPLATE, 'utf8');
 }
 
-// Temporary stub — real implementation in Task 3.
-export async function ensureMetaSkill(_opts: {
+/**
+ * Provision the writing-skills meta-skill if it does not exist. Idempotent:
+ * never overwrites if the user has customized their copy. Provides the AI
+ * with on-demand guidance for writing new skills (frontmatter, naming,
+ * conventions) — content the engine system prompt no longer carries.
+ */
+export async function ensureMetaSkill(opts: {
   dataDir: string;
   userId: string;
 }): Promise<void> {
-  void WRITING_SKILLS_TEMPLATE;
-  return;
+  const filePath = join(
+    opts.dataDir,
+    'users',
+    opts.userId,
+    '.claude',
+    'skills',
+    'writing-skills',
+    'SKILL.md'
+  );
+  if (existsSync(filePath)) return;
+
+  await writeSkill({
+    dataDir: opts.dataDir,
+    userId: opts.userId,
+    name: 'writing-skills',
+    description:
+      'How to write a new skill. Read this before calling write_skill — covers naming, frontmatter, body conventions, and when (not) to write a skill.',
+    body: WRITING_SKILLS_TEMPLATE,
+  });
 }
