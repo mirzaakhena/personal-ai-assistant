@@ -125,6 +125,21 @@ export function renderWakeUpBriefing(data: WakeUpBriefingData): string {
   }
   lines.push('</recent_messages>', '');
 
+  // <active_event_tasks> — pending tasks with trigger_type='event'.
+  // Self-documenting: AI watches user message for matches against pattern.
+  if (data.activeEventTasks.length > 0) {
+    lines.push(`<active_event_tasks count="${data.activeEventTasks.length}">`);
+    lines.push(
+      `  <!-- If the user signals one of these trigger conditions, act on the matching task. -->`
+    );
+    for (const t of data.activeEventTasks) {
+      lines.push(
+        `  <task id="${escapeXml(t.id)}" pattern="${escapeXml(t.pattern)}">${escapeXml(t.title)}</task>`
+      );
+    }
+    lines.push('</active_event_tasks>', '');
+  }
+
   lines.push('</wake_up_briefing>');
   return lines.join('\n');
 }

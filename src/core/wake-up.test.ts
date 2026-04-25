@@ -151,6 +151,64 @@ describe('renderWakeUpBriefing', () => {
     expect(out).toContain('a &amp; b &lt;c&gt;');
     expect(out).not.toContain('a & b <c>');
   });
+
+  it('omits <active_event_tasks> block when no event tasks exist', () => {
+    const data = buildWakeUpBriefing({
+      userId: 'u', now: new Date(), timezone: 'Asia/Jakarta', userDb: db,
+    });
+    const out = renderWakeUpBriefing(data);
+    expect(out).not.toContain('<active_event_tasks');
+  });
+
+  it('renders <active_event_tasks> block with count and entries when populated', () => {
+    db.tasks.create({
+      title: 'beli batere, sikat gigi, sabun',
+      trigger_type: 'event',
+      trigger_pattern: 'kalau ke indomaret',
+    });
+    db.tasks.create({
+      title: 'cek pintu, kran, setrika, kompor',
+      trigger_type: 'event',
+      trigger_pattern: 'kalau keluar rumah',
+    });
+    const data = buildWakeUpBriefing({
+      userId: 'u', now: new Date(), timezone: 'Asia/Jakarta', userDb: db,
+    });
+    const out = renderWakeUpBriefing(data);
+    expect(out).toContain('<active_event_tasks count="2">');
+    expect(out).toContain('pattern="kalau ke indomaret"');
+    expect(out).toContain('beli batere, sikat gigi, sabun');
+    expect(out).toContain('pattern="kalau keluar rumah"');
+    expect(out).toContain('cek pintu, kran, setrika, kompor');
+    expect(out).toContain('</active_event_tasks>');
+  });
+
+  it('includes a self-documenting comment inside <active_event_tasks>', () => {
+    db.tasks.create({
+      title: 'x',
+      trigger_type: 'event',
+      trigger_pattern: 'p',
+    });
+    const data = buildWakeUpBriefing({
+      userId: 'u', now: new Date(), timezone: 'Asia/Jakarta', userDb: db,
+    });
+    const out = renderWakeUpBriefing(data);
+    expect(out).toMatch(/<!--[^>]*trigger condition[^>]*-->/);
+  });
+
+  it('escapes XML special characters in pattern and title', () => {
+    db.tasks.create({
+      title: 'a & b <c>',
+      trigger_type: 'event',
+      trigger_pattern: 'kalau "x" & y',
+    });
+    const data = buildWakeUpBriefing({
+      userId: 'u', now: new Date(), timezone: 'Asia/Jakarta', userDb: db,
+    });
+    const out = renderWakeUpBriefing(data);
+    expect(out).toContain('a &amp; b &lt;c&gt;');
+    expect(out).toContain('pattern="kalau &quot;x&quot; &amp; y"');
+  });
 });
 
 describe('computeLastUserMsgGap', () => {
