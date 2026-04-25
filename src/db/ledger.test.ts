@@ -1,6 +1,6 @@
 // src/db/ledger.test.ts
 
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { assertSafeSelect } from './ledger.js';
 
 describe('assertSafeSelect', () => {
@@ -81,5 +81,80 @@ describe('assertSafeSelect', () => {
     // by the simple-keyword regex. This is acceptable for a security boundary
     // (false positive over false negative). Documented as a known limitation.
     expect(() => assertSafeSelect(`SELECT 1 AS create_count FROM ledger`)).toThrow();
+  });
+});
+
+import Database from 'better-sqlite3';
+import { mkdtempSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { createLedgerStore } from './ledger.js';
+
+describe('LedgerStore.append', () => {
+  let tmp: string; let db: Database.Database;
+  beforeEach(() => {
+    tmp = mkdtempSync(join(tmpdir(), 'ledger-'));
+    db = new Database(join(tmp, 'test.db'));
+  });
+  afterEach(() => {
+    db.close();
+    rmSync(tmp, { recursive: true, force: true });
+  });
+
+  it('appends a record and returns it with a generated id', () => {
+    const s = createLedgerStore(db);
+    const r = s.append({
+      stream: 'expense',
+      payload: { amount: 35000, currency: 'IDR', category: 'food', note: 'kopi' },
+      tags: ['food', 'beverage'],
+    });
+    expect(r.id).toMatch(/^[a-f0-9-]{36}$/);
+    expect(r.stream).toBe('expense');
+    expect(r.payload).toEqual({ amount: 35000, currency: 'IDR', category: 'food', note: 'kopi' });
+    expect(r.tags).toBe('food beverage');
+    expect(typeof r.ts).toBe('number');
+    expect(typeof r.created_at).toBe('number');
+  });
+
+  it('honors a provided ts (ms epoch)', () => {
+    const s = createLedgerStore(db);
+    const r = s.append({
+      stream: 'mood',
+      payload: { score: 7 },
+      ts: 1_600_000_000_000,
+    });
+    expect(r.ts).toBe(1_600_000_000_000);
+  });
+
+  it('persists payload as JSON-encoded TEXT in the column', () => {
+    const s = createLedgerStore(db);
+    const r = s.append({ stream: 'x', payload: { a: 1 } });
+    const row = db
+      .prepare('SELECT payload FROM ledger WHERE id = ?')
+      .get(r.id) as { payload: string };
+    expect(row.payload).toBe('{"a":1}');
+  });
+
+  it('rejects empty stream', () => {
+    const s = createLedgerStore(db);
+    expect(() => s.append({ stream: '', payload: {} })).toThrow(/stream/i);
+  });
+
+  it('joins multi-word tags with a single space', () => {
+    const s = createLedgerStore(db);
+    const r = s.append({
+      stream: 'x',
+      payload: {},
+      tags: ['a', 'b', 'c'],
+    });
+    expect(r.tags).toBe('a b c');
+  });
+
+  it('stores null tags when omitted or empty array', () => {
+    const s = createLedgerStore(db);
+    const a = s.append({ stream: 'x', payload: {} });
+    const b = s.append({ stream: 'x', payload: {}, tags: [] });
+    expect(a.tags).toBeNull();
+    expect(b.tags).toBeNull();
   });
 });

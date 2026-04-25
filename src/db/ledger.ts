@@ -5,6 +5,9 @@
 // Schema per-stream is owned by skills, not infra; this module only
 // provides append + SELECT-only query primitives.
 
+import type Database from 'better-sqlite3';
+import { randomUUID } from 'node:crypto';
+
 /**
  * Validate that `sql` is a single SELECT (or WITH … SELECT) statement
  * with no DDL/DML side effects. Throws on rejection; returns void on
@@ -47,4 +50,92 @@ export function assertSafeSelect(sql: string): void {
   if (banned.test(cleaned)) {
     throw new Error('ledger_query: DDL/DML keywords are not permitted');
   }
+}
+
+export interface LedgerRecord {
+  id: string;
+  ts: number;
+  stream: string;
+  payload: unknown;
+  tags: string | null;
+  source_msg_id: string | null;
+  created_at: number;
+}
+
+export interface LedgerStore {
+  append(rec: {
+    stream: string;
+    payload: unknown;
+    tags?: string[];
+    ts?: number;
+    source_msg_id?: string;
+  }): LedgerRecord;
+
+  query(sql: string): Record<string, unknown>[];
+}
+
+const DDL = `
+  CREATE TABLE IF NOT EXISTS ledger (
+    id            TEXT PRIMARY KEY,
+    ts            INTEGER NOT NULL,
+    stream        TEXT NOT NULL,
+    payload       TEXT NOT NULL,
+    tags          TEXT,
+    source_msg_id TEXT,
+    created_at    INTEGER NOT NULL
+  );
+  CREATE INDEX IF NOT EXISTS idx_ledger_stream_ts ON ledger(stream, ts DESC);
+  CREATE INDEX IF NOT EXISTS idx_ledger_tags ON ledger(tags) WHERE tags IS NOT NULL;
+`;
+
+export function createLedgerStore(db: Database.Database): LedgerStore {
+  db.exec(DDL);
+
+  const insert = db.prepare(`
+    INSERT INTO ledger (id, ts, stream, payload, tags, source_msg_id, created_at)
+    VALUES (@id, @ts, @stream, @payload, @tags, @source_msg_id, @created_at)
+  `);
+
+  function append(rec: {
+    stream: string;
+    payload: unknown;
+    tags?: string[];
+    ts?: number;
+    source_msg_id?: string;
+  }): LedgerRecord {
+    if (!rec.stream || rec.stream.length === 0) {
+      throw new Error('ledger_append: stream must be a non-empty string');
+    }
+    const now = Date.now();
+    const tags = rec.tags && rec.tags.length > 0 ? rec.tags.join(' ') : null;
+    const payloadJson = JSON.stringify(rec.payload);
+
+    const row = {
+      id: randomUUID(),
+      ts: rec.ts ?? now,
+      stream: rec.stream,
+      payload: payloadJson,
+      tags,
+      source_msg_id: rec.source_msg_id ?? null,
+      created_at: now,
+    };
+    insert.run(row);
+    return {
+      id: row.id,
+      ts: row.ts,
+      stream: row.stream,
+      payload: rec.payload,
+      tags: row.tags,
+      source_msg_id: row.source_msg_id,
+      created_at: row.created_at,
+    };
+  }
+
+  function query(sql: string): Record<string, unknown>[] {
+    assertSafeSelect(sql);
+    const stmt = db.prepare(sql);
+    return stmt.all() as Record<string, unknown>[];
+  }
+
+  return { append, query };
 }
