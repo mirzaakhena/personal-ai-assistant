@@ -3,7 +3,7 @@
 import { createSdkMcpServer, tool } from "@anthropic-ai/claude-agent-sdk";
 import { z } from "zod";
 import type { TaskStore, TaskRecord, TaskStatus, TaskTriggerType } from '../db/tasks.js';
-import { TASK_STATUSES } from '../db/tasks.js';
+import { TASK_STATUSES, TASK_TRIGGER_TYPES } from '../db/tasks.js';
 import { toIsoJakarta } from '../utils/time.js';
 
 export interface TaskResult {
@@ -30,8 +30,22 @@ function sanitize(r: TaskRecord): TaskResult {
 }
 
 export interface TaskHandlers {
-  createTask(rec: { title: string; notes?: string; due_date?: string; source_msg_id?: string }): TaskResult;
-  updateTask(id: string, patch: { status?: TaskStatus; title?: string; notes?: string; due_date?: string | null }): { updated: boolean; task?: TaskResult };
+  createTask(rec: {
+    title: string;
+    notes?: string;
+    due_date?: string;
+    source_msg_id?: string;
+    trigger_type?: TaskTriggerType;
+    trigger_pattern?: string;
+  }): TaskResult;
+  updateTask(id: string, patch: {
+    status?: TaskStatus;
+    title?: string;
+    notes?: string;
+    due_date?: string | null;
+    trigger_type?: TaskTriggerType | null;
+    trigger_pattern?: string | null;
+  }): { updated: boolean; task?: TaskResult };
   listTasks(filter?: { status?: TaskStatus }): TaskResult[];
   deleteTask(id: string): { deleted: boolean };
 }
@@ -55,12 +69,18 @@ export function createTaskMcpServer(h: TaskHandlers) {
     tools: [
       tool(
         "create_task",
-        "Create a new pending task. due_date is YYYY-MM-DD in the user's timezone.",
+        "Create a new pending task. due_date is YYYY-MM-DD in user timezone. " +
+        "trigger_type=event with a free-text trigger_pattern (e.g. \"kalau ke indomaret\") " +
+        "makes the task surface in the briefing as an active event-task; the AI matches " +
+        "the pattern against future user messages. trigger_type=time mirrors the cron-driven " +
+        "flow and is rarely needed since cronjob already covers time-based reminders.",
         {
           title: z.string().min(1),
           notes: z.string().optional(),
           due_date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
           source_msg_id: z.string().optional(),
+          trigger_type: z.enum(TASK_TRIGGER_TYPES).optional(),
+          trigger_pattern: z.string().min(1).max(500).optional(),
         },
         async (rec) => ({
           content: [{ type: "text" as const, text: JSON.stringify(h.createTask(rec)) }],
@@ -68,13 +88,16 @@ export function createTaskMcpServer(h: TaskHandlers) {
       ),
       tool(
         "update_task",
-        "Update a task — change status (pending/done/cancelled) and/or edit title/notes/due_date.",
+        "Update a task — change status, edit fields, or attach/clear an event trigger. " +
+        "Pass trigger_type=null and trigger_pattern=null to clear an existing trigger.",
         {
           id: z.string().min(1),
           status: z.enum(TASK_STATUSES).optional(),
           title: z.string().min(1).optional(),
           notes: z.string().optional(),
           due_date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).nullable().optional(),
+          trigger_type: z.enum(TASK_TRIGGER_TYPES).nullable().optional(),
+          trigger_pattern: z.string().min(1).max(500).nullable().optional(),
         },
         async ({ id, ...patch }) => ({
           content: [{ type: "text" as const, text: JSON.stringify(h.updateTask(id, patch)) }],
