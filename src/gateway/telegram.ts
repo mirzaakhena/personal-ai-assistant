@@ -36,7 +36,7 @@ import {
 } from '../tools/message-history.js';
 import { createTriggerServer } from '../trigger/server.js';
 import type { TriggerServer } from '../trigger/types.js';
-import { log } from '../utils/logger.js';
+import { log, getRecentLogs } from '../utils/logger.js';
 import {
   buildUserPrompt,
   buildSystemMessagePrompt,
@@ -685,7 +685,7 @@ export function createTelegramGateway(config: TelegramGatewayConfig): Gateway {
     const docMeta = ctx.message.document ?? null;
 
     const isCommand =
-      mediaBlocks.length === 0 && ['/start', '/new', '/status'].includes(text);
+      mediaBlocks.length === 0 && ['/start', '/new', '/status', '/log'].includes(text);
     if (!isCommand) {
       const messageType =
         mediaBlocks.length > 0 ? (photoMeta ? 'image' : 'document') : 'text';
@@ -741,6 +741,16 @@ export function createTelegramGateway(config: TelegramGatewayConfig): Gateway {
           chatId,
           buildStatusReport({ userId, sessionId, turnCount, stats, userDb })
         );
+        return;
+      }
+      if (text === '/log') {
+        log.chat(`${chatId} → /log`);
+        const lines = getRecentLogs(20);
+        const body = lines.length > 0 ? lines.join('\n') : '(no log entries yet)';
+        // Telegram caps at 4096 chars/message. 20 lines × ~120 chars ≈ 2400 — safe.
+        // If a single line is pathological, truncate the whole body.
+        const safe = body.length > 3900 ? body.slice(-3900) : body;
+        await bot.api.sendMessage(chatId, safe);
         return;
       }
     }

@@ -26,7 +26,7 @@ import type { MessageRecord } from '../db/message.js';
 import { v4 as uuidv4 } from 'uuid';
 import { createTriggerServer } from '../trigger/server.js';
 import type { TriggerServer } from '../trigger/types.js';
-import { log } from '../utils/logger.js';
+import { log, getRecentLogs } from '../utils/logger.js';
 import { buildUserPrompt, buildSystemMessagePrompt } from '../utils/prompt.js';
 import { assembleSystemPrompt, CORE_SYSTEM_PROMPT } from '../core/system-prompt.js';
 import { buildWakeUpBriefing, renderWakeUpBriefing } from '../core/wake-up.js';
@@ -341,6 +341,17 @@ export function createConsoleGateway(config?: ConsoleGatewayConfig): Gateway {
     console.log(`(${lastSystemPrompt.length} chars)\n`);
   }
 
+  function handleLog(): void {
+    const lines = getRecentLogs(20);
+    console.log('\n───────────── last 20 log lines ─────────────');
+    if (lines.length === 0) {
+      console.log('(no log entries yet)');
+    } else {
+      for (const line of lines) console.log(line);
+    }
+    console.log('───────────── end log ─────────────\n');
+  }
+
   function handleStatus(): void {
     const sessionId = getSessionId();
     const turnCount = getTurnCount(userId);
@@ -487,7 +498,7 @@ export function createConsoleGateway(config?: ConsoleGatewayConfig): Gateway {
       console.log('Personal AI Assistant v4 — Console Gateway');
       console.log(
         'Commands: /new (reset session), /status (show stats), ' +
-        '/system_prompt (show active prompt), /exit (quit)'
+        '/system_prompt (show active prompt), /log (last 20 log lines), /exit (quit)'
       );
       console.log('');
 
@@ -516,6 +527,9 @@ export function createConsoleGateway(config?: ConsoleGatewayConfig): Gateway {
             break;
           case '/system_prompt':
             handleSystemPrompt();
+            break;
+          case '/log':
+            handleLog();
             break;
           case '/exit':
             running = false;
