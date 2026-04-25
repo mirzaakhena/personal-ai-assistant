@@ -1,6 +1,7 @@
 // src/gateway/telegram.ts
 
 import { Bot } from 'grammy';
+import type { Message } from 'grammy/types';
 import { v4 as uuidv4 } from 'uuid';
 import { join } from 'node:path';
 import type { Gateway } from './types.js';
@@ -408,6 +409,172 @@ export function createTelegramGateway(config: TelegramGatewayConfig): Gateway {
             }),
         });
 
+  // --- Album (media_group_id) buffering ---
+  // Telegram delivers each photo of an album as a separate update sharing the
+  // same media_group_id. We debounce arrivals into a single AI query so the
+  // model sees the whole set at once.
+  const ALBUM_DEBOUNCE_MS = 400;
+  const ALBUM_MAX_WAIT_MS = 3000;
+
+  interface AlbumBuffer {
+    chatId: number;
+    userId: string;
+    messages: Message[];
+    debounceTimer: NodeJS.Timeout;
+    hardTimer: NodeJS.Timeout;
+  }
+  const albumBuffers = new Map<string, AlbumBuffer>();
+
+  function bufferAlbumMessage(
+    chatId: number,
+    userId: string,
+    groupId: string,
+    msg: Message
+  ): void {
+    const key = `${chatId}:${groupId}`;
+    let entry = albumBuffers.get(key);
+    if (!entry) {
+      entry = {
+        chatId,
+        userId,
+        messages: [],
+        debounceTimer: setTimeout(() => void flushAlbum(key), ALBUM_DEBOUNCE_MS),
+        hardTimer: setTimeout(() => void flushAlbum(key), ALBUM_MAX_WAIT_MS),
+      };
+      albumBuffers.set(key, entry);
+    } else {
+      clearTimeout(entry.debounceTimer);
+      entry.debounceTimer = setTimeout(() => void flushAlbum(key), ALBUM_DEBOUNCE_MS);
+    }
+    entry.messages.push(msg);
+  }
+
+  async function flushAlbum(key: string): Promise<void> {
+    const entry = albumBuffers.get(key);
+    if (!entry) return;
+    albumBuffers.delete(key);
+    clearTimeout(entry.debounceTimer);
+    clearTimeout(entry.hardTimer);
+
+    const { chatId, userId, messages } = entry;
+    messages.sort((a, b) => a.message_id - b.message_id);
+    log.debug(`[TG] flushing album for ${chatId}: ${messages.length} item(s)`);
+
+    const mediaBlocks: MediaContentBlock[] = [];
+    let combinedCaption = '';
+    let firstReply: Message['reply_to_message'] | undefined;
+
+    for (const m of messages) {
+      const captionTrimmed = m.caption?.trim();
+      if (captionTrimmed && combinedCaption.length === 0) combinedCaption = captionTrimmed;
+      if (m.reply_to_message && !firstReply) firstReply = m.reply_to_message;
+
+      let block: MediaContentBlock | null = null;
+      let mediaType: 'image' | 'document' = 'image';
+      let mediaMime: string | null = null;
+      let mediaSize: number | null = null;
+      let mediaFilename: string | null = null;
+
+      if (m.photo && m.photo.length > 0) {
+        const largest = m.photo[m.photo.length - 1];
+        try {
+          const data = await downloadTelegramFile(largest.file_id);
+          const validation = validateAndBuildBlock({ data, mimetype: 'image/jpeg' });
+          if (!validation.ok) {
+            await bot.api.sendMessage(chatId, `⚠️ ${formatValidationError(validation.error)}`);
+            continue;
+          }
+          block = validation.block;
+          mediaType = 'image';
+          mediaMime = 'image/jpeg';
+          mediaSize = largest.file_size ?? null;
+        } catch (err) {
+          log.error(`[TG] album photo download failed`, err);
+          continue;
+        }
+      } else if (m.document) {
+        const doc = m.document;
+        try {
+          const data = await downloadTelegramFile(doc.file_id);
+          const validation = validateAndBuildBlock({
+            data,
+            mimetype: doc.mime_type ?? 'application/octet-stream',
+            filename: doc.file_name,
+          });
+          if (!validation.ok) {
+            await bot.api.sendMessage(chatId, `⚠️ ${formatValidationError(validation.error)}`);
+            continue;
+          }
+          block = validation.block;
+          mediaType = 'document';
+          mediaMime = doc.mime_type ?? null;
+          mediaSize = doc.file_size ?? null;
+          mediaFilename = doc.file_name ?? null;
+        } catch (err) {
+          log.error(`[TG] album document download failed`, err);
+          continue;
+        }
+      }
+
+      if (!block) continue;
+      mediaBlocks.push(block);
+
+      const userDb = userDbCache.get(userId);
+      userDb.messages.insert({
+        id: `${chatId}:${m.message_id}`,
+        gateway: 'telegram',
+        session_id: userDb.sessions.get() ?? null,
+        sender: 'user',
+        timestamp: (m.date ?? Math.floor(Date.now() / 1000)) * 1000,
+        type: mediaType,
+        body: captionTrimmed ? captionTrimmed : null,
+        has_media: 1,
+        media_mimetype: mediaMime,
+        media_filename: mediaFilename,
+        media_size: mediaSize,
+        media_path: null,
+        quoted_msg_id: m.reply_to_message
+          ? `${chatId}:${m.reply_to_message.message_id}`
+          : null,
+        is_forwarded: m.forward_origin ? 1 : 0,
+        raw_json: null,
+      });
+    }
+
+    if (mediaBlocks.length === 0) {
+      try {
+        await bot.api.sendMessage(chatId, '⚠️ Gagal memuat foto-foto dari album. Coba kirim ulang.');
+      } catch {
+        // ignore
+      }
+      return;
+    }
+
+    const quoted = extractQuoted(firstReply as RawReplyToMessage | undefined);
+    const prompt = buildUserPrompt(combinedCaption, quoted, mediaBlocks);
+
+    const turn = incrementTurnCount(userId);
+    log.chat(`${chatId} → ${combinedCaption} [+${mediaBlocks.length} media (album)]`);
+    log.debug(`[TG] turn ${turn} (album of ${mediaBlocks.length})`);
+
+    try {
+      const result = await runQuery(userId, prompt);
+      recordQuery(userDbCache.get(userId), userId, result);
+      if (result.error) {
+        try {
+          await bot.api.sendMessage(
+            chatId,
+            `[${result.error.reason}] ${result.error.messages.join(' ')}`
+          );
+        } catch {
+          // swallow
+        }
+      }
+    } catch (err) {
+      log.error(`[TG] runQuery failed for ${chatId} (album)`, err);
+    }
+  }
+
   bot.on(['message:text', ':photo', ':document'], async (ctx) => {
     const chatId = ctx.chat.id;
     if (!whitelist.has(chatId)) {
@@ -422,8 +589,15 @@ export function createTelegramGateway(config: TelegramGatewayConfig): Gateway {
       return;
     }
 
-    const text = (ctx.message.text ?? ctx.message.caption ?? '').trim();
     const userId = String(chatId);
+
+    // Album: buffer this item and defer to debounced flush.
+    if (ctx.message.media_group_id) {
+      bufferAlbumMessage(chatId, userId, ctx.message.media_group_id, ctx.message);
+      return;
+    }
+
+    const text = (ctx.message.text ?? ctx.message.caption ?? '').trim();
 
     const mediaBlocks: MediaContentBlock[] = [];
 
