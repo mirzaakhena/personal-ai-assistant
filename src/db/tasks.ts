@@ -36,6 +36,8 @@ export interface TaskStore {
     title?: string;
     notes?: string;
     due_date?: string | null;
+    trigger_type?: TaskTriggerType | null;
+    trigger_pattern?: string | null;
   }): { updated: boolean; task?: TaskRecord };
   listPending(filter: { status?: TaskStatus; cap?: number }): TaskRecord[];
   listEventTasks(filter: { cap?: number }): TaskRecord[];
@@ -126,12 +128,20 @@ export function createTaskStore(db: Database.Database): TaskStore {
   }
 
   function update(id: string, patch: {
-    status?: TaskStatus; title?: string; notes?: string; due_date?: string | null;
+    status?: TaskStatus;
+    title?: string;
+    notes?: string;
+    due_date?: string | null;
+    trigger_type?: TaskTriggerType | null;
+    trigger_pattern?: string | null;
   }): { updated: boolean; task?: TaskRecord } {
     const current = selectById.get({ id });
     if (!current) return { updated: false };
     if (patch.status && !TASK_STATUSES.includes(patch.status)) {
       throw new Error(`invalid TaskStatus: ${patch.status}`);
+    }
+    if (patch.trigger_type && !TASK_TRIGGER_TYPES.includes(patch.trigger_type)) {
+      throw new Error(`invalid TaskTriggerType: ${patch.trigger_type}`);
     }
     const next: TaskRecord = {
       ...current,
@@ -139,11 +149,17 @@ export function createTaskStore(db: Database.Database): TaskStore {
       title: patch.title ?? current.title,
       notes: patch.notes !== undefined ? patch.notes : current.notes,
       due_date: patch.due_date !== undefined ? patch.due_date : current.due_date,
+      trigger_type:
+        patch.trigger_type !== undefined ? patch.trigger_type : current.trigger_type,
+      trigger_pattern:
+        patch.trigger_pattern !== undefined ? patch.trigger_pattern : current.trigger_pattern,
       updated_at: Date.now(),
     };
     db.prepare(`
       UPDATE tasks SET status = @status, title = @title, notes = @notes,
-                       due_date = @due_date, updated_at = @updated_at
+                       due_date = @due_date,
+                       trigger_type = @trigger_type, trigger_pattern = @trigger_pattern,
+                       updated_at = @updated_at
       WHERE id = @id
     `).run(next);
     return { updated: true, task: next };

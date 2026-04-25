@@ -138,6 +138,39 @@ describe('tasks store (v5)', () => {
     expect(s.listEventTasks({}).length).toBe(20);
   });
 
+  it('update can promote a plain task to event-triggered', () => {
+    const s = createTaskStore(db);
+    const t = s.create({ title: 'cek pintu' });
+    const res = s.update(t.id, {
+      trigger_type: 'event',
+      trigger_pattern: 'kalau keluar rumah',
+    });
+    expect(res.updated).toBe(true);
+    expect(res.task?.trigger_type).toBe('event');
+    expect(res.task?.trigger_pattern).toBe('kalau keluar rumah');
+    expect(s.get(t.id)?.trigger_type).toBe('event');
+  });
+
+  it('update can clear trigger_type and trigger_pattern by passing null', () => {
+    const s = createTaskStore(db);
+    const t = s.create({
+      title: 'x',
+      trigger_type: 'event',
+      trigger_pattern: 'p',
+    });
+    const res = s.update(t.id, { trigger_type: null, trigger_pattern: null });
+    expect(res.task?.trigger_type).toBeNull();
+    expect(res.task?.trigger_pattern).toBeNull();
+  });
+
+  it('update rejects invalid trigger_type', () => {
+    const s = createTaskStore(db);
+    const t = s.create({ title: 'x' });
+    expect(() =>
+      s.update(t.id, { trigger_type: 'bogus' as any })
+    ).toThrow(/invalid TaskTriggerType/);
+  });
+
   it('legacy DB without trigger columns is auto-migrated on store init', () => {
     db.exec(`DROP TABLE IF EXISTS tasks`);
     db.exec(`
