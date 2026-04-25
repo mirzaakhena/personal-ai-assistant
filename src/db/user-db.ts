@@ -11,6 +11,7 @@ import { createMessageStore, type MessageStore } from './message.js';
 import { createSessionStore, type SessionStore } from './sessions.js';
 import { createCronjobStore, type CronjobStore } from './cronjobs.js';
 import { createTaskStore, type TaskStore } from './tasks.js';
+import { createLedgerStore, type LedgerStore } from './ledger.js';
 import { createQueryCostStore, type QueryCostStore } from './query-costs.js';
 import { createReactionStore, type ReactionStore } from './reactions.js';
 import { todayInJakartaYMD } from '../utils/time.js';
@@ -33,6 +34,7 @@ export interface UserDb {
   sessions: SessionStore;
   cronjobs: CronjobStore;
   tasks: TaskStore;
+  ledger: LedgerStore;
   queryCosts: QueryCostStore;
   reactions: ReactionStore;
   close(): void;
@@ -59,13 +61,14 @@ export function createUserDb(userId: string, baseDir: string = 'data/users'): Us
   const sessions = createSessionStore(db);
   const cronjobs = createCronjobStore(db);
   const tasks = createTaskStore(db);
+  const ledger = createLedgerStore(db);
   const queryCosts = createQueryCostStore(db);
   const reactions = createReactionStore(db);
 
   return {
     userId,
     profile, preferences, knowledge, journal,
-    messages, sessions, cronjobs, tasks, queryCosts, reactions,
+    messages, sessions, cronjobs, tasks, ledger, queryCosts, reactions,
     close: () => db.close(),
   };
 }
