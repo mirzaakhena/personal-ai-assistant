@@ -1,7 +1,11 @@
 // src/db/ledger.test.ts
 
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
-import { assertSafeSelect } from './ledger.js';
+import Database from 'better-sqlite3';
+import { mkdtempSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { assertSafeSelect, createLedgerStore } from './ledger.js';
 
 describe('assertSafeSelect', () => {
   it('accepts a plain SELECT', () => {
@@ -84,12 +88,6 @@ describe('assertSafeSelect', () => {
   });
 });
 
-import Database from 'better-sqlite3';
-import { mkdtempSync, rmSync } from 'node:fs';
-import { tmpdir } from 'node:os';
-import { join } from 'node:path';
-import { createLedgerStore } from './ledger.js';
-
 describe('LedgerStore.append', () => {
   let tmp: string; let db: Database.Database;
   beforeEach(() => {
@@ -156,5 +154,55 @@ describe('LedgerStore.append', () => {
     const b = s.append({ stream: 'x', payload: {}, tags: [] });
     expect(a.tags).toBeNull();
     expect(b.tags).toBeNull();
+  });
+});
+
+describe('LedgerStore.query', () => {
+  let tmp: string; let db: Database.Database;
+  beforeEach(() => {
+    tmp = mkdtempSync(join(tmpdir(), 'ledger-q-'));
+    db = new Database(join(tmp, 'test.db'));
+  });
+  afterEach(() => {
+    db.close();
+    rmSync(tmp, { recursive: true, force: true });
+  });
+
+  it('returns rows matching a SELECT', () => {
+    const s = createLedgerStore(db);
+    s.append({ stream: 'expense', payload: { amount: 35000, category: 'food' } });
+    s.append({ stream: 'expense', payload: { amount: 12000, category: 'food' } });
+    s.append({ stream: 'expense', payload: { amount: 50000, category: 'transport' } });
+
+    const rows = s.query(
+      `SELECT json_extract(payload, '$.category') AS cat, COUNT(*) AS n
+       FROM ledger WHERE stream = 'expense' GROUP BY cat ORDER BY cat`
+    );
+    expect(rows).toEqual([
+      { cat: 'food', n: 2 },
+      { cat: 'transport', n: 1 },
+    ]);
+  });
+
+  it('supports SUM aggregation via json_extract', () => {
+    const s = createLedgerStore(db);
+    s.append({ stream: 'expense', payload: { amount: 35000 } });
+    s.append({ stream: 'expense', payload: { amount: 12000 } });
+    s.append({ stream: 'expense', payload: { amount: 50000 } });
+
+    const rows = s.query(
+      `SELECT SUM(json_extract(payload,'$.amount')) AS total FROM ledger WHERE stream='expense'`
+    );
+    expect(rows[0].total).toBe(97000);
+  });
+
+  it('rejects non-SELECT statements via assertSafeSelect', () => {
+    const s = createLedgerStore(db);
+    expect(() => s.query(`DELETE FROM ledger`)).toThrow(/only SELECT|DDL\/DML/);
+  });
+
+  it('returns empty array for a SELECT that matches no rows', () => {
+    const s = createLedgerStore(db);
+    expect(s.query(`SELECT * FROM ledger WHERE 1=0`)).toEqual([]);
   });
 });
