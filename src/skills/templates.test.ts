@@ -31,6 +31,13 @@ describe('CLAUDE_MD_TEMPLATE', () => {
     expect(CLAUDE_MD_TEMPLATE).toContain('active_event_tasks');
     expect(CLAUDE_MD_TEMPLATE).toContain('trigger_pattern');
   });
+
+  it('includes Structured Logging guidance pointing at ledger', () => {
+    expect(CLAUDE_MD_TEMPLATE).toContain('## Structured Logging');
+    expect(CLAUDE_MD_TEMPLATE).toContain('ledger_append');
+    expect(CLAUDE_MD_TEMPLATE).toContain('ledger_query');
+    expect(CLAUDE_MD_TEMPLATE).toContain('stream');
+  });
 });
 
 describe('WRITING_SKILLS_TEMPLATE', () => {

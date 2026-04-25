@@ -74,6 +74,21 @@ weave it into your reply naturally, then mark the task done via
 Use \`trigger_type='event'\` with a clear \`trigger_pattern\` whenever the
 user mentions a condition that's not time-based (e.g. "ingatkan kalau aku
 mau X"). For time-based reminders, use a cronjob.
+
+## Structured Logging
+
+For user-tracked time-series data (expenses, mood, sleep, learning
+progress, habits), use \`ledger_append\` with a kebab-case \`stream\`
+name and a JSON \`payload\`. The schema for each stream is owned by a
+skill (e.g. \`expense-tracker\`, \`mood-log\`); when a new stream is
+needed, write that skill first so the payload shape is documented.
+
+To produce reports or aggregates, use \`ledger_query\` with SELECT-only
+SQLite — \`json_extract(payload, '$.field')\` reads inside the payload.
+Multi-statement queries and any DDL/DML are rejected.
+
+Don't shoehorn structured logging into knowledge or journal — those
+are for prose facts and reflections, not aggregable data.
 `;
 
 export const WRITING_SKILLS_TEMPLATE = `# Writing Skills
