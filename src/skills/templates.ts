@@ -61,6 +61,19 @@ conversational memory. You don't save messages manually.
 When you need to write a NEW skill (a persistent procedure for a recurring
 situation not covered above), first consult the \`writing-skills\` skill
 in your skills directory for the conventions and frontmatter format.
+
+## Event-Triggered Tasks
+
+When the briefing surfaces \`<active_event_tasks>\`, scan each task's
+\`pattern\` against the current user message. The pattern is free-text
+("kalau ke indomaret", "kalau ARC keluar"). If the user signals the
+trigger condition has occurred, act on the matching task immediately —
+weave it into your reply naturally, then mark the task done via
+\`update_task\` once handled.
+
+Use \`trigger_type='event'\` with a clear \`trigger_pattern\` whenever the
+user mentions a condition that's not time-based (e.g. "ingatkan kalau aku
+mau X"). For time-based reminders, use a cronjob.
 `;
 
 export const WRITING_SKILLS_TEMPLATE = `# Writing Skills

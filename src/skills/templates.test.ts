@@ -25,6 +25,12 @@ describe('CLAUDE_MD_TEMPLATE', () => {
   it('points the AI at writing-skills meta when extending', () => {
     expect(CLAUDE_MD_TEMPLATE).toContain('writing-skills');
   });
+
+  it('includes event-trigger guidance for active_event_tasks surface', () => {
+    expect(CLAUDE_MD_TEMPLATE).toContain('## Event-Triggered Tasks');
+    expect(CLAUDE_MD_TEMPLATE).toContain('active_event_tasks');
+    expect(CLAUDE_MD_TEMPLATE).toContain('trigger_pattern');
+  });
 });
 
 describe('WRITING_SKILLS_TEMPLATE', () => {
