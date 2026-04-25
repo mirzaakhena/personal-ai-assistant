@@ -29,7 +29,11 @@ import { log } from '../utils/logger.js';
 import { buildUserPrompt, buildSystemMessagePrompt } from '../utils/prompt.js';
 import { assembleSystemPrompt, CORE_SYSTEM_PROMPT } from '../core/system-prompt.js';
 import { buildWakeUpBriefing, renderWakeUpBriefing } from '../core/wake-up.js';
-import { ensureUserSkillDir } from '../skills/storage.js';
+import {
+  ensureUserSkillDir,
+  ensureUserClaudeMd,
+  ensureMetaSkill,
+} from '../skills/storage.js';
 import { incrementTurnCount, getTurnCount, clearTurnCount } from '../utils/turns.js';
 import { recordQuery, recordRateLimit, getStats, getRateLimit, clearStats } from '../utils/stats.js';
 import { formatUsd } from '../utils/pricing.js';
@@ -160,6 +164,8 @@ export function createConsoleGateway(config?: ConsoleGatewayConfig): Gateway {
   /** Shared query execution — used by user input, cron fire, and triggers */
   async function runQuery(queryUserId: string, prompt: string | ContentBlock[]): Promise<QueryResult> {
     await ensureUserSkillDir({ dataDir, userId: queryUserId });
+    await ensureUserClaudeMd({ dataDir, userId: queryUserId });
+    await ensureMetaSkill({ dataDir, userId: queryUserId });
 
     await maybeResetSessionBeforeRun(queryUserId);
 
