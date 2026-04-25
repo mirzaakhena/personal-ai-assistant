@@ -8,6 +8,8 @@ import {
   writeSkill,
   archiveSkill,
   ensureUserSkillDir,
+  ensureUserClaudeMd,
+  ensureMetaSkill,
   SKILL_NAME_RE,
 } from './storage.js';
 
@@ -155,5 +157,48 @@ describe('writeSkill / archiveSkill / ensureUserSkillDir', () => {
     await ensureUserSkillDir({ dataDir, userId });
     const p = join(dataDir, 'users', userId, '.claude', 'skills');
     expect(existsSync(p)).toBe(true);
+  });
+});
+
+describe('ensureUserClaudeMd', () => {
+  let dataDir: string;
+  const userId = 'u1';
+
+  beforeEach(() => {
+    dataDir = mkdtempSync(join(tmpdir(), 'v4-claude-md-'));
+  });
+  afterEach(() => {
+    rmSync(dataDir, { recursive: true, force: true });
+  });
+
+  it('creates CLAUDE.md at the user cwd if missing', async () => {
+    await ensureUserClaudeMd({ dataDir, userId });
+    const p = join(dataDir, 'users', userId, 'CLAUDE.md');
+    expect(existsSync(p)).toBe(true);
+    const content = readFileSync(p, 'utf8');
+    expect(content).toContain('# Assistant Identity');
+    expect(content).toContain('## Initiative');
+    expect(content).toContain('## Memory Discipline');
+  });
+
+  it('does NOT overwrite an existing CLAUDE.md (user customization wins)', async () => {
+    const p = join(dataDir, 'users', userId, 'CLAUDE.md');
+    const { mkdirSync, writeFileSync } = await import('node:fs');
+    mkdirSync(join(dataDir, 'users', userId), { recursive: true });
+    writeFileSync(p, '# Custom user identity\n\nDo not touch.\n', 'utf8');
+
+    await ensureUserClaudeMd({ dataDir, userId });
+
+    const content = readFileSync(p, 'utf8');
+    expect(content).toBe('# Custom user identity\n\nDo not touch.\n');
+  });
+
+  it('is idempotent (running twice is a no-op when content already exists)', async () => {
+    await ensureUserClaudeMd({ dataDir, userId });
+    const p = join(dataDir, 'users', userId, 'CLAUDE.md');
+    const first = readFileSync(p, 'utf8');
+    await ensureUserClaudeMd({ dataDir, userId });
+    const second = readFileSync(p, 'utf8');
+    expect(second).toBe(first);
   });
 });

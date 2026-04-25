@@ -7,6 +7,7 @@ import type {
   ArchiveResult,
   SkillFrontmatter,
 } from './types.js';
+import { CLAUDE_MD_TEMPLATE, WRITING_SKILLS_TEMPLATE } from './templates.js';
 
 export const SKILL_NAME_RE = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
 const MIN_NAME = 3;
@@ -118,4 +119,33 @@ export async function archiveSkill(opts: {
   }
   await fs.rename(from, finalTo);
   return { status: 'archived', from, to: finalTo };
+}
+
+/**
+ * Provision per-user CLAUDE.md if it does not exist. Idempotent: never
+ * overwrites a user-customized CLAUDE.md. Path:
+ *   <dataDir>/users/<userId>/CLAUDE.md
+ *
+ * The Claude Agent SDK auto-loads this file when `settingSources` includes
+ * 'project' and the SDK query's cwd matches this directory (see
+ * src/ai-engine/options.ts).
+ */
+export async function ensureUserClaudeMd(opts: {
+  dataDir: string;
+  userId: string;
+}): Promise<void> {
+  const userDir = join(opts.dataDir, 'users', opts.userId);
+  const filePath = join(userDir, 'CLAUDE.md');
+  if (existsSync(filePath)) return;
+  await fs.mkdir(userDir, { recursive: true });
+  await fs.writeFile(filePath, CLAUDE_MD_TEMPLATE, 'utf8');
+}
+
+// Temporary stub — real implementation in Task 3.
+export async function ensureMetaSkill(_opts: {
+  dataDir: string;
+  userId: string;
+}): Promise<void> {
+  void WRITING_SKILLS_TEMPLATE;
+  return;
 }
