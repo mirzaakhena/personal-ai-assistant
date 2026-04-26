@@ -5,7 +5,9 @@
   "type": "module",
   "main": "dist/src/index.js",
   "scripts": {
-    "build": "tsc",
+    "build": "tsc && pnpm -C web/dashboard build",
+    "build:backend": "tsc",
+    "build:dashboard": "pnpm -C web/dashboard build",
     "start": "node dist/src/index.js",
     "start:tsx": "tsx src/index.ts",
     "dev": "tsx src/index.ts",

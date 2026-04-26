@@ -2,7 +2,8 @@
 
 import http from 'node:http';
 import https from 'node:https';
-import { readFileSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
+import { resolve } from 'node:path';
 import type { AddressInfo } from 'node:net';
 import express from 'express';
 import cookieParser from 'cookie-parser';
@@ -66,6 +67,18 @@ export function createDashboardServer(cfg: DashboardConfig): DashboardServer | n
   mountKnowledgeRoutes(app, { pool });
   mountMessagesRoutes(app, { pool });
   mountLedgerRoutes(app, { pool });
+
+  // Serve built SPA assets if dist/dashboard exists.
+  // In dev mode (without `pnpm build`), this block is skipped — Vite dev server
+  // at :5173 handles the SPA and proxies /api → :3200.
+  const spaDir = resolve(process.cwd(), 'dist/dashboard');
+  if (existsSync(spaDir)) {
+    app.use(express.static(spaDir));
+    // SPA fallback: any non-/api path that isn't a static file → index.html.
+    app.get(/^(?!\/api\/).*/, (_req, res) => {
+      res.sendFile(resolve(spaDir, 'index.html'));
+    });
+  }
 
   app.use(errorMiddleware);
 
