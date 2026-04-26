@@ -47,3 +47,21 @@ describe('preferences store', () => {
       .toThrow(/invalid PreferenceKind/);
   });
 });
+
+describe('PreferenceStore — count', () => {
+  let tmp: string; let db: Database.Database;
+  beforeEach(() => {
+    tmp = mkdtempSync(join(tmpdir(), 'pref-cnt-'));
+    db = new Database(join(tmp, 'test.db'));
+  });
+  afterEach(() => { db.close(); rmSync(tmp, { recursive: true, force: true }); });
+
+  it('returns total rows', () => {
+    const s = createPreferenceStore(db);
+    s.saveMany([
+      { kind: 'rule', key: 'r1', value: 'v1' },
+      { kind: 'style', key: 's1', value: 'v2' },
+    ]);
+    expect(s.count()).toBe(2);
+  });
+});

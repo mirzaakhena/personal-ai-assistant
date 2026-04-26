@@ -65,3 +65,19 @@ describe('session_meta', () => {
     expect(store.getMeta('k')).toBe('v2');
   });
 });
+
+describe('SessionStore — count', () => {
+  let tmp: string; let db: Database.Database;
+  beforeEach(() => {
+    tmp = mkdtempSync(join(tmpdir(), 'sess-cnt-'));
+    db = new Database(join(tmp, 'test.db'));
+  });
+  afterEach(() => { db.close(); rmSync(tmp, { recursive: true, force: true }); });
+
+  it('returns 0 if no session, 1 if session set', () => {
+    const s = createSessionStore(db);
+    expect(s.count()).toBe(0);
+    s.save('sess-1');
+    expect(s.count()).toBe(1);
+  });
+});

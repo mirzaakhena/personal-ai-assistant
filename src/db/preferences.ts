@@ -25,6 +25,7 @@ export interface PreferenceStore {
   saveMany(entries: PreferenceEntry[]): void;
   list(filter?: { kind?: PreferenceKind }): PreferenceRow[];
   delete(id: { kind: PreferenceKind; key: string }): boolean;
+  count(): number;
 }
 
 const DDL = `
@@ -84,5 +85,9 @@ export function createPreferenceStore(db: Database.Database): PreferenceStore {
     return del.run(id).changes > 0;
   }
 
-  return { saveMany, list, delete: deleteOne };
+  function count(): number {
+    return (db.prepare('SELECT COUNT(*) AS n FROM preferences').get() as { n: number }).n;
+  }
+
+  return { saveMany, list, delete: deleteOne, count };
 }

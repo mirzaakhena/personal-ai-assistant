@@ -17,6 +17,12 @@ export interface ReactionStore {
   insert(record: Omit<ReactionRecord, 'id'>): number;
   listRecent(limit: number): ReactionRecord[];
   listByMessageId(messageId: string): ReactionRecord[];
+  count(): number;
+  listPage(opts: {
+    actor?: 'user' | 'assistant';
+    limit: number;
+    offset: number;
+  }): { rows: ReactionRecord[]; total: number };
 }
 
 interface RawRow {
@@ -78,6 +84,21 @@ export function createReactionStore(db: Database.Database): ReactionStore {
     SELECT * FROM reactions WHERE message_id = ? ORDER BY timestamp ASC
   `);
 
+  function count(): number {
+    return (db.prepare('SELECT COUNT(*) AS n FROM reactions').get() as { n: number }).n;
+  }
+
+  function listPage(opts: { actor?: 'user' | 'assistant'; limit: number; offset: number }) {
+    const where = opts.actor ? 'WHERE actor = ?' : '';
+    const params: Array<string | number> = opts.actor ? [opts.actor] : [];
+    const total = (db.prepare(`SELECT COUNT(*) AS n FROM reactions ${where}`)
+      .get(...params) as { n: number }).n;
+    const rawRows = db.prepare(
+      `SELECT * FROM reactions ${where} ORDER BY timestamp DESC LIMIT ? OFFSET ?`,
+    ).all(...params, opts.limit, opts.offset) as RawRow[];
+    return { rows: rawRows.map(rowToRecord), total };
+  }
+
   return {
     insert(record) {
       const result = stmtInsert.run({
@@ -96,5 +117,7 @@ export function createReactionStore(db: Database.Database): ReactionStore {
     listByMessageId(messageId) {
       return stmtListByMessageId.all(messageId).map(rowToRecord);
     },
+    count,
+    listPage,
   };
 }

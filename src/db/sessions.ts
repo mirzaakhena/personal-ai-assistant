@@ -9,6 +9,7 @@ export interface SessionStore {
   delete(): void;
   getMeta(key: string): string | null;
   setMeta(key: string, value: string): void;
+  count(): number;
 }
 
 export function createSessionStore(db: Database.Database): SessionStore {
@@ -59,6 +60,10 @@ export function createSessionStore(db: Database.Database): SessionStore {
     metaSet.run({ k: key, v: value });
   }
 
+  function count(): number {
+    return (db.prepare('SELECT COUNT(*) AS n FROM sessions').get() as { n: number }).n;
+  }
+
   return {
     get() { return stmtGet.get()?.session_id; },
     getLastActivity() { return stmtGetLastActivity.get()?.updated_at; },
@@ -66,5 +71,6 @@ export function createSessionStore(db: Database.Database): SessionStore {
     delete() { stmtDelete.run(); },
     getMeta,
     setMeta,
+    count,
   };
 }
