@@ -19,3 +19,9 @@ scripts/dump-*.ts.wwebjs_auth.backup*
 
 # self-signed cert for dashboard HTTPS (operator-generated, never committed)
 data/dashboard-tls/
+
+# Claude Code local state
+.claude/
+
+# tsc -b incremental build cache
+*.tsbuildinfo
