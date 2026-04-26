@@ -49,6 +49,13 @@ export interface CronjobStore {
   insertExecution(exec: ExecutionRecord): void;
   updateExecutionStatus(id: string, status: ExecutionStatus, executedAt?: number): void;
   getLastExecutionForJob(cronjobId: string): ExecutionRecord | undefined;
+  listPage(opts: {
+    type?: CronjobType;
+    status?: CronjobStatus;
+    limit: number;
+    offset: number;
+  }): { rows: CronjobRecord[]; total: number };
+  countByStatus(): Record<string, number>;
 }
 
 const TERMINAL_STATUSES = ['CANCELLED', 'COMPLETED', 'EXECUTED', 'FAILED', 'MISSED'];
@@ -124,5 +131,24 @@ export function createCronjobStore(db: Database.Database): CronjobStore {
       stmtUpdateExecutionStatus.run({ id, status, executed_at: executedAt ?? null });
     },
     getLastExecutionForJob(cronjobId) { return stmtGetLastExecution.get(cronjobId); },
+    listPage(opts) {
+      const clauses: string[] = [];
+      const params: Array<string | number> = [];
+      if (opts.type)   { clauses.push('type = ?');   params.push(opts.type); }
+      if (opts.status) { clauses.push('status = ?'); params.push(opts.status); }
+      const where = clauses.length ? `WHERE ${clauses.join(' AND ')}` : '';
+      const total = (db.prepare(`SELECT COUNT(*) AS n FROM cronjobs ${where}`)
+        .get(...params) as { n: number }).n;
+      const rows = db.prepare(
+        `SELECT * FROM cronjobs ${where} ORDER BY scheduled_at ASC LIMIT ? OFFSET ?`,
+      ).all(...params, opts.limit, opts.offset) as CronjobRecord[];
+      return { rows, total };
+    },
+    countByStatus() {
+      const rows = db.prepare(
+        `SELECT status, COUNT(*) AS n FROM cronjobs GROUP BY status`,
+      ).all() as Array<{ status: string; n: number }>;
+      return Object.fromEntries(rows.map((r) => [r.status, r.n]));
+    },
   };
 }
