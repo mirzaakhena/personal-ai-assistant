@@ -31,6 +31,7 @@ This spec defines a **read-only web dashboard**, mounted in-process with the bot
 - **FTS5 search** for stores that already have FTS (`knowledge`, `messages`).
 - **Charts per store** where useful (token cost trends, message volume, journal counts, ledger aggregates, etc.).
 - **Single-token auth** (shared token via env var, validated server-side, exchanged for an `HttpOnly` `Secure` `SameSite=Lax` session cookie).
+- **In-app HTTPS via self-signed cert** (zero external dependency; browser warning is accepted).
 - **Same-process deployment** — the dashboard's HTTP server is mounted inside the bot process on a separate port (`3200`).
 - **Manual refresh** model (no polling, no live push).
 
@@ -40,7 +41,7 @@ This spec defines a **read-only web dashboard**, mounted in-process with the bot
 - Cross-store navigation by `source_msg_id` (e.g., "click knowledge → see source message"). Future.
 - Custom SQL builder for ledger (Q9 L3). Future.
 - Telegram-based auth (Q7 D). Future.
-- HTTPS / TLS termination in-app. Operator runs a reverse proxy.
+- HTTPS via Let's Encrypt / trusted CA. Operator chose self-signed in-app for zero cost.
 - E2E browser tests, performance/load tests.
 - Mobile / responsive polish — desktop Chrome is the target.
 
@@ -80,15 +81,31 @@ This spec defines a **read-only web dashboard**, mounted in-process with the bot
 - **Same process as bot.** The dashboard server is started from `src/index.ts` after `startGateway`. Trade-off: dashboard goes down when bot restarts (acceptable — they ship together).
 - **Express** (not Fastify). Familiar, sufficient for the throughput. Express 5 has native async error forwarding, no `express-async-errors` needed.
 - **Port `3200`** hardcoded in MVP. May move to `DASHBOARD_PORT` env later.
-- **Reverse proxy external.** App serves plain HTTP on `0.0.0.0:3200`. Operator runs an external TLS terminator. Production *requires* HTTPS because the session cookie carries the `Secure` flag. Recommended options: Caddy + Let's Encrypt, Cloudflare Tunnel, or Tailscale Funnel — all handle TLS without app-side changes.
+- **In-app HTTPS with a self-signed certificate.** Express uses `https.createServer({ key, cert }, app)` when `DASHBOARD_TLS_CERT` and `DASHBOARD_TLS_KEY` env vars are set. If they are not set, the server falls back to plain HTTP (for `localhost` dev; browsers treat `localhost` as a secure context so `Secure` cookies still work). Production sets both env vars. Browser warning on first visit is accepted by design — operator clicks "Advanced → Proceed". Trade-off: zero external dependency (no Caddy, no Cloudflare, no Tailscale), zero cost; the cost is the persistent browser warning unless the operator manually trusts the cert in their device's trust store.
 - **Read-only `UserDb` cache.** Bot's active user keeps its rw connection. Other users opened on demand with `readonly: true`, cached with TTL (5 min idle). The active user's rw connection is *reused* — never opened twice.
 - **`SQLITE_BUSY` handling.** Even readonly readers can collide with the bot's writes in DELETE journal mode. Wrap each query in a small retry (3 attempts: 50ms / 100ms / 200ms backoff). After exhaustion → 503 `DB_BUSY`.
 
-### 3.1 Boundary table
+### 3.1 TLS provisioning
+
+Operator generates a long-lived self-signed cert once:
+
+```
+openssl req -x509 -newkey rsa:4096 -nodes \
+  -keyout data/dashboard-tls/key.pem \
+  -out   data/dashboard-tls/cert.pem \
+  -days  3650 \
+  -subj "/CN=pai-dashboard" \
+  -addext "subjectAltName=DNS:localhost,IP:127.0.0.1,IP:<server-ip>"
+```
+
+`subjectAltName` is required by modern browsers; without it Chrome rejects outright instead of letting the operator click through. The cert is gitignored (lives under `data/`). Spec does **not** emit HSTS — re-issuing the cert later would otherwise lock the operator out.
+
+### 3.2 Boundary table
 
 | Need | Component |
 |---|---|
 | HTTP framework | Express 5 |
+| TLS | In-app `https.createServer` with self-signed cert (env-loaded) |
 | Static SPA serving | `express.static` from `dist/dashboard/` |
 | Per-user DB access | `userdb-pool.ts` (read-only, TTL cache) |
 | Filter / sort / pagination from query params | `filter-builder.ts` (whitelist-based) |
@@ -211,6 +228,8 @@ src/index.ts
   └─► startDashboardServer({                # NEW
         port: 3200,
         token: process.env.DASHBOARD_TOKEN, # may be undefined → log + skip
+        tlsCert: process.env.DASHBOARD_TLS_CERT, # optional; HTTP fallback if absent
+        tlsKey:  process.env.DASHBOARD_TLS_KEY,
         activeUserDb,                       # share rw instance
         dataDir: 'data/users',
       })
@@ -219,7 +238,9 @@ src/index.ts
         ├─►   .use(authMiddleware)
         ├─►   .use('/api', apiRouter)
         ├─►   .use('/', staticHandler)      # SPA + index.html fallback
-        └─►   .listen(3200)
+        └─►   tlsCert && tlsKey
+                ? https.createServer({key, cert}, app).listen(3200)
+                : app.listen(3200)          # dev fallback
 ```
 
 If `DASHBOARD_TOKEN` is undefined, the dashboard does not start — log `[dashboard] DASHBOARD_TOKEN not set; dashboard server skipped`. Bot continues normally. This is fail-soft because the dashboard is optional observability, distinct from load-bearing config like `ANTHROPIC_API_KEY`. The fail-fast principle still holds: behavior is **explicit in the log**, never silent.
@@ -281,8 +302,9 @@ Vite dev proxy must forward cookies — `server.proxy['/api'] = { target: 'http:
 ```
 1. Vite build  → dist/dashboard/{index.html, assets/...}
 2. tsc build   → dist/{...backend...}
-3. Boot:       Express serves dist/dashboard/ at /, /api/* on Express
-Browser: https://your-domain/  (via reverse proxy → :3200)
+3. Boot:       Express serves dist/dashboard/ at /, /api/* on Express,
+               TLS terminated in-app via DASHBOARD_TLS_CERT/_KEY
+Browser: https://<server-ip>:3200/  (browser warning, click through once)
 ```
 
 `pnpm build` at root runs both (Vite + tsc) sequentially.
@@ -396,7 +418,7 @@ Per-store View files: smoke render only, manual QA covers the rest.
 | Q11 | Store coverage | All 11 |
 | §1 | HTTP framework | Express 5 |
 | §1 | Port | `3200` hardcoded |
-| §1 | TLS | External reverse proxy |
+| §1 | TLS | Self-signed cert in-app via `DASHBOARD_TLS_CERT/_KEY` env vars; browser warning accepted |
 | §2 | Charts library | recharts |
 | §2 | State management | TanStack Query + React local |
 | §2 | Frontend folder | `web/dashboard/` |
