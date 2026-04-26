@@ -26,6 +26,7 @@ import type { MessageRecord } from '../db/message.js';
 import { v4 as uuidv4 } from 'uuid';
 import { createTriggerServer } from '../trigger/server.js';
 import type { TriggerServer } from '../trigger/types.js';
+import { createDashboardServer, type DashboardServer } from '../dashboard/boot.js';
 import { log, getRecentLogs } from '../utils/logger.js';
 import { buildUserPrompt, buildSystemMessagePrompt } from '../utils/prompt.js';
 import { assembleSystemPrompt, CORE_SYSTEM_PROMPT } from '../core/system-prompt.js';
@@ -307,6 +308,15 @@ export function createConsoleGateway(config?: ConsoleGatewayConfig): Gateway {
         }),
       });
 
+  const dashboardServer: DashboardServer | null = createDashboardServer({
+    port: parseInt(process.env.DASHBOARD_PORT ?? '3200', 10),
+    token: process.env.DASHBOARD_TOKEN ?? '',
+    baseDir: usersBaseDir,
+    activeUser: { userId, db: userDbCache.get(userId) },
+    tlsCert: process.env.DASHBOARD_TLS_CERT,
+    tlsKey:  process.env.DASHBOARD_TLS_KEY,
+  });
+
   let rl: readline.Interface | null = null;
   let running = false;
 
@@ -491,6 +501,7 @@ export function createConsoleGateway(config?: ConsoleGatewayConfig): Gateway {
 
       await scheduler.start();
       if (triggerServer) await triggerServer.start();
+      if (dashboardServer) await dashboardServer.start();
 
       rl = readline.createInterface({ input: stdin, output: stdout });
 
@@ -552,6 +563,7 @@ export function createConsoleGateway(config?: ConsoleGatewayConfig): Gateway {
         rl = null;
       }
       if (triggerServer) await triggerServer.stop();
+      if (dashboardServer) await dashboardServer.stop();
       await scheduler.stop();
 
       // Drop the active session pointer so the next boot starts fresh
