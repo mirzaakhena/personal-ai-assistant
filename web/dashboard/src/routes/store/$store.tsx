@@ -13,6 +13,10 @@ import { Pagination } from '../../components/Pagination.js';
 import { ChartCard } from '../../components/ChartCard.js';
 import { RefreshButton } from '../../components/RefreshButton.js';
 import { ErrorBanner } from '../../components/ErrorBanner.js';
+import { KnowledgeView } from './store-views/KnowledgeView.js';
+import { MessagesView } from './store-views/MessagesView.js';
+import { LedgerView } from './store-views/LedgerView.js';
+import { TasksView } from './store-views/TasksView.js';
 
 const PAGE_LIMIT = 50;
 
@@ -23,9 +27,13 @@ export function StoreRoute() {
   const storeName = store as StoreName;
   const cfg = STORE_CONFIG[storeName];
 
-  // Per-store custom views will be added in Phase 7. For now, all stores use Generic.
-  // (Once Phase 7 is in, the dispatcher below will branch on storeName.)
-  return <GenericStoreView uid={uid} storeName={storeName} cfg={cfg} />;
+  switch (storeName) {
+    case 'knowledge': return <KnowledgeView uid={uid} cfg={cfg} />;
+    case 'messages':  return <MessagesView  uid={uid} cfg={cfg} />;
+    case 'ledger':    return <LedgerView    uid={uid} cfg={cfg} />;
+    case 'tasks':     return <TasksView     uid={uid} cfg={cfg} />;
+    default:          return <GenericStoreView uid={uid} storeName={storeName} cfg={cfg} />;
+  }
 }
 
 export function GenericStoreView({ uid, storeName, cfg }: {
