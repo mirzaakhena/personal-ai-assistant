@@ -34,6 +34,13 @@ export interface QueryCostStore {
   aggregateSince(sinceMs: number): CostAggregate;
   aggregateSession(sessionId: string): CostAggregate;
   listRecent(cap?: number): QueryCostRecord[];
+  listPage(opts: {
+    sessionId?: string; model?: string;
+    timestampFrom?: number; timestampTo?: number;
+    limit: number; offset: number;
+  }): { rows: QueryCostRecord[]; total: number };
+  aggregateByDay(opts: { sinceMs: number }):
+    Array<{ day: string; usd: number; queries: number }>;
 }
 
 const EMPTY_AGG: CostAggregate = {
@@ -129,6 +136,30 @@ export function createQueryCostStore(db: Database.Database): QueryCostStore {
     listRecent(cap = 20) {
       const limit = Math.max(1, Math.min(200, Math.floor(cap)));
       return stmtListRecent.all(limit);
+    },
+    listPage(opts) {
+      const clauses: string[] = [];
+      const params: Array<string | number> = [];
+      if (opts.sessionId) { clauses.push('session_id = ?'); params.push(opts.sessionId); }
+      if (opts.model)     { clauses.push('model = ?');      params.push(opts.model); }
+      if (opts.timestampFrom != null) { clauses.push('timestamp >= ?'); params.push(opts.timestampFrom); }
+      if (opts.timestampTo   != null) { clauses.push('timestamp <= ?'); params.push(opts.timestampTo); }
+      const where = clauses.length ? `WHERE ${clauses.join(' AND ')}` : '';
+      const total = (db.prepare(`SELECT COUNT(*) AS n FROM query_costs ${where}`)
+        .get(...params) as { n: number }).n;
+      const rows = db.prepare(
+        `SELECT * FROM query_costs ${where} ORDER BY timestamp DESC LIMIT ? OFFSET ?`,
+      ).all(...params, opts.limit, opts.offset) as QueryCostRecord[];
+      return { rows, total };
+    },
+    aggregateByDay(opts) {
+      return db.prepare(
+        `SELECT strftime('%Y-%m-%d', (timestamp / 1000 + 7*3600), 'unixepoch') AS day,
+                SUM(actual_cost_usd) AS usd,
+                COUNT(*) AS queries
+         FROM query_costs WHERE timestamp >= ?
+         GROUP BY day ORDER BY day ASC`,
+      ).all(opts.sinceMs) as Array<{ day: string; usd: number; queries: number }>;
     },
   };
 }
