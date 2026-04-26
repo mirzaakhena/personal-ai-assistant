@@ -36,6 +36,7 @@ import {
 } from '../tools/message-history.js';
 import { createTriggerServer } from '../trigger/server.js';
 import type { TriggerServer } from '../trigger/types.js';
+import { createDashboardServer, type DashboardServer } from '../dashboard/boot.js';
 import { log, getRecentLogs } from '../utils/logger.js';
 import {
   buildUserPrompt,
@@ -444,6 +445,15 @@ export function createTelegramGateway(config: TelegramGatewayConfig): Gateway {
               });
             }),
         });
+
+  const dashboardServer: DashboardServer | null = createDashboardServer({
+    port: parseInt(process.env.DASHBOARD_PORT ?? '3200', 10),
+    token: process.env.DASHBOARD_TOKEN ?? '',
+    baseDir: usersBaseDir,
+    activeUser: undefined,
+    tlsCert: process.env.DASHBOARD_TLS_CERT,
+    tlsKey:  process.env.DASHBOARD_TLS_KEY,
+  });
 
   // --- Album (media_group_id) buffering ---
   // Telegram delivers each photo of an album as a separate update sharing the
@@ -954,6 +964,7 @@ export function createTelegramGateway(config: TelegramGatewayConfig): Gateway {
     async start() {
       await scheduler.start();
       if (triggerServer) await triggerServer.start();
+      if (dashboardServer) await dashboardServer.start();
 
       log.debug(`[TG] starting bot (whitelist: ${whitelist.size} chats)`);
       void bot.start({
@@ -966,6 +977,7 @@ export function createTelegramGateway(config: TelegramGatewayConfig): Gateway {
       stopping = true;
       await bot.stop();
       if (triggerServer) await triggerServer.stop();
+      if (dashboardServer) await dashboardServer.stop();
       await scheduler.stop();
 
       // Drop each seen user's active-session pointer so the next boot
