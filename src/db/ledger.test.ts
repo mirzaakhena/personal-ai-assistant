@@ -157,6 +157,52 @@ describe('LedgerStore.append', () => {
   });
 });
 
+describe('LedgerStore — dashboard helpers', () => {
+  let tmp: string; let db: Database.Database;
+  beforeEach(() => {
+    tmp = mkdtempSync(join(tmpdir(), 'ldg-dash-'));
+    db = new Database(join(tmp, 'test.db'));
+  });
+  afterEach(() => { db.close(); rmSync(tmp, { recursive: true, force: true }); });
+
+  it('listPage filters by stream', () => {
+    const s = createLedgerStore(db);
+    s.append({ stream: 'spending', payload: { amount: 10 }, tags: ['food'], ts: 1000 });
+    s.append({ stream: 'mood', payload: { score: 8 }, ts: 1100 });
+    const r = s.listPage({ stream: 'spending', limit: 50, offset: 0 });
+    expect(r.total).toBe(1);
+    expect(r.rows[0].stream).toBe('spending');
+  });
+
+  it('listPage filters by tags substring', () => {
+    const s = createLedgerStore(db);
+    s.append({ stream: 'spending', payload: { amount: 10 }, tags: ['food', 'coffee'], ts: 1000 });
+    s.append({ stream: 'spending', payload: { amount: 5 },  tags: ['transport'],     ts: 1100 });
+    const r = s.listPage({ tagsLike: 'coffee', limit: 50, offset: 0 });
+    expect(r.total).toBe(1);
+  });
+
+  it('listPage filters by ts range', () => {
+    const s = createLedgerStore(db);
+    s.append({ stream: 'a', payload: {}, ts: 1000 });
+    s.append({ stream: 'a', payload: {}, ts: 2000 });
+    const r = s.listPage({ tsFrom: 1500, limit: 50, offset: 0 });
+    expect(r.total).toBe(1);
+    expect(r.rows[0].ts).toBe(2000);
+  });
+
+  it('aggregateByStream returns events-per-stream', () => {
+    const s = createLedgerStore(db);
+    s.append({ stream: 'a', payload: {}, ts: 1 });
+    s.append({ stream: 'a', payload: {}, ts: 2 });
+    s.append({ stream: 'b', payload: {}, ts: 3 });
+    const agg = s.aggregateByStream({ sinceMs: 0 });
+    const map = Object.fromEntries(agg.map((r) => [r.stream, r.n]));
+    expect(map.a).toBe(2);
+    expect(map.b).toBe(1);
+  });
+});
+
 describe('LedgerStore.query', () => {
   let tmp: string; let db: Database.Database;
   beforeEach(() => {

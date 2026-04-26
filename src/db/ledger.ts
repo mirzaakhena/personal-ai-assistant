@@ -72,6 +72,17 @@ export interface LedgerStore {
   }): LedgerRecord;
 
   query(sql: string): Record<string, unknown>[];
+
+  listPage(opts: {
+    stream?: string;
+    tagsLike?: string;
+    tsFrom?: number;
+    tsTo?: number;
+    limit: number;
+    offset: number;
+  }): { rows: LedgerRecord[]; total: number };
+
+  aggregateByStream(opts: { sinceMs: number }): Array<{ stream: string; n: number }>;
 }
 
 const DDL = `
@@ -137,5 +148,41 @@ export function createLedgerStore(db: Database.Database): LedgerStore {
     return stmt.all() as Record<string, unknown>[];
   }
 
-  return { append, query };
+  function listPage(opts: {
+    stream?: string;
+    tagsLike?: string;
+    tsFrom?: number;
+    tsTo?: number;
+    limit: number;
+    offset: number;
+  }): { rows: LedgerRecord[]; total: number } {
+    const clauses: string[] = [];
+    const params: Array<string | number> = [];
+    if (opts.stream)         { clauses.push('stream = ?');  params.push(opts.stream); }
+    if (opts.tagsLike)       { clauses.push('tags LIKE ?'); params.push(`%${opts.tagsLike}%`); }
+    if (opts.tsFrom != null) { clauses.push('ts >= ?');     params.push(opts.tsFrom); }
+    if (opts.tsTo   != null) { clauses.push('ts <= ?');     params.push(opts.tsTo); }
+    const where = clauses.length ? `WHERE ${clauses.join(' AND ')}` : '';
+    const total = (db.prepare(`SELECT COUNT(*) AS n FROM ledger ${where}`)
+      .get(...params) as { n: number }).n;
+    const rows = db.prepare(
+      `SELECT id, ts, stream, payload, tags, source_msg_id, created_at
+       FROM ledger ${where} ORDER BY ts DESC LIMIT ? OFFSET ?`,
+    ).all(...params, opts.limit, opts.offset) as LedgerRecord[];
+    for (const r of rows) {
+      if (typeof r.payload === 'string') {
+        try { r.payload = JSON.parse(r.payload); } catch { /* leave as-is */ }
+      }
+    }
+    return { rows, total };
+  }
+
+  function aggregateByStream(opts: { sinceMs: number }): Array<{ stream: string; n: number }> {
+    return db.prepare(
+      `SELECT stream, COUNT(*) AS n FROM ledger WHERE ts >= ?
+       GROUP BY stream ORDER BY n DESC`,
+    ).all(opts.sinceMs) as Array<{ stream: string; n: number }>;
+  }
+
+  return { append, query, listPage, aggregateByStream };
 }
