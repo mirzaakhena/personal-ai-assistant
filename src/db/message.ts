@@ -42,6 +42,17 @@ export interface MessageStore {
   search(filter: SearchFilter): MessageRecord[];
   count(): number;
   getLatestUserMessage(): MessageRecord | null;
+  listPage(opts: {
+    gateway?: string; sender?: Sender; session_id?: string;
+    timestampFrom?: number; timestampTo?: number;
+    limit: number; offset: number;
+  }): { rows: MessageRecord[]; total: number };
+  searchPage(q: string, opts: {
+    sender?: Sender; limit: number; offset: number;
+  }): { hits: Array<MessageRecord & { snippet: string }>; total: number };
+  getThread(sessionId: string, opts: { limit: number; offset: number }):
+    { rows: MessageRecord[]; total: number };
+  countByDay(opts: { sinceMs: number }): Array<{ day: string; n: number }>;
 }
 
 const DEFAULT_LIMIT = 20;
@@ -183,6 +194,68 @@ export function createMessageStore(db: Database.Database): MessageStore {
     return { sql, params };
   }
 
+  function listPage(opts: {
+    gateway?: string; sender?: Sender; session_id?: string;
+    timestampFrom?: number; timestampTo?: number;
+    limit: number; offset: number;
+  }) {
+    const clauses: string[] = [];
+    const params: Array<string | number> = [];
+    if (opts.gateway)    { clauses.push('gateway = ?');    params.push(opts.gateway); }
+    if (opts.sender)     { clauses.push('sender = ?');     params.push(opts.sender); }
+    if (opts.session_id) { clauses.push('session_id = ?'); params.push(opts.session_id); }
+    if (opts.timestampFrom != null) { clauses.push('timestamp >= ?'); params.push(opts.timestampFrom); }
+    if (opts.timestampTo   != null) { clauses.push('timestamp <= ?'); params.push(opts.timestampTo); }
+    const where = clauses.length ? `WHERE ${clauses.join(' AND ')}` : '';
+    const total = (db.prepare(`SELECT COUNT(*) AS n FROM messages ${where}`)
+      .get(...params) as { n: number }).n;
+    const rows = db.prepare(
+      `SELECT * FROM messages ${where} ORDER BY timestamp DESC LIMIT ? OFFSET ?`,
+    ).all(...params, opts.limit, opts.offset) as MessageRecord[];
+    return { rows, total };
+  }
+
+  function searchPage(q: string, opts: { sender?: Sender; limit: number; offset: number }) {
+    const quoted = `"${q.replace(/"/g, '""')}"`;
+    const senderClause = opts.sender ? 'AND m.sender = ?' : '';
+    const senderParam: string[] = opts.sender ? [opts.sender] : [];
+    const total = (db.prepare(
+      `SELECT COUNT(*) AS n FROM messages_fts f
+       JOIN messages m ON m.rowid = f.rowid
+       WHERE messages_fts MATCH ? ${senderClause}`,
+    ).get(quoted, ...senderParam) as { n: number }).n;
+    const hits = db.prepare(
+      `SELECT m.*, snippet(messages_fts, 0, '<mark>', '</mark>', '…', 16) AS snippet
+       FROM messages_fts f JOIN messages m ON m.rowid = f.rowid
+       WHERE messages_fts MATCH ? ${senderClause}
+       ORDER BY rank
+       LIMIT ? OFFSET ?`,
+    ).all(quoted, ...senderParam, opts.limit, opts.offset) as Array<MessageRecord & { snippet: string }>;
+    return { hits, total };
+  }
+
+  function getThread(sessionId: string, opts: { limit: number; offset: number }) {
+    const total = (db.prepare(
+      `SELECT COUNT(*) AS n FROM messages WHERE session_id = ?`,
+    ).get(sessionId) as { n: number }).n;
+    const rows = db.prepare(
+      `SELECT * FROM messages WHERE session_id = ?
+       ORDER BY timestamp DESC LIMIT ? OFFSET ?`,
+    ).all(sessionId, opts.limit, opts.offset) as MessageRecord[];
+    return { rows, total };
+  }
+
+  function countByDay(opts: { sinceMs: number }): Array<{ day: string; n: number }> {
+    return db.prepare(
+      `SELECT strftime('%Y-%m-%d', (timestamp / 1000 + 7*3600), 'unixepoch') AS day,
+              COUNT(*) AS n
+       FROM messages
+       WHERE timestamp >= ?
+       GROUP BY day
+       ORDER BY day ASC`,
+    ).all(opts.sinceMs) as Array<{ day: string; n: number }>;
+  }
+
   return {
     insert(record) { stmtInsert.run(record); },
     getById(id) { return stmtGetById.get(id); },
@@ -205,5 +278,9 @@ export function createMessageStore(db: Database.Database): MessageStore {
     },
     count() { return stmtCount.get()?.n ?? 0; },
     getLatestUserMessage,
+    listPage,
+    searchPage,
+    getThread,
+    countByDay,
   };
 }
