@@ -51,3 +51,38 @@ describe('journal store', () => {
     expect(rows[1].content).toBe('first');
   });
 });
+
+describe('JournalStore — dashboard helpers', () => {
+  let tmp: string; let db: Database.Database;
+  beforeEach(() => {
+    tmp = mkdtempSync(join(tmpdir(), 'jnl-dash-'));
+    db = new Database(join(tmp, 'test.db'));
+  });
+  afterEach(() => { db.close(); rmSync(tmp, { recursive: true, force: true }); });
+
+  it('listPage paginates with total count', () => {
+    const s = createJournalStore(db);
+    for (let i = 0; i < 5; i++) s.save({ content: `entry ${i}` });
+    const r = s.listPage({ limit: 3, offset: 0 });
+    expect(r.total).toBe(5);
+    expect(r.rows.length).toBe(3);
+  });
+
+  it('listPage filters by createdAt range', () => {
+    const s = createJournalStore(db);
+    s.save({ content: 'a' });
+    s.save({ content: 'b' });
+    const now = Date.now();
+    const r = s.listPage({ createdFrom: now - 1000 * 60 * 60, createdTo: now + 1000, limit: 50, offset: 0 });
+    expect(r.total).toBe(2);
+  });
+
+  it('countByWeek buckets entries', () => {
+    const s = createJournalStore(db);
+    s.save({ content: 'a' });
+    s.save({ content: 'b' });
+    const buckets = s.countByWeek({ sinceMs: 0 });
+    expect(buckets.length).toBeGreaterThanOrEqual(1);
+    expect(buckets.reduce((acc, b) => acc + b.n, 0)).toBeGreaterThanOrEqual(2);
+  });
+});

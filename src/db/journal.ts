@@ -17,6 +17,15 @@ export interface JournalStore {
   listRecent(opts: { days?: number; limit?: number }): JournalRow[];
   count(): number;
   countSince(sinceMs: number): number;
+  listPage(opts: {
+    eventDateFrom?: string;
+    eventDateTo?: string;
+    createdFrom?: number;
+    createdTo?: number;
+    limit: number;
+    offset: number;
+  }): { rows: JournalRow[]; total: number };
+  countByWeek(opts: { sinceMs: number }): Array<{ week: string; n: number }>;
 }
 
 const DDL = `
@@ -86,5 +95,37 @@ export function createJournalStore(db: Database.Database): JournalStore {
     return selectCountSince.get({ since: sinceMs })!.n;
   }
 
-  return { save, insertRaw, listRecent, count, countSince };
+  function listPage(opts: {
+    eventDateFrom?: string;
+    eventDateTo?: string;
+    createdFrom?: number;
+    createdTo?: number;
+    limit: number;
+    offset: number;
+  }): { rows: JournalRow[]; total: number } {
+    const clauses: string[] = [];
+    const params: Array<string | number> = [];
+    if (opts.eventDateFrom) { clauses.push('event_date >= ?'); params.push(opts.eventDateFrom); }
+    if (opts.eventDateTo)   { clauses.push('event_date <= ?'); params.push(opts.eventDateTo); }
+    if (opts.createdFrom != null) { clauses.push('created_at >= ?'); params.push(opts.createdFrom); }
+    if (opts.createdTo   != null) { clauses.push('created_at <= ?'); params.push(opts.createdTo); }
+    const where = clauses.length ? `WHERE ${clauses.join(' AND ')}` : '';
+    const total = (db.prepare(`SELECT COUNT(*) AS n FROM journal ${where}`)
+      .get(...params) as { n: number }).n;
+    const rows = db.prepare(
+      `SELECT * FROM journal ${where} ORDER BY created_at DESC LIMIT ? OFFSET ?`,
+    ).all(...params, opts.limit, opts.offset) as JournalRow[];
+    return { rows, total };
+  }
+
+  function countByWeek(opts: { sinceMs: number }): Array<{ week: string; n: number }> {
+    return db.prepare(
+      `SELECT strftime('%Y-W%W', (created_at / 1000 + 7*3600), 'unixepoch') AS week,
+              COUNT(*) AS n
+       FROM journal WHERE created_at >= ?
+       GROUP BY week ORDER BY week ASC`,
+    ).all(opts.sinceMs) as Array<{ week: string; n: number }>;
+  }
+
+  return { save, insertRaw, listRecent, count, countSince, listPage, countByWeek };
 }
