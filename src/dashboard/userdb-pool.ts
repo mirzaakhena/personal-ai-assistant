@@ -17,9 +17,11 @@ import { createQueryCostStore } from '../db/query-costs.js';
 import { createReactionStore } from '../db/reactions.js';
 
 export class DbBusyError extends Error {
-  constructor(message = 'database is busy') {
+  cause?: unknown;
+  constructor(message = 'database is busy', options?: { cause?: unknown }) {
     super(message);
     this.name = 'DbBusyError';
+    if (options?.cause !== undefined) this.cause = options.cause;
   }
 }
 export class UserNotFoundError extends Error {
@@ -100,7 +102,7 @@ export function createUserDbPool(opts: {
         await new Promise((r) => setTimeout(r, RETRY_DELAYS[i]));
       }
     }
-    throw new DbBusyError(`SQLITE_BUSY after ${RETRY_DELAYS.length} retries`);
+    throw new DbBusyError(`SQLITE_BUSY after ${RETRY_DELAYS.length} retries`, { cause: lastErr });
   }
 
   function dispose(): void {
@@ -119,30 +121,36 @@ export function createUserDbPool(opts: {
  * Opens a UserDb backed by a read-only-mode SQLite connection.
  * NOTE: passes `readonly: false` because the existing store factories run
  * `CREATE TABLE IF NOT EXISTS` DDL on construction, which a true readonly
- * connection rejects. The dashboard's discipline is to never call mutation
- * methods on these instances — see plan §3 "Key choices".
+ * connection rejects. After all store DDL completes, `query_only = ON` is set
+ * to enforce read-only discipline at the SQLite layer at runtime.
  */
 function openReadOnly(dbPath: string, userId: string): UserDb {
   const conn = new Database(dbPath, { fileMustExist: true });
-  conn.pragma('foreign_keys = ON');
-  conn.pragma('journal_mode = DELETE');
+  try {
+    conn.pragma('foreign_keys = ON');
+    const messages = createMessageStore(conn);
+    const profile = createProfileStore(conn);
+    const preferences = createPreferenceStore(conn);
+    const knowledge = createKnowledgeStore(conn);
+    const journal = createJournalStore(conn);
+    const sessions = createSessionStore(conn);
+    const cronjobs = createCronjobStore(conn);
+    const tasks = createTaskStore(conn);
+    const ledger = createLedgerStore(conn);
+    const queryCosts = createQueryCostStore(conn);
+    const reactions = createReactionStore(conn);
 
-  const messages = createMessageStore(conn);
-  const profile = createProfileStore(conn);
-  const preferences = createPreferenceStore(conn);
-  const knowledge = createKnowledgeStore(conn);
-  const journal = createJournalStore(conn);
-  const sessions = createSessionStore(conn);
-  const cronjobs = createCronjobStore(conn);
-  const tasks = createTaskStore(conn);
-  const ledger = createLedgerStore(conn);
-  const queryCosts = createQueryCostStore(conn);
-  const reactions = createReactionStore(conn);
+    // Set query_only AFTER all store DDL has run to enforce read-only at runtime.
+    conn.pragma('query_only = ON');
 
-  return {
-    userId,
-    profile, preferences, knowledge, journal, messages,
-    sessions, cronjobs, tasks, ledger, queryCosts, reactions,
-    close: () => conn.close(),
-  };
+    return {
+      userId,
+      profile, preferences, knowledge, journal, messages,
+      sessions, cronjobs, tasks, ledger, queryCosts, reactions,
+      close: () => conn.close(),
+    };
+  } catch (err) {
+    conn.close();
+    throw err;
+  }
 }

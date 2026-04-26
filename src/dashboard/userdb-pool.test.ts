@@ -1,10 +1,9 @@
 // src/dashboard/userdb-pool.test.ts
 
-import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import Database from 'better-sqlite3';
 import { createUserDb } from '../db/user-db.js';
 import { createUserDbPool, DbBusyError } from './userdb-pool.js';
 
@@ -72,5 +71,41 @@ describe('createUserDbPool', () => {
       throw new Error('something else');
     })).rejects.toThrow('something else');
     expect(attempts).toBe(1);
+  });
+});
+
+describe('createUserDbPool — invariants', () => {
+  it('does not leak SQLite handle when openReadOnly throws', () => {
+    // Create a user dir with a corrupt (non-empty, non-SQLite) app.db file.
+    // An empty file is treated as a valid empty DB by better-sqlite3, so we need
+    // actual garbage content to trigger SQLITE_NOTADB when store DDL runs.
+    const uid = 'corrupt';
+    const dir = join(baseDir, uid);
+    require('node:fs').mkdirSync(dir, { recursive: true });
+    require('node:fs').writeFileSync(join(dir, 'app.db'), 'this is not a sqlite database');
+    const pool = createUserDbPool({ baseDir });
+    expect(() => pool.acquire(uid)).toThrow();
+    // If we reached here without an unhandled "open file handles still active",
+    // the cleanup worked. (Difficult to assert directly without OS-level fd inspection.)
+    pool.dispose();
+  });
+
+  it('dispose() does not close the active user db', () => {
+    makeUserOnDisk('alice');
+    const active = createUserDb('alice', baseDir);
+    const pool = createUserDbPool({ baseDir, activeUser: { userId: 'alice', db: active } });
+    pool.dispose();
+    // active should still be usable
+    expect(() => active.profile.getAll()).not.toThrow();
+    active.close();
+  });
+
+  it('opened DB rejects writes due to query_only pragma', () => {
+    makeUserOnDisk('alice');
+    const pool = createUserDbPool({ baseDir });
+    const db = pool.acquire('alice');
+    expect(() => db.profile.setMany([{ key: 'name', value: 'changed' }]))
+      .toThrow(/readonly|query_only/i);
+    pool.dispose();
   });
 });
