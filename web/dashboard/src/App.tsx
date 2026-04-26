@@ -1,3 +1,25 @@
+// web/dashboard/src/App.tsx
+
+import { QueryClientProvider } from '@tanstack/react-query';
+import { createBrowserRouter, RouterProvider } from 'react-router-dom';
+import { queryClient } from './api/react-query.js';
+import { LoginPage } from './routes/login.js';
+import { RootLayout } from './routes/root-layout.js';
+
+const router = createBrowserRouter([
+  { path: '/login', element: <LoginPage /> },
+  {
+    element: <RootLayout />,
+    children: [
+      { path: '/', element: <div>Pick a user from the sidebar to begin.</div> },
+    ],
+  },
+]);
+
 export function App() {
-  return <div className="p-8 text-2xl">PAI Dashboard — bootstrapping…</div>;
+  return (
+    <QueryClientProvider client={queryClient}>
+      <RouterProvider router={router} />
+    </QueryClientProvider>
+  );
 }
