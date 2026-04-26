@@ -4,6 +4,7 @@ import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { createKnowledgeStore } from './knowledge.js';
+import type { KnowledgeCategory } from './knowledge.js';
 
 describe('knowledge store', () => {
   let tmp: string; let db: Database.Database;
@@ -73,5 +74,74 @@ describe('knowledge store', () => {
     const s = createKnowledgeStore(db);
     expect(() => s.saveMany([{ category: 'bogus' as any, key: 'x', value: 'y' }]))
       .toThrow(/invalid KnowledgeCategory/);
+  });
+});
+
+describe('knowledge store — dashboard helpers', () => {
+  let tmp: string; let db: Database.Database;
+  beforeEach(() => {
+    tmp = mkdtempSync(join(tmpdir(), 'v5-knl-dash-'));
+    db = new Database(join(tmp, 'test.db'));
+  });
+  afterEach(() => { db.close(); rmSync(tmp, { recursive: true, force: true }); });
+
+  it('listPage returns rows + total with limit/offset', () => {
+    const s = createKnowledgeStore(db);
+    for (let i = 0; i < 12; i++) {
+      s.saveMany([{ category: 'context', key: `k${i}`, value: `v${i}` }]);
+    }
+    const page1 = s.listPage({ limit: 5, offset: 0 });
+    expect(page1.rows.length).toBe(5);
+    expect(page1.total).toBe(12);
+    const page2 = s.listPage({ limit: 5, offset: 10 });
+    expect(page2.rows.length).toBe(2);
+  });
+
+  it('listPage applies category filter', () => {
+    const s = createKnowledgeStore(db);
+    s.saveMany([
+      { category: 'person', key: 'p1', value: 'a' },
+      { category: 'context', key: 'c1', value: 'b' },
+    ]);
+    const r = s.listPage({ category: 'person', limit: 50, offset: 0 });
+    expect(r.total).toBe(1);
+    expect(r.rows[0].key).toBe('p1');
+  });
+
+  it('searchPage returns snippets with mark tags', () => {
+    const s = createKnowledgeStore(db);
+    s.saveMany([
+      { category: 'person', key: 'mirza', value: 'mirza loves coffee' },
+    ]);
+    const r = s.searchPage('coffee', { limit: 10, offset: 0 });
+    expect(r.total).toBe(1);
+    expect(r.hits[0].snippet).toContain('coffee');
+    expect(r.hits[0].snippet).toContain('<mark>');
+  });
+
+  it('searchPage filters by category', () => {
+    const s = createKnowledgeStore(db);
+    s.saveMany([
+      { category: 'person', key: 'a', value: 'coffee lover' },
+      { category: 'context', key: 'b', value: 'coffee shop' },
+    ]);
+    const r = s.searchPage('coffee', { category: 'person', limit: 10, offset: 0 });
+    expect(r.total).toBe(1);
+    expect(r.hits[0].category).toBe('person');
+  });
+
+  it('countByCategory returns per-category counts (zeros for empty)', () => {
+    const s = createKnowledgeStore(db);
+    s.saveMany([
+      { category: 'person', key: 'a', value: '1' },
+      { category: 'person', key: 'b', value: '2' },
+      { category: 'context', key: 'c', value: '3' },
+    ]);
+    const counts = s.countByCategory();
+    expect(counts.person).toBe(2);
+    expect(counts.context).toBe(1);
+    expect(counts.identity).toBe(0);
+    expect(counts.routine).toBe(0);
+    expect(counts.insight).toBe(0);
   });
 });

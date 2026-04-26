@@ -26,6 +26,17 @@ export interface KnowledgeStore {
   list(filter?: { category?: KnowledgeCategory }): KnowledgeRow[];
   search(query: string, filter?: { category?: KnowledgeCategory }): KnowledgeRow[];
   delete(id: { category: KnowledgeCategory; key: string }): boolean;
+  listPage(opts: {
+    category?: KnowledgeCategory;
+    limit: number;
+    offset: number;
+  }): { rows: KnowledgeRow[]; total: number };
+  searchPage(query: string, opts: {
+    category?: KnowledgeCategory;
+    limit: number;
+    offset: number;
+  }): { hits: Array<KnowledgeRow & { snippet: string }>; total: number };
+  countByCategory(): Record<KnowledgeCategory, number>;
 }
 
 const DDL = `
@@ -121,5 +132,59 @@ export function createKnowledgeStore(db: Database.Database): KnowledgeStore {
     return del.run(id).changes > 0;
   }
 
-  return { saveMany, list, search, delete: deleteOne };
+  function listPage(opts: { category?: KnowledgeCategory; limit: number; offset: number }) {
+    const where = opts.category ? 'WHERE category = ?' : '';
+    const params: Array<string | number> = opts.category ? [opts.category] : [];
+    const total = (db.prepare(`SELECT COUNT(*) AS n FROM knowledge ${where}`)
+      .get(...params) as { n: number }).n;
+    const rows = db.prepare(
+      `SELECT category, key, value, source_msg_id, created_at, updated_at
+       FROM knowledge ${where}
+       ORDER BY updated_at DESC
+       LIMIT ? OFFSET ?`,
+    ).all(...params, opts.limit, opts.offset) as KnowledgeRow[];
+    return { rows, total };
+  }
+
+  function searchPage(
+    query: string,
+    opts: { category?: KnowledgeCategory; limit: number; offset: number },
+  ) {
+    const q = `"${query.replace(/"/g, '""')}"`;
+    const catWhere = opts.category ? 'AND k.category = ?' : '';
+    const catParams: string[] = opts.category ? [opts.category] : [];
+
+    const totalRow = db.prepare(
+      `SELECT COUNT(*) AS n
+       FROM knowledge_fts f
+       JOIN knowledge k ON k.rowid = f.rowid
+       WHERE knowledge_fts MATCH ? ${catWhere}`,
+    ).get(q, ...catParams) as { n: number };
+
+    // FTS5 snippet: column index 1 = value column
+    const hits = db.prepare(
+      `SELECT k.category, k.key, k.value, k.source_msg_id, k.created_at, k.updated_at,
+              snippet(knowledge_fts, 1, '<mark>', '</mark>', '…', 16) AS snippet
+       FROM knowledge_fts f
+       JOIN knowledge k ON k.rowid = f.rowid
+       WHERE knowledge_fts MATCH ? ${catWhere}
+       ORDER BY rank
+       LIMIT ? OFFSET ?`,
+    ).all(q, ...catParams, opts.limit, opts.offset) as Array<KnowledgeRow & { snippet: string }>;
+
+    return { hits, total: totalRow.n };
+  }
+
+  function countByCategory(): Record<KnowledgeCategory, number> {
+    const out: Record<KnowledgeCategory, number> = {
+      identity: 0, person: 0, routine: 0, context: 0, insight: 0,
+    };
+    const rows = db.prepare(
+      `SELECT category, COUNT(*) AS n FROM knowledge GROUP BY category`,
+    ).all() as Array<{ category: KnowledgeCategory; n: number }>;
+    for (const r of rows) out[r.category] = r.n;
+    return out;
+  }
+
+  return { saveMany, list, search, delete: deleteOne, listPage, searchPage, countByCategory };
 }
