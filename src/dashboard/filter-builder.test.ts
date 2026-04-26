@@ -73,3 +73,27 @@ describe('buildListQuery — ledger substring filter', () => {
     expect(built.params).toEqual(['%spending%']);
   });
 });
+
+describe('buildListQuery — defensive guards', () => {
+  const cfg = STORE_CONFIG.knowledge;
+
+  it('rejects sort with no colon', () => {
+    expect(() => buildListQuery(cfg, { sort: 'updated_at' })).toThrow(BadQueryError);
+  });
+
+  it('rejects negative limit', () => {
+    expect(() => buildListQuery(cfg, { limit: -5 })).toThrow(BadQueryError);
+  });
+
+  it('rejects fractional limit', () => {
+    expect(() => buildListQuery(cfg, { limit: 1.7 })).toThrow(BadQueryError);
+  });
+
+  it('rejects NaN limit', () => {
+    expect(() => buildListQuery(cfg, { limit: NaN })).toThrow(BadQueryError);
+  });
+
+  it('rejects fractional page', () => {
+    expect(() => buildListQuery(cfg, { page: 1.5 })).toThrow(BadQueryError);
+  });
+});

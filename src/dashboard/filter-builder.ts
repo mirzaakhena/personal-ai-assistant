@@ -38,7 +38,11 @@ export function buildListQuery(cfg: StoreConfig, q: ListQuery): BuiltQuery {
   let sortKey = cfg.defaultSort.key;
   let sortDir: 'asc' | 'desc' = cfg.defaultSort.dir;
   if (q.sort) {
-    const [k, d] = q.sort.split(':');
+    const parts = q.sort.split(':');
+    if (parts.length !== 2) {
+      throw new BadQueryError(`sort must be 'key:asc|desc', got ${q.sort}`);
+    }
+    const [k, d] = parts;
     if (!cfg.sortable.includes(k)) throw new BadQueryError(`unknown sort key: ${k}`);
     if (d !== 'asc' && d !== 'desc') throw new BadQueryError(`bad sort direction: ${d}`);
     sortKey = k;
@@ -46,6 +50,12 @@ export function buildListQuery(cfg: StoreConfig, q: ListQuery): BuiltQuery {
   }
   const orderBy = `ORDER BY ${sortKey} ${sortDir.toUpperCase()}`;
 
+  if (q.limit !== undefined && (!Number.isInteger(q.limit) || q.limit < 1)) {
+    throw new BadQueryError(`limit must be a positive integer, got ${q.limit}`);
+  }
+  if (q.page !== undefined && !Number.isInteger(q.page)) {
+    throw new BadQueryError(`page must be an integer, got ${q.page}`);
+  }
   const limit = Math.min(q.limit ?? DEFAULT_LIMIT, MAX_LIMIT);
   const page = q.page ?? 1;
   if (page < 1) throw new BadQueryError(`page must be >= 1, got ${page}`);
@@ -104,6 +114,10 @@ function applyFilter(
       clauses.push(`${def.key} >= ? AND ${def.key} <= ?`);
       params.push(fromN, toN);
       return;
+    }
+    default: {
+      const _exhaustive: never = def;
+      throw new BadQueryError(`unhandled filter type: ${(_exhaustive as FilterDef).type}`);
     }
   }
 }
