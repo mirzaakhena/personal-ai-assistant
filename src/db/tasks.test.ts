@@ -196,3 +196,43 @@ describe('tasks store (v5)', () => {
     expect(got?.trigger_pattern).toBeNull();
   });
 });
+
+describe('TaskStore — dashboard helpers', () => {
+  let tmp: string; let db: Database.Database;
+  beforeEach(() => {
+    tmp = mkdtempSync(join(tmpdir(), 'tsk-dash-'));
+    db = new Database(join(tmp, 'test.db'));
+  });
+  afterEach(() => { db.close(); rmSync(tmp, { recursive: true, force: true }); });
+
+  it('listPage filters by status', () => {
+    const s = createTaskStore(db);
+    const a = s.create({ title: 'a' });           // pending by default
+    const b = s.create({ title: 'b' });
+    s.update(b.id, { status: 'done' });
+    const r = s.listPage({ status: 'pending', limit: 50, offset: 0 });
+    expect(r.total).toBe(1);
+    expect(r.rows[0].id).toBe(a.id);
+  });
+
+  it('listPage filters by trigger_type', () => {
+    const s = createTaskStore(db);
+    s.create({ title: 'a', trigger_type: 'time' });
+    s.create({ title: 'b', trigger_type: 'event' });
+    const r = s.listPage({ trigger_type: 'event', limit: 50, offset: 0 });
+    expect(r.total).toBe(1);
+    expect(r.rows[0].title).toBe('b');
+  });
+
+  it('countByStatus aggregates and zeros absent', () => {
+    const s = createTaskStore(db);
+    s.create({ title: 'a' }); // pending
+    s.create({ title: 'b' }); // pending
+    const c = s.create({ title: 'c' });
+    s.update(c.id, { status: 'done' });
+    const counts = s.countByStatus();
+    expect(counts.pending).toBe(2);
+    expect(counts.done).toBe(1);
+    expect(counts.cancelled).toBe(0);
+  });
+});

@@ -41,6 +41,15 @@ export interface TaskStore {
   }): { updated: boolean; task?: TaskRecord };
   listPending(filter: { status?: TaskStatus; cap?: number }): TaskRecord[];
   listEventTasks(filter: { cap?: number }): TaskRecord[];
+  listPage(opts: {
+    status?: TaskStatus;
+    trigger_type?: TaskTriggerType;
+    dueDateFrom?: string;
+    dueDateTo?: string;
+    limit: number;
+    offset: number;
+  }): { rows: TaskRecord[]; total: number };
+  countByStatus(): Record<TaskStatus, number>;
   get(id: string): TaskRecord | null;
   delete(id: string): boolean;
 }
@@ -175,9 +184,38 @@ export function createTaskStore(db: Database.Database): TaskStore {
     return selectEvents.all({ cap: filter.cap ?? 20 });
   }
 
+  function listPage(opts: {
+    status?: TaskStatus; trigger_type?: TaskTriggerType;
+    dueDateFrom?: string; dueDateTo?: string;
+    limit: number; offset: number;
+  }): { rows: TaskRecord[]; total: number } {
+    const clauses: string[] = [];
+    const params: Array<string | number> = [];
+    if (opts.status)       { clauses.push('status = ?');        params.push(opts.status); }
+    if (opts.trigger_type) { clauses.push('trigger_type = ?');  params.push(opts.trigger_type); }
+    if (opts.dueDateFrom)  { clauses.push('due_date >= ?');     params.push(opts.dueDateFrom); }
+    if (opts.dueDateTo)    { clauses.push('due_date <= ?');     params.push(opts.dueDateTo); }
+    const where = clauses.length ? `WHERE ${clauses.join(' AND ')}` : '';
+    const total = (db.prepare(`SELECT COUNT(*) AS n FROM tasks ${where}`)
+      .get(...params) as { n: number }).n;
+    const rows = db.prepare(
+      `SELECT * FROM tasks ${where} ORDER BY updated_at DESC LIMIT ? OFFSET ?`,
+    ).all(...params, opts.limit, opts.offset) as TaskRecord[];
+    return { rows, total };
+  }
+
+  function countByStatus(): Record<TaskStatus, number> {
+    const out: Record<TaskStatus, number> = { pending: 0, done: 0, cancelled: 0 };
+    const rows = db.prepare(
+      `SELECT status, COUNT(*) AS n FROM tasks GROUP BY status`,
+    ).all() as Array<{ status: TaskStatus; n: number }>;
+    for (const r of rows) if (r.status in out) out[r.status] = r.n;
+    return out;
+  }
+
   function get(id: string): TaskRecord | null { return selectById.get({ id }) ?? null; }
 
   function deleteOne(id: string): boolean { return del.run({ id }).changes > 0; }
 
-  return { create, update, listPending, listEventTasks, get, delete: deleteOne };
+  return { create, update, listPending, listEventTasks, listPage, countByStatus, get, delete: deleteOne };
 }
