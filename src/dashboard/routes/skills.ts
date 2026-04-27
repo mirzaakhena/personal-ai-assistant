@@ -19,6 +19,18 @@ export function mountSkillsRoutes(
   app: Express,
   deps: { pool: DashboardUserDbPool; reader: SkillsReader },
 ): void {
+  // Registered first — must precede /skills/:scope/:name to avoid being matched as detail.
+  app.get('/api/users/:uid/skills/_count',
+    async (req: Request, res: Response, next: NextFunction) => {
+      try {
+        const uid = req.params['uid'] as string;
+        assertUserExists(deps.pool, uid);
+        const counts = await deps.reader.count(uid);
+        res.json(counts);
+      } catch (err) { next(err); }
+    },
+  );
+
   app.get('/api/users/:uid/skills',
     async (req: Request, res: Response, next: NextFunction) => {
       try {

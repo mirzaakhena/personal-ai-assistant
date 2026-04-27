@@ -120,3 +120,35 @@ describe('GET /api/users/:uid/skills/:scope/:name', () => {
     expect(r.body.error.code).toBe('INVALID_QUERY');
   });
 });
+
+describe('GET /api/users/:uid/skills/_count', () => {
+  it('returns zero counts for user with no skills', async () => {
+    makeUser('alice');
+    const r = await request(makeApp()).get('/api/users/alice/skills/_count');
+    expect(r.status).toBe(200);
+    expect(r.body).toEqual({ active: 0, archived: 0 });
+  });
+
+  it('returns counts for both scopes', async () => {
+    makeUser('alice');
+    await writeSkill({ dataDir: baseDir, userId: 'alice', name: 'one',
+      description: 'x', body: '' });
+    await writeSkill({ dataDir: baseDir, userId: 'alice', name: 'two',
+      description: 'x', body: '' });
+    const fs = await import('node:fs/promises');
+    const arch = join(baseDir, 'users', 'alice', '.archived-skills', 'old');
+    await fs.mkdir(arch, { recursive: true });
+    await fs.writeFile(join(arch, 'SKILL.md'),
+      `---\nname: old\ndescription: x\ncreated_at: 2026-01-01T00:00:00.000Z\nupdated_at: 2026-01-01T00:00:00.000Z\n---\n\n`,
+      'utf8');
+
+    const r = await request(makeApp()).get('/api/users/alice/skills/_count');
+    expect(r.body).toEqual({ active: 2, archived: 1 });
+  });
+
+  it('returns 404 USER_NOT_FOUND for unknown user', async () => {
+    const r = await request(makeApp()).get('/api/users/ghost/skills/_count');
+    expect(r.status).toBe(404);
+    expect(r.body.error.code).toBe('USER_NOT_FOUND');
+  });
+});
