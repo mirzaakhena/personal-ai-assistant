@@ -119,7 +119,33 @@ export function createSkillsReader(opts: { baseDir: string }): SkillsReader {
     return entries;
   }
 
-  async function search(): Promise<SkillSummary[]> { throw new Error('not yet'); }
+  async function search(
+    userId: string, scope: SkillScope, q: string,
+  ): Promise<SkillSummary[]> {
+    const all = await list(userId, scope);
+    if (q === '') return all;
+    const needle = q.toLowerCase();
+
+    const dir = scopeDir(baseDir, userId, scope);
+    const out: SkillSummary[] = [];
+    for (const s of all) {
+      if (
+        s.name.toLowerCase().includes(needle) ||
+        s.description.toLowerCase().includes(needle)
+      ) {
+        out.push(s);
+        continue;
+      }
+      // Pass 2: read body and check
+      try {
+        const body = await fs.readFile(join(dir, s.name, 'SKILL.md'), 'utf8');
+        if (body.toLowerCase().includes(needle)) out.push(s);
+      } catch {
+        // skill removed between list and search; skip
+      }
+    }
+    return out;
+  }
   async function detail(): Promise<SkillDetail> { throw new Error('not yet'); }
   async function count(): Promise<{ active: number; archived: number }> {
     throw new Error('not yet');

@@ -96,6 +96,52 @@ describe('SkillsReader.list', () => {
   });
 });
 
+describe('SkillsReader.search', () => {
+  it('matches name substring case-insensitively', async () => {
+    await writeSkill({ dataDir: baseDir, userId: 'alice', name: 'expense-tracker',
+      description: 'log expenses', body: 'irrelevant' });
+    await writeSkill({ dataDir: baseDir, userId: 'alice', name: 'mood-log',
+      description: 'log moods', body: 'irrelevant' });
+
+    const reader = createSkillsReader({ baseDir });
+    const rows = await reader.search('alice', 'active', 'EXPENSE');
+    expect(rows.map((r) => r.name)).toEqual(['expense-tracker']);
+  });
+
+  it('matches description substring case-insensitively', async () => {
+    await writeSkill({ dataDir: baseDir, userId: 'alice', name: 'a-one',
+      description: 'tracks moods over time', body: 'body' });
+    await writeSkill({ dataDir: baseDir, userId: 'alice', name: 'b-one',
+      description: 'unrelated', body: 'body' });
+
+    const reader = createSkillsReader({ baseDir });
+    const rows = await reader.search('alice', 'active', 'moods');
+    expect(rows.map((r) => r.name)).toEqual(['a-one']);
+  });
+
+  it('matches body substring when name+description do not match', async () => {
+    await writeSkill({ dataDir: baseDir, userId: 'alice', name: 'one',
+      description: 'short', body: 'mentions kebab-case in detail' });
+    await writeSkill({ dataDir: baseDir, userId: 'alice', name: 'two',
+      description: 'short', body: 'unrelated' });
+
+    const reader = createSkillsReader({ baseDir });
+    const rows = await reader.search('alice', 'active', 'kebab-case');
+    expect(rows.map((r) => r.name)).toEqual(['one']);
+  });
+
+  it('returns all entries when q is empty string', async () => {
+    await writeSkill({ dataDir: baseDir, userId: 'alice', name: 'one',
+      description: 'x', body: '' });
+    await writeSkill({ dataDir: baseDir, userId: 'alice', name: 'two',
+      description: 'y', body: '' });
+
+    const reader = createSkillsReader({ baseDir });
+    const rows = await reader.search('alice', 'active', '');
+    expect(rows).toHaveLength(2);
+  });
+});
+
 describe('SkillsReader cache', () => {
   it('serves listings from cache within TTL', async () => {
     const fs = await import('node:fs/promises');
