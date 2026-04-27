@@ -155,8 +155,22 @@ export function createSkillsReader(opts: { baseDir: string }): SkillsReader {
     if (!got) throw new SkillNotFoundError(name);
     return { ...got.summary, body: got.body };
   }
-  async function count(): Promise<{ active: number; archived: number }> {
-    throw new Error('not yet');
+  async function countDir(dir: string): Promise<number> {
+    if (!existsSync(dir)) return 0;
+    const entries = await fs.readdir(dir, { withFileTypes: true });
+    let n = 0;
+    for (const e of entries) {
+      if (e.isDirectory() && SKILL_NAME_RE.test(e.name)) n++;
+    }
+    return n;
+  }
+
+  async function count(userId: string): Promise<{ active: number; archived: number }> {
+    const [active, archived] = await Promise.all([
+      countDir(scopeDir(baseDir, userId, 'active')),
+      countDir(scopeDir(baseDir, userId, 'archived')),
+    ]);
+    return { active, archived };
   }
 
   return { list, search, detail, count };

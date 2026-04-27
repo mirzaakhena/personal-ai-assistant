@@ -169,6 +169,32 @@ describe('SkillsReader.detail', () => {
   });
 });
 
+describe('SkillsReader.count', () => {
+  it('returns zeros when no dirs exist', async () => {
+    const reader = createSkillsReader({ baseDir });
+    expect(await reader.count('alice')).toEqual({ active: 0, archived: 0 });
+  });
+
+  it('counts both scopes, ignoring non-matching folder names', async () => {
+    const fs = await import('node:fs/promises');
+    await writeSkill({ dataDir: baseDir, userId: 'alice', name: 'a-one',
+      description: 'x', body: '' });
+    await writeSkill({ dataDir: baseDir, userId: 'alice', name: 'a-two',
+      description: 'x', body: '' });
+    await fs.mkdir(join(baseDir, 'users', 'alice', '.claude', 'skills', 'BAD'),
+      { recursive: true });
+
+    const arch = join(baseDir, 'users', 'alice', '.archived-skills', 'old-one');
+    await fs.mkdir(arch, { recursive: true });
+    await fs.writeFile(join(arch, 'SKILL.md'),
+      `---\nname: old-one\ndescription: x\ncreated_at: 2026-01-01T00:00:00.000Z\nupdated_at: 2026-01-01T00:00:00.000Z\n---\n\n`,
+      'utf8');
+
+    const reader = createSkillsReader({ baseDir });
+    expect(await reader.count('alice')).toEqual({ active: 2, archived: 1 });
+  });
+});
+
 describe('SkillsReader cache', () => {
   it('serves listings from cache within TTL', async () => {
     const fs = await import('node:fs/promises');
