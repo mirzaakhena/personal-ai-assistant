@@ -3,6 +3,7 @@
 import { useQuery } from '@tanstack/react-query';
 import { Link, useParams } from 'react-router-dom';
 import { api } from '../api/stores.js';
+import { skillsApi } from '../api/skills.js';
 import { RefreshButton } from '../components/RefreshButton.js';
 import { ErrorBanner } from '../components/ErrorBanner.js';
 
@@ -12,6 +13,11 @@ export function Overview() {
 
   const queryKey = ['storeSummary', uid] as const;
   const q = useQuery({ queryKey, queryFn: () => api.storeSummary(uid) });
+
+  const skillsCount = useQuery({
+    queryKey: ['skills', uid, '_count'],
+    queryFn: () => skillsApi.count(uid),
+  });
 
   return (
     <div>
@@ -31,6 +37,17 @@ export function Overview() {
               <div className="text-3xl mt-2">{s.count.toLocaleString()}</div>
             </Link>
           ))}
+          <Link to={`/u/${uid}/skills/active`}
+            className="block bg-slate-50 rounded p-4 border hover:border-slate-400">
+            <div className="text-xs uppercase text-slate-500">configuration</div>
+            <div className="text-lg font-medium">skills</div>
+            <div className="text-3xl mt-2">
+              {skillsCount.data
+                ? `${skillsCount.data.active} · ${skillsCount.data.archived}`
+                : '…'}
+            </div>
+            <div className="text-xs text-slate-400 mt-1">active · archived</div>
+          </Link>
         </div>
       )}
     </div>
