@@ -7,6 +7,7 @@ import { LoginPage } from './routes/login.js';
 import { RootLayout } from './routes/root-layout.js';
 import { Overview } from './routes/overview.js';
 import { StoreRoute } from './routes/store/$store.js';
+import { SkillsRoute } from './routes/skills/$scope.js';
 
 const router = createBrowserRouter([
   { path: '/login', element: <LoginPage /> },
@@ -16,6 +17,7 @@ const router = createBrowserRouter([
       { path: '/',                            element: <Overview /> },
       { path: '/u/:uid',                      element: <Overview /> },
       { path: '/u/:uid/store/:store',         element: <StoreRoute /> },
+      { path: '/u/:uid/skills/:scope',        element: <SkillsRoute /> },
     ],
   },
 ]);
