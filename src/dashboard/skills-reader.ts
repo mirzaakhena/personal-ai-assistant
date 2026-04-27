@@ -59,8 +59,12 @@ function parseFrontmatter(text: string): { fm: Frontmatter; body: string } | nul
   return { fm: { name, description, created_at, updated_at }, body };
 }
 
+const TTL_MS = 10_000;
+type CacheEntry = { entries: SkillSummary[]; readAt: number };
+
 export function createSkillsReader(opts: { baseDir: string }): SkillsReader {
   const { baseDir } = opts;
+  const cache = new Map<string, CacheEntry>();
 
   async function readSkill(
     dir: string, name: string, scope: SkillScope,
@@ -88,7 +92,7 @@ export function createSkillsReader(opts: { baseDir: string }): SkillsReader {
     };
   }
 
-  async function list(userId: string, scope: SkillScope): Promise<SkillSummary[]> {
+  async function listFresh(userId: string, scope: SkillScope): Promise<SkillSummary[]> {
     const dir = scopeDir(baseDir, userId, scope);
     if (!existsSync(dir)) return [];
     const entries = await fs.readdir(dir, { withFileTypes: true });
@@ -104,6 +108,15 @@ export function createSkillsReader(opts: { baseDir: string }): SkillsReader {
       return a.name.localeCompare(b.name);
     });
     return out;
+  }
+
+  async function list(userId: string, scope: SkillScope): Promise<SkillSummary[]> {
+    const key = `${userId}:${scope}`;
+    const cached = cache.get(key);
+    if (cached && Date.now() - cached.readAt < TTL_MS) return cached.entries;
+    const entries = await listFresh(userId, scope);
+    cache.set(key, { entries, readAt: Date.now() });
+    return entries;
   }
 
   async function search(): Promise<SkillSummary[]> { throw new Error('not yet'); }

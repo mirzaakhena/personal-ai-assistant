@@ -1,6 +1,6 @@
 // src/dashboard/skills-reader.test.ts
 
-import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -93,5 +93,51 @@ describe('SkillsReader.list', () => {
     const reader = createSkillsReader({ baseDir });
     const rows = await reader.list('alice', 'active');
     expect(rows.map((r) => r.name)).toEqual(['b-skill', 'c-skill', 'a-skill']);
+  });
+});
+
+describe('SkillsReader cache', () => {
+  it('serves listings from cache within TTL', async () => {
+    const fs = await import('node:fs/promises');
+    await writeSkill({ dataDir: baseDir, userId: 'alice', name: 'first',
+      description: 'one', body: '' });
+
+    const reader = createSkillsReader({ baseDir });
+    const before = await reader.list('alice', 'active');
+    expect(before).toHaveLength(1);
+
+    // Add a second skill straight to disk (bypassing cache invalidation).
+    const d = join(baseDir, 'users', 'alice', '.claude', 'skills', 'second');
+    await fs.mkdir(d, { recursive: true });
+    await fs.writeFile(join(d, 'SKILL.md'),
+      `---\nname: second\ndescription: two\ncreated_at: 2026-01-01T00:00:00.000Z\nupdated_at: 2026-01-01T00:00:00.000Z\n---\n\n`,
+      'utf8');
+
+    const after = await reader.list('alice', 'active');
+    expect(after).toHaveLength(1); // cache returns stale list
+  });
+
+  it('refreshes after TTL', async () => {
+    vi.useFakeTimers();
+    try {
+      const fs = await import('node:fs/promises');
+      await writeSkill({ dataDir: baseDir, userId: 'alice', name: 'first',
+        description: 'one', body: '' });
+
+      const reader = createSkillsReader({ baseDir });
+      await reader.list('alice', 'active');
+
+      const d = join(baseDir, 'users', 'alice', '.claude', 'skills', 'second');
+      await fs.mkdir(d, { recursive: true });
+      await fs.writeFile(join(d, 'SKILL.md'),
+        `---\nname: second\ndescription: two\ncreated_at: 2026-01-01T00:00:00.000Z\nupdated_at: 2026-01-01T00:00:00.000Z\n---\n\n`,
+        'utf8');
+
+      vi.advanceTimersByTime(11_000);
+      const after = await reader.list('alice', 'active');
+      expect(after).toHaveLength(2);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });
