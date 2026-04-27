@@ -4,6 +4,7 @@ import type { ErrorRequestHandler } from 'express';
 import { ZodError } from 'zod';
 import { BadQueryError } from './filter-builder.js';
 import { DbBusyError, UserNotFoundError } from './userdb-pool.js';
+import { SkillNotFoundError } from './skills-reader.js';
 import { log } from '../utils/logger.js';
 
 export class StoreNotFoundError extends Error {
@@ -35,6 +36,12 @@ export const errorMiddleware: ErrorRequestHandler = (err, _req, res, _next) => {
   if (err instanceof StoreNotFoundError) {
     res.status(404).json({
       error: { code: 'STORE_NOT_FOUND', message: err.message },
+    });
+    return;
+  }
+  if (err instanceof SkillNotFoundError) {
+    res.status(404).json({
+      error: { code: 'SKILL_NOT_FOUND', message: err.message },
     });
     return;
   }

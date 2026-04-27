@@ -6,6 +6,7 @@ import request from 'supertest';
 import { errorMiddleware } from './error-middleware.js';
 import { BadQueryError } from './filter-builder.js';
 import { DbBusyError, UserNotFoundError } from './userdb-pool.js';
+import { SkillNotFoundError } from './skills-reader.js';
 
 function makeApp(handler: express.RequestHandler) {
   const app = express();
@@ -42,5 +43,12 @@ describe('errorMiddleware', () => {
     const r = await request(app).get('/x');
     expect(r.status).toBe(500);
     expect(r.body.error.code).toBe('INTERNAL');
+  });
+
+  it('maps SkillNotFoundError to 404 SKILL_NOT_FOUND', async () => {
+    const app = makeApp((_req, _res, next) => next(new SkillNotFoundError('foo')));
+    const r = await request(app).get('/x');
+    expect(r.status).toBe(404);
+    expect(r.body.error.code).toBe('SKILL_NOT_FOUND');
   });
 });
