@@ -84,3 +84,39 @@ describe('GET /api/users/:uid/skills', () => {
     expect(r.body.error.code).toBe('INVALID_QUERY');
   });
 });
+
+describe('GET /api/users/:uid/skills/:scope/:name', () => {
+  it('returns the skill detail', async () => {
+    makeUser('alice');
+    await writeSkill({ dataDir: baseDir, userId: 'alice', name: 'foo',
+      description: 'foo desc', body: '# Hi\n\nbody\n' });
+
+    const r = await request(makeApp()).get('/api/users/alice/skills/active/foo');
+    expect(r.status).toBe(200);
+    expect(r.body.name).toBe('foo');
+    expect(r.body.description).toBe('foo desc');
+    expect(r.body.body).toBe('# Hi\n\nbody\n');
+    expect(r.body.scope).toBe('active');
+  });
+
+  it('returns 404 SKILL_NOT_FOUND when skill is missing', async () => {
+    makeUser('alice');
+    const r = await request(makeApp()).get('/api/users/alice/skills/active/nope');
+    expect(r.status).toBe(404);
+    expect(r.body.error.code).toBe('SKILL_NOT_FOUND');
+  });
+
+  it('returns 404 SKILL_NOT_FOUND for invalid skill name', async () => {
+    makeUser('alice');
+    const r = await request(makeApp()).get('/api/users/alice/skills/active/BAD_NAME');
+    expect(r.status).toBe(404);
+    expect(r.body.error.code).toBe('SKILL_NOT_FOUND');
+  });
+
+  it('returns 400 for invalid scope', async () => {
+    makeUser('alice');
+    const r = await request(makeApp()).get('/api/users/alice/skills/junk/foo');
+    expect(r.status).toBe(400);
+    expect(r.body.error.code).toBe('INVALID_QUERY');
+  });
+});

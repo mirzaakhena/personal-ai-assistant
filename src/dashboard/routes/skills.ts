@@ -32,4 +32,19 @@ export function mountSkillsRoutes(
       } catch (err) { next(err); }
     },
   );
+
+  const scopeSchema = z.enum(['active', 'archived']);
+
+  app.get('/api/users/:uid/skills/:scope/:name',
+    async (req: Request, res: Response, next: NextFunction) => {
+      try {
+        const uid = req.params['uid'] as string;
+        assertUserExists(deps.pool, uid);
+        const scope = scopeSchema.parse(req.params['scope']);
+        const name = req.params['name'] as string;
+        const detail = await deps.reader.detail(uid, scope, name);
+        res.json(detail);
+      } catch (err) { next(err); }
+    },
+  );
 }
