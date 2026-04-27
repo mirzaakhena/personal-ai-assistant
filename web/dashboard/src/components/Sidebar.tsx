@@ -40,6 +40,21 @@ export function Sidebar() {
           ))}
         </div>
       ))}
+        <div className="mt-4">
+          <div className="text-xs uppercase font-semibold text-slate-500 mb-1">
+            Configuration
+          </div>
+          <NavLink to={`/u/${uid}/skills/active`}
+            className={({ isActive }) =>
+              `block py-1 px-2 rounded ${isActive ? 'bg-slate-300' : 'hover:bg-slate-200'}`}>
+            skills (active)
+          </NavLink>
+          <NavLink to={`/u/${uid}/skills/archived`}
+            className={({ isActive }) =>
+              `block py-1 px-2 rounded ${isActive ? 'bg-slate-300' : 'hover:bg-slate-200'}`}>
+            skills (archived)
+          </NavLink>
+        </div>
     </aside>
   );
 }
