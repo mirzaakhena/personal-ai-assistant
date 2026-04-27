@@ -146,7 +146,15 @@ export function createSkillsReader(opts: { baseDir: string }): SkillsReader {
     }
     return out;
   }
-  async function detail(): Promise<SkillDetail> { throw new Error('not yet'); }
+  async function detail(
+    userId: string, scope: SkillScope, name: string,
+  ): Promise<SkillDetail> {
+    if (!SKILL_NAME_RE.test(name)) throw new SkillNotFoundError(name);
+    const dir = scopeDir(baseDir, userId, scope);
+    const got = await readSkill(dir, name, scope);
+    if (!got) throw new SkillNotFoundError(name);
+    return { ...got.summary, body: got.body };
+  }
   async function count(): Promise<{ active: number; archived: number }> {
     throw new Error('not yet');
   }

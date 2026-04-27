@@ -5,7 +5,7 @@ import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { writeSkill } from '../skills/storage.js';
-import { createSkillsReader } from './skills-reader.js';
+import { createSkillsReader, SkillNotFoundError } from './skills-reader.js';
 
 let baseDir: string;
 beforeEach(() => { baseDir = mkdtempSync(join(tmpdir(), 'skills-reader-')); });
@@ -139,6 +139,33 @@ describe('SkillsReader.search', () => {
     const reader = createSkillsReader({ baseDir });
     const rows = await reader.search('alice', 'active', '');
     expect(rows).toHaveLength(2);
+  });
+});
+
+describe('SkillsReader.detail', () => {
+  it('returns the full body for a known skill', async () => {
+    await writeSkill({ dataDir: baseDir, userId: 'alice', name: 'foo-skill',
+      description: 'foo desc', body: '# Heading\n\nbody here\n' });
+
+    const reader = createSkillsReader({ baseDir });
+    const d = await reader.detail('alice', 'active', 'foo-skill');
+    expect(d.name).toBe('foo-skill');
+    expect(d.description).toBe('foo desc');
+    expect(d.body).toBe('# Heading\n\nbody here\n');
+    expect(d.body_size).toBe(Buffer.byteLength(d.body, 'utf8'));
+    expect(d.scope).toBe('active');
+  });
+
+  it('throws SkillNotFoundError when file is missing', async () => {
+    const reader = createSkillsReader({ baseDir });
+    await expect(reader.detail('alice', 'active', 'nope'))
+      .rejects.toBeInstanceOf(SkillNotFoundError);
+  });
+
+  it('throws SkillNotFoundError when name is invalid', async () => {
+    const reader = createSkillsReader({ baseDir });
+    await expect(reader.detail('alice', 'active', 'BAD_NAME'))
+      .rejects.toBeInstanceOf(SkillNotFoundError);
   });
 });
 
