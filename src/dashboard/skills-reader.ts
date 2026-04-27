@@ -136,10 +136,11 @@ export function createSkillsReader(opts: { baseDir: string }): SkillsReader {
         out.push(s);
         continue;
       }
-      // Pass 2: read body and check
+      // Pass 2: read body only (not frontmatter) and check
       try {
-        const body = await fs.readFile(join(dir, s.name, 'SKILL.md'), 'utf8');
-        if (body.toLowerCase().includes(needle)) out.push(s);
+        const text = await fs.readFile(join(dir, s.name, 'SKILL.md'), 'utf8');
+        const parsed = parseFrontmatter(text);
+        if (parsed && parsed.body.toLowerCase().includes(needle)) out.push(s);
       } catch {
         // skill removed between list and search; skip
       }

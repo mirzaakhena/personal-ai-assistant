@@ -130,6 +130,18 @@ describe('SkillsReader.search', () => {
     expect(rows.map((r) => r.name)).toEqual(['one']);
   });
 
+  it('does not match frontmatter keys leaking from raw file', async () => {
+    await writeSkill({ dataDir: baseDir, userId: 'alice', name: 'one',
+      description: 'short', body: 'unrelated' });
+    await writeSkill({ dataDir: baseDir, userId: 'alice', name: 'two',
+      description: 'short', body: 'unrelated' });
+
+    const reader = createSkillsReader({ baseDir });
+    // 'created_at:' literal appears in every frontmatter — body should NOT match it.
+    const rows = await reader.search('alice', 'active', 'created_at:');
+    expect(rows).toEqual([]);
+  });
+
   it('returns all entries when q is empty string', async () => {
     await writeSkill({ dataDir: baseDir, userId: 'alice', name: 'one',
       description: 'x', body: '' });

@@ -27,29 +27,27 @@ export function Overview() {
       </div>
       {q.isLoading && <div>Loading…</div>}
       {q.isError && <ErrorBanner error={q.error} />}
-      {q.data && (
-        <div className="grid grid-cols-3 gap-4">
-          {q.data.stores.map((s) => (
-            <Link key={s.name} to={`/u/${uid}/store/${s.name}`}
-                  className="block bg-slate-50 rounded p-4 border hover:border-slate-400">
-              <div className="text-xs uppercase text-slate-500">{s.category}</div>
-              <div className="text-lg font-medium">{s.name}</div>
-              <div className="text-3xl mt-2">{s.count.toLocaleString()}</div>
-            </Link>
-          ))}
-          <Link to={`/u/${uid}/skills/active`}
-            className="block bg-slate-50 rounded p-4 border hover:border-slate-400">
-            <div className="text-xs uppercase text-slate-500">configuration</div>
-            <div className="text-lg font-medium">skills</div>
-            <div className="text-3xl mt-2">
-              {skillsCount.data
-                ? `${skillsCount.data.active} · ${skillsCount.data.archived}`
-                : '…'}
-            </div>
-            <div className="text-xs text-slate-400 mt-1">active · archived</div>
+      <div className="grid grid-cols-3 gap-4">
+        {q.data && q.data.stores.map((s) => (
+          <Link key={s.name} to={`/u/${uid}/store/${s.name}`}
+                className="block bg-slate-50 rounded p-4 border hover:border-slate-400">
+            <div className="text-xs uppercase text-slate-500">{s.category}</div>
+            <div className="text-lg font-medium">{s.name}</div>
+            <div className="text-3xl mt-2">{s.count.toLocaleString()}</div>
           </Link>
-        </div>
-      )}
+        ))}
+        <Link to={`/u/${uid}/skills/active`}
+          className="block bg-slate-50 rounded p-4 border hover:border-slate-400">
+          <div className="text-xs uppercase text-slate-500">configuration</div>
+          <div className="text-lg font-medium">skills</div>
+          <div className="text-3xl mt-2">
+            {skillsCount.data
+              ? `${skillsCount.data.active} · ${skillsCount.data.archived}`
+              : '…'}
+          </div>
+          <div className="text-xs text-slate-400 mt-1">active · archived</div>
+        </Link>
+      </div>
     </div>
   );
 }
