@@ -34,4 +34,64 @@ describe('SkillsReader.list', () => {
     expect(foo.created_at).toMatch(/^\d{4}-/);
     expect(foo.updated_at).toMatch(/^\d{4}-/);
   });
+
+  it('skips folders with malformed frontmatter', async () => {
+    const dir = join(baseDir, 'users', 'alice', '.claude', 'skills', 'broken-one');
+    await import('node:fs/promises').then((fs) => fs.mkdir(dir, { recursive: true }));
+    await import('node:fs/promises').then((fs) =>
+      fs.writeFile(join(dir, 'SKILL.md'), 'no frontmatter here', 'utf8'));
+    await writeSkill({ dataDir: baseDir, userId: 'alice', name: 'good-one',
+      description: 'ok', body: 'ok body' });
+
+    const reader = createSkillsReader({ baseDir });
+    const rows = await reader.list('alice', 'active');
+    expect(rows.map((r) => r.name)).toEqual(['good-one']);
+  });
+
+  it('skips folders that do not match the skill name regex', async () => {
+    const fs = await import('node:fs/promises');
+    const dir = join(baseDir, 'users', 'alice', '.claude', 'skills', 'BAD_NAME');
+    await fs.mkdir(dir, { recursive: true });
+    await fs.writeFile(join(dir, 'SKILL.md'), 'whatever', 'utf8');
+    await writeSkill({ dataDir: baseDir, userId: 'alice', name: 'good-one',
+      description: 'ok', body: 'ok body' });
+
+    const reader = createSkillsReader({ baseDir });
+    const rows = await reader.list('alice', 'active');
+    expect(rows.map((r) => r.name)).toEqual(['good-one']);
+  });
+
+  it('reads the archived directory when scope is archived', async () => {
+    const fs = await import('node:fs/promises');
+    const dir = join(baseDir, 'users', 'alice', '.archived-skills', 'old-skill');
+    await fs.mkdir(dir, { recursive: true });
+    await fs.writeFile(join(dir, 'SKILL.md'),
+      `---\nname: old-skill\ndescription: archived one\ncreated_at: 2026-01-01T00:00:00.000Z\nupdated_at: 2026-01-02T00:00:00.000Z\n---\n\nbody\n`,
+      'utf8');
+
+    const reader = createSkillsReader({ baseDir });
+    const active = await reader.list('alice', 'active');
+    const archived = await reader.list('alice', 'archived');
+    expect(active).toEqual([]);
+    expect(archived.map((r) => r.name)).toEqual(['old-skill']);
+    expect(archived[0].scope).toBe('archived');
+  });
+
+  it('sorts by updated_at desc, name asc as tiebreaker', async () => {
+    const fs = await import('node:fs/promises');
+    const mk = async (name: string, updated: string) => {
+      const d = join(baseDir, 'users', 'alice', '.claude', 'skills', name);
+      await fs.mkdir(d, { recursive: true });
+      await fs.writeFile(join(d, 'SKILL.md'),
+        `---\nname: ${name}\ndescription: x\ncreated_at: 2026-01-01T00:00:00.000Z\nupdated_at: ${updated}\n---\n\n`,
+        'utf8');
+    };
+    await mk('a-skill', '2026-04-01T00:00:00.000Z');
+    await mk('b-skill', '2026-04-10T00:00:00.000Z');
+    await mk('c-skill', '2026-04-10T00:00:00.000Z');
+
+    const reader = createSkillsReader({ baseDir });
+    const rows = await reader.list('alice', 'active');
+    expect(rows.map((r) => r.name)).toEqual(['b-skill', 'c-skill', 'a-skill']);
+  });
 });
