@@ -2,6 +2,8 @@
 
 import { useState, useEffect } from 'react';
 import { useQuery } from '@tanstack/react-query';
+import ReactMarkdown from 'react-markdown';
+import remarkGfm from 'remark-gfm';
 import { skillsApi } from '../api/skills.js';
 import type { SkillScope } from '@shared/skills-types.js';
 
@@ -32,6 +34,43 @@ function useDebouncedEffect(fn: () => void, ms: number, deps: unknown[]) {
     return () => clearTimeout(t);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, deps);
+}
+
+function SkillPreview({ userId, scope, name }: {
+  userId: string; scope: SkillScope; name: string;
+}) {
+  const detail = useQuery({
+    queryKey: ['skill', userId, scope, name],
+    queryFn: () => skillsApi.detail(userId, scope, name),
+  });
+
+  if (detail.isLoading) return <div>Loading…</div>;
+  if (detail.isError) return <div className="text-red-600">
+    Skill tidak ditemukan, mungkin baru saja di-archive.
+  </div>;
+  if (!detail.data) return null;
+
+  const d = detail.data;
+  return (
+    <article>
+      <header className="border-b pb-3 mb-4">
+        <h1 className="text-2xl font-mono">{d.name}</h1>
+        <p className="text-slate-600 mt-1">{d.description}</p>
+        <div className="text-xs text-slate-400 mt-2 flex gap-3">
+          <span>created {new Date(d.created_at).toLocaleString()}</span>
+          <span>updated {new Date(d.updated_at).toLocaleString()}</span>
+          {d.scope === 'archived' && (
+            <span className="px-1.5 py-0.5 rounded bg-amber-100 text-amber-800">
+              archived
+            </span>
+          )}
+        </div>
+      </header>
+      <div className="prose prose-slate max-w-none">
+        <ReactMarkdown remarkPlugins={[remarkGfm]}>{d.body}</ReactMarkdown>
+      </div>
+    </article>
+  );
 }
 
 export function SkillsView({ userId, scope, selected, onSelect }: Props) {
@@ -81,8 +120,9 @@ export function SkillsView({ userId, scope, selected, onSelect }: Props) {
         </div>
       </div>
       <div className="flex-1 overflow-y-auto p-6">
-        {!selected && <div className="text-slate-400">Pilih skill untuk preview.</div>}
-        {/* Preview pane implemented in Task 16 */}
+        {!selected
+          ? <div className="text-slate-400">Pilih skill untuk preview.</div>
+          : <SkillPreview userId={userId} scope={scope} name={selected} />}
       </div>
     </div>
   );
