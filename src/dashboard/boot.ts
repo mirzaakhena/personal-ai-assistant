@@ -18,6 +18,8 @@ import { mountStoreStatsRoute } from './routes/store-stats.js';
 import { mountKnowledgeRoutes } from './routes/knowledge.js';
 import { mountMessagesRoutes } from './routes/messages.js';
 import { mountLedgerRoutes } from './routes/ledger.js';
+import { mountSkillsRoutes } from './routes/skills.js';
+import { createSkillsReader } from './skills-reader.js';
 import { log } from '../utils/logger.js';
 
 export type DashboardConfig = {
@@ -67,6 +69,9 @@ export function createDashboardServer(cfg: DashboardConfig): DashboardServer | n
   mountKnowledgeRoutes(app, { pool });
   mountMessagesRoutes(app, { pool });
   mountLedgerRoutes(app, { pool });
+
+  const skillsReader = createSkillsReader({ baseDir: cfg.baseDir });
+  mountSkillsRoutes(app, { pool, reader: skillsReader });
 
   // Serve built SPA assets if dist/dashboard exists.
   // In dev mode (without `pnpm build`), this block is skipped — Vite dev server
