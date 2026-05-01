@@ -158,7 +158,7 @@ export function createConsoleGateway(config?: ConsoleGatewayConfig): Gateway {
     if (oldSessionId) {
       log.debug(`soft-cutoff reached for ${queryUserId}: resetting session ${oldSessionId}`);
       userDb.sessions.delete();
-      clearTurnCount(queryUserId);
+      clearTurnCount(queryUserId, userDb.sessions);
     }
     pendingSessionReset.set(queryUserId, false);
   }
@@ -225,7 +225,7 @@ export function createConsoleGateway(config?: ConsoleGatewayConfig): Gateway {
     userDb.sessions.save(result.sessionId);
 
     // Check turn count against soft threshold AFTER the exchange completes.
-    const turnAfter = getTurnCount(queryUserId);
+    const turnAfter = getTurnCount(queryUserId, userDb.sessions);
     if (turnAfter >= turnResetThreshold) {
       pendingSessionReset.set(queryUserId, true);
       log.debug(`turn ${turnAfter} reached threshold ${turnResetThreshold}; will reset session on next exchange`);
@@ -327,7 +327,7 @@ export function createConsoleGateway(config?: ConsoleGatewayConfig): Gateway {
   function handleNew(): void {
     const userDb = userDbCache.get(userId);
     userDb.sessions.delete();
-    clearTurnCount(userId);
+    clearTurnCount(userId, userDb.sessions);
     clearStats(userId);
     pendingSessionReset.set(userId, false);
     lastSystemPrompt = undefined;
@@ -364,9 +364,9 @@ export function createConsoleGateway(config?: ConsoleGatewayConfig): Gateway {
 
   function handleStatus(): void {
     const sessionId = getSessionId();
-    const turnCount = getTurnCount(userId);
-    const stats = getStats(userId);
     const userDb = userDbCache.get(userId);
+    const turnCount = getTurnCount(userId, userDb.sessions);
+    const stats = getStats(userId);
 
     console.log('');
     console.log(`  Session:        ${sessionId ?? 'none'}`);
@@ -440,12 +440,12 @@ export function createConsoleGateway(config?: ConsoleGatewayConfig): Gateway {
   }
 
   async function handleMessage(input: string): Promise<void> {
-    const turn = incrementTurnCount(userId);
-    log.debug(`turn ${turn}`);
-
     // Record the incoming user message so search_messages can find it later.
     // This is what enables "amnesia recovery" and <msg_ref/> lookup.
     const userDb = userDbCache.get(userId);
+    const turn = incrementTurnCount(userId, userDb.sessions);
+    log.debug(`turn ${turn}`);
+
     userDb.messages.insert({
       id: `console:user:${uuidv4()}`,
       gateway: 'console',
@@ -566,16 +566,10 @@ export function createConsoleGateway(config?: ConsoleGatewayConfig): Gateway {
       if (dashboardServer) await dashboardServer.stop();
       await scheduler.stop();
 
-      // Drop the active session pointer so the next boot starts fresh
-      // with a full wake-up briefing (containing the last N messages
-      // verbatim). Runs on /exit, SIGINT, and SIGTERM — all paths
-      // converge here.
-      const active = userDbCache.get(userId);
-      if (active.sessions.get()) {
-        log.debug(`clearing active session for ${userId} before exit`);
-        active.sessions.delete();
-      }
-
+      // Sessions and turn counts persist across restart by design — pm2
+      // restart should resume the conversation, not reset it. Wake-up
+      // briefing only fires for genuinely fresh sessions (new user, /new
+      // command, or turnResetThreshold trigger).
       userDbCache.closeAll();
       console.log('\nGoodbye!\n');
     },

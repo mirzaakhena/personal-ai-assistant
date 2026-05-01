@@ -1,26 +1,44 @@
 // src/utils/turns.ts
 
+import type { SessionStore } from '../db/sessions.js';
+
 /**
- * In-memory turn counter per user.
- * Consumer decides when to increment (per user message)
- * and when to clear (e.g., on /new command).
+ * Per-user turn counter, persisted via session_meta.
+ *
+ * Survives bot restart so a long-running session keeps its turn count
+ * intact and the turnResetThreshold trigger fires at the same point
+ * regardless of process restarts.
+ *
+ * In-memory cache avoids hitting SQLite on every read; writes go through
+ * to session_meta on every increment so persistence is durable.
  */
-const turnCounts = new Map<string, number>();
+
+const KEY = 'turn_count';
+const cache = new Map<string, number>();
+
+function read(userId: string, sessions: SessionStore): number {
+  const cached = cache.get(userId);
+  if (cached !== undefined) return cached;
+  const stored = parseInt(sessions.getMeta(KEY) ?? '0', 10) || 0;
+  cache.set(userId, stored);
+  return stored;
+}
 
 /** Increment turn count for a user. Returns the new count. */
-export function incrementTurnCount(userId: string): number {
-  const current = turnCounts.get(userId) ?? 0;
-  const next = current + 1;
-  turnCounts.set(userId, next);
+export function incrementTurnCount(userId: string, sessions: SessionStore): number {
+  const next = read(userId, sessions) + 1;
+  cache.set(userId, next);
+  sessions.setMeta(KEY, String(next));
   return next;
 }
 
 /** Get current turn count for a user. Returns 0 if no turns recorded. */
-export function getTurnCount(userId: string): number {
-  return turnCounts.get(userId) ?? 0;
+export function getTurnCount(userId: string, sessions: SessionStore): number {
+  return read(userId, sessions);
 }
 
 /** Clear turn count for a user (e.g., on session reset). */
-export function clearTurnCount(userId: string): void {
-  turnCounts.delete(userId);
+export function clearTurnCount(userId: string, sessions: SessionStore): void {
+  cache.delete(userId);
+  sessions.setMeta(KEY, '0');
 }

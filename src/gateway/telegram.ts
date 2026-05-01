@@ -284,7 +284,7 @@ export function createTelegramGateway(config: TelegramGatewayConfig): Gateway {
     if (oldSessionId) {
       log.debug(`[TG] soft-cutoff reached for ${uid}: resetting session ${oldSessionId}`);
       userDb.sessions.delete();
-      clearTurnCount(uid);
+      clearTurnCount(uid, userDb.sessions);
     }
     pendingSessionReset.set(uid, false);
   }
@@ -355,7 +355,7 @@ export function createTelegramGateway(config: TelegramGatewayConfig): Gateway {
 
     userDb.sessions.save(result.sessionId);
 
-    const turnAfter = getTurnCount(queryUserId);
+    const turnAfter = getTurnCount(queryUserId, userDb.sessions);
     if (turnAfter >= turnResetThreshold) {
       pendingSessionReset.set(queryUserId, true);
       log.debug(
@@ -600,7 +600,7 @@ export function createTelegramGateway(config: TelegramGatewayConfig): Gateway {
     const primaryMessageId = messages[0]?.message_id;
     const prompt = buildUserPrompt(combinedCaption, quoted, mediaBlocks, primaryMessageId);
 
-    const turn = incrementTurnCount(userId);
+    const turn = incrementTurnCount(userId, userDbCache.get(userId).sessions);
     log.chat(`${chatId} → ${combinedCaption} [+${mediaBlocks.length} media (album)]`);
     log.debug(`[TG] turn ${turn} (album of ${mediaBlocks.length})`);
 
@@ -735,7 +735,7 @@ export function createTelegramGateway(config: TelegramGatewayConfig): Gateway {
         log.chat(`${chatId} → /new`);
         const userDb = userDbCache.get(userId);
         userDb.sessions.delete();
-        clearTurnCount(userId);
+        clearTurnCount(userId, userDb.sessions);
         clearStats(userId);
         pendingSessionReset.set(userId, false);
         await bot.api.sendMessage(chatId, 'Session cleared. Starting fresh.');
@@ -745,7 +745,7 @@ export function createTelegramGateway(config: TelegramGatewayConfig): Gateway {
         log.chat(`${chatId} → /status`);
         const userDb = userDbCache.get(userId);
         const sessionId = userDb.sessions.get();
-        const turnCount = getTurnCount(userId);
+        const turnCount = getTurnCount(userId, userDb.sessions);
         const stats = getStats(userId);
         await bot.api.sendMessage(
           chatId,
@@ -775,7 +775,7 @@ export function createTelegramGateway(config: TelegramGatewayConfig): Gateway {
       ctx.message.message_id
     );
 
-    const turn = incrementTurnCount(userId);
+    const turn = incrementTurnCount(userId, userDbCache.get(userId).sessions);
     const mediaLog = mediaBlocks.length > 0 ? ` [+${mediaBlocks.length} media]` : '';
     log.chat(`${chatId} → ${text}${mediaLog}`);
     log.debug(
@@ -980,20 +980,10 @@ export function createTelegramGateway(config: TelegramGatewayConfig): Gateway {
       if (dashboardServer) await dashboardServer.stop();
       await scheduler.stop();
 
-      // Drop each seen user's active-session pointer so the next boot
-      // starts fresh with a full wake-up briefing.
-      let cleared = 0;
-      for (const uid of seenUsers) {
-        const userDb = userDbCache.get(uid);
-        if (userDb.sessions.get()) {
-          userDb.sessions.delete();
-          cleared += 1;
-        }
-      }
-      if (cleared > 0) {
-        log.debug(`[TG] cleared ${cleared} active session pointer(s) before exit`);
-      }
-
+      // Sessions and turn counts persist across restart by design — pm2
+      // restart should resume the conversation, not reset it. Wake-up
+      // briefing only fires for genuinely fresh sessions (new user, /new
+      // command, or turnResetThreshold trigger).
       userDbCache.closeAll();
       log.debug('[TG] stopped');
     },
