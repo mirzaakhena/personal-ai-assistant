@@ -1,27 +1,31 @@
-// web/dashboard/src/routes/store/store-views/LedgerView.tsx
-
 import { useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { api } from '../../../api/stores.js';
 import type { StoreConfig } from '@shared/store-meta.js';
-import { FilterBar, type FilterValues } from '../../../components/FilterBar.js';
 import { Pagination } from '../../../components/Pagination.js';
 import { RefreshButton } from '../../../components/RefreshButton.js';
 import { ErrorBanner } from '../../../components/ErrorBanner.js';
 import { ChartCard } from '../../../components/ChartCard.js';
-import { JsonDrawer } from '../../../components/JsonDrawer.js';
-import { fmtTimestamp } from '../../../lib/format.js';
+import { ContentModal } from '../../../components/ContentModal.js';
+import { ColumnFilterRow, type FilterValues } from '../../../components/ColumnFilterRow.js';
+import { fmtTimestamp, truncateUuid } from '../../../lib/format.js';
+import { useDebouncedValue } from '../../../lib/use-debounced-value.js';
+
+type Modal = { title: string; payload: unknown } | null;
 
 export function LedgerView({ uid, cfg }: { uid: string; cfg: StoreConfig }) {
   const [filter, setFilter] = useState<FilterValues>({});
   const [page, setPage] = useState(1);
   const [sort, setSort] = useState(`${cfg.defaultSort.key}:${cfg.defaultSort.dir}`);
-  const [expanded, setExpanded] = useState<Set<string>>(new Set());
+  const [modal, setModal] = useState<Modal>(null);
+  const debouncedFilter = useDebouncedValue(filter, 2000);
 
   const params = new URLSearchParams({ page: String(page), limit: '50', sort });
-  for (const [k, v] of Object.entries(filter)) {
-    if (Array.isArray(v)) v.forEach((vv) => params.append(`filter[${k}]`, vv));
-    else if (v) params.set(`filter[${k}]`, v);
+  for (const [k, v] of Object.entries(debouncedFilter)) {
+    if (Array.isArray(v)) {
+      if (v[0]) params.set(`filter[${k}]`, v[0]);
+      if (v[1]) params.append(`filter[${k}]`, v[1]);
+    } else if (v) params.set(`filter[${k}]`, v);
   }
 
   const list = useQuery({
@@ -33,19 +37,31 @@ export function LedgerView({ uid, cfg }: { uid: string; cfg: StoreConfig }) {
     queryFn: () => api.storeStats(uid, 'ledger'),
   });
 
-  function toggle(id: string) {
-    setExpanded((prev) => {
-      const next = new Set(prev);
-      if (next.has(id)) next.delete(id); else next.add(id);
+  function applyRange(key: string, range: [string, string] | null) {
+    setFilter((f) => {
+      const next = { ...f };
+      if (range === null) delete next[key]; else next[key] = range;
       return next;
     });
+    setPage(1);
   }
+
+  const cols = cfg.columns;
+  const hasFilters = Object.keys(filter).length > 0;
 
   return (
     <div>
       <div className="flex items-center justify-between mb-4">
-        <h1 className="text-2xl font-semibold">ledger</h1>
-        <RefreshButton queryKey={['storeList', uid, 'ledger']} />
+        <h1 className="text-2xl font-semibold tracking-tight">ledger</h1>
+        <div className="flex items-center gap-2">
+          {hasFilters && (
+            <button onClick={() => setFilter({})}
+              className="text-sm border border-border hover:border-border-strong text-text-muted hover:text-text px-3 py-1.5 rounded transition">
+              Clear filters
+            </button>
+          )}
+          <RefreshButton queryKey={['storeList', uid, 'ledger']} />
+        </div>
       </div>
 
       {stats.data && (
@@ -56,52 +72,59 @@ export function LedgerView({ uid, cfg }: { uid: string; cfg: StoreConfig }) {
         </div>
       )}
 
-      <FilterBar config={cfg} value={filter} onChange={(v) => { setFilter(v); setPage(1); }} />
       {list.isError && <ErrorBanner error={list.error} />}
-      {list.isLoading && <div>Loading…</div>}
+      {list.isLoading && <div className="text-text-muted mb-3">Loading…</div>}
       {list.data && (
         <>
-          <div className="overflow-x-auto border rounded">
-            <table className="w-full text-sm">
-              <thead className="bg-slate-100 text-left">
-                <tr>
-                  <th className="px-3 py-2">Stream</th>
-                  <th className="px-3 py-2">Tags</th>
-                  <th className="px-3 py-2">When</th>
-                  <th className="px-3 py-2"></th>
-                </tr>
-              </thead>
-              <tbody>
-                {list.data.rows.map((row) => {
-                  const id = String(row.id);
-                  const open = expanded.has(id);
-                  return (
-                    <>
-                      <tr key={id} className="border-t hover:bg-slate-50">
-                        <td className="px-3 py-2">{String(row.stream ?? '')}</td>
-                        <td className="px-3 py-2">{String(row.tags ?? '')}</td>
-                        <td className="px-3 py-2">{fmtTimestamp(Number(row.ts))}</td>
+          <div className="bg-surface border border-border rounded-lg overflow-hidden">
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm">
+                <thead className="bg-surface-2 text-left border-b border-border">
+                  <tr>
+                    <th className="px-3 py-2 text-xs uppercase tracking-wider font-semibold text-text-muted">ID</th>
+                    <th className="px-3 py-2 text-xs uppercase tracking-wider font-semibold text-text-muted">Stream</th>
+                    <th className="px-3 py-2 text-xs uppercase tracking-wider font-semibold text-text-muted">Tags</th>
+                    <th className="px-3 py-2 text-xs uppercase tracking-wider font-semibold text-text-muted">When</th>
+                    <th className="px-3 py-2 text-xs uppercase tracking-wider font-semibold text-text-muted">Payload</th>
+                  </tr>
+                  <ColumnFilterRow columns={cols} filters={cfg.filters}
+                    value={filter}
+                    onChange={(f) => { setFilter(f); setPage(1); }}
+                    onApplyRange={applyRange} />
+                </thead>
+                <tbody>
+                  {list.data.rows.map((row) => {
+                    const id = String(row.id);
+                    return (
+                      <tr key={id} className="border-t border-border hover:bg-surface-2">
+                        <td className="px-3 py-2 font-mono text-xs text-accent">{truncateUuid(id)}</td>
+                        <td className="px-3 py-2 text-text">{String(row.stream ?? '')}</td>
+                        <td className="px-3 py-2 text-text-muted">{String(row.tags ?? '')}</td>
+                        <td className="px-3 py-2 text-text-muted tabular-nums">{fmtTimestamp(Number(row.ts))}</td>
                         <td className="px-3 py-2">
-                          <button onClick={() => toggle(id)} className="text-xs underline">
-                            {open ? 'hide payload' : 'show payload'}
+                          <button onClick={() => setModal({ title: `payload (${truncateUuid(id)})`, payload: row.payload })}
+                            className="text-xs text-accent hover:underline">
+                            view payload
                           </button>
                         </td>
                       </tr>
-                      {open && (
-                        <tr key={`${id}-body`} className="border-t bg-slate-50">
-                          <td colSpan={4} className="p-3"><JsonDrawer value={row.payload} /></td>
-                        </tr>
-                      )}
-                    </>
-                  );
-                })}
-              </tbody>
-            </table>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
           </div>
           <Pagination page={list.data.page} limit={list.data.limit}
                       total={list.data.total} onChange={setPage} />
         </>
       )}
+      <ContentModal
+        open={modal !== null}
+        onClose={() => setModal(null)}
+        title={modal?.title}
+        variant="json"
+        content={modal?.payload}
+      />
     </div>
   );
 }
