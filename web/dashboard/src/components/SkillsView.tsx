@@ -75,7 +75,7 @@ export function SkillsView({ userId, scope, selected, onSelect }: Props) {
   const [q, setQ] = useState('');
   const [debounced, setDebounced] = useState('');
 
-  useDebouncedEffect(() => setDebounced(q), 200, [q]);
+  useDebouncedEffect(() => setDebounced(q), 2000, [q]);
 
   const list = useQuery({
     queryKey: ['skills', userId, scope, debounced],
