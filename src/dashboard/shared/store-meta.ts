@@ -6,6 +6,9 @@ export type ColumnDef = {
   type: 'string' | 'number' | 'timestamp' | 'json' | 'enum';
   width?: number;
   truncateAt?: number;
+  enumOptions?: readonly string[];     // override for enum filter; if absent, derived from FilterDef
+  noFilter?: boolean;                  // skip filter input for this column
+  display?: 'uuid-short' | 'hidden';   // visual treatment
 };
 
 export type FilterDef =

@@ -51,7 +51,7 @@ export const STORE_CONFIG: Record<StoreName, StoreConfig> = {
   journal: {
     name: 'journal', table: 'journal', primaryKey: ['id'],
     columns: [
-      { key: 'id', label: 'ID', type: 'string', width: 80 },
+      { key: 'id', label: 'ID', type: 'string', width: 80, display: 'uuid-short', noFilter: true },
       { key: 'content', label: 'Content', type: 'string', truncateAt: 300 },
       { key: 'event_date', label: 'Event date', type: 'string' },
       { key: 'created_at', label: 'Created', type: 'timestamp' },
@@ -68,7 +68,7 @@ export const STORE_CONFIG: Record<StoreName, StoreConfig> = {
   tasks: {
     name: 'tasks', table: 'tasks', primaryKey: ['id'],
     columns: [
-      { key: 'id', label: 'ID', type: 'string', width: 80 },
+      { key: 'id', label: 'ID', type: 'string', width: 80, display: 'uuid-short', noFilter: true },
       { key: 'title', label: 'Title', type: 'string', truncateAt: 200 },
       { key: 'status', label: 'Status', type: 'enum' },
       { key: 'trigger_type', label: 'Trigger', type: 'enum' },
@@ -88,7 +88,7 @@ export const STORE_CONFIG: Record<StoreName, StoreConfig> = {
   cronjobs: {
     name: 'cronjobs', table: 'cronjobs', primaryKey: ['id'],
     columns: [
-      { key: 'id', label: 'ID', type: 'string', width: 80 },
+      { key: 'id', label: 'ID', type: 'string', width: 80, display: 'uuid-short', noFilter: true },
       { key: 'type', label: 'Type', type: 'enum' },
       { key: 'status', label: 'Status', type: 'enum' },
       { key: 'schedule_human', label: 'Schedule', type: 'string' },
@@ -107,10 +107,10 @@ export const STORE_CONFIG: Record<StoreName, StoreConfig> = {
   messages: {
     name: 'messages', table: 'messages', primaryKey: ['id'],
     columns: [
-      { key: 'id', label: 'ID', type: 'string', width: 200 },
+      { key: 'id', label: 'ID', type: 'string', display: 'uuid-short', noFilter: true },
       { key: 'gateway', label: 'Gateway', type: 'enum' },
       { key: 'sender', label: 'Sender', type: 'enum' },
-      { key: 'session_id', label: 'Session', type: 'string', width: 200 },
+      { key: 'session_id', label: 'Session', type: 'string', display: 'uuid-short' },
       { key: 'body', label: 'Body', type: 'string', truncateAt: 300 },
       { key: 'timestamp', label: 'When', type: 'timestamp' },
     ],
@@ -128,8 +128,8 @@ export const STORE_CONFIG: Record<StoreName, StoreConfig> = {
   reactions: {
     name: 'reactions', table: 'reactions', primaryKey: ['id'],
     columns: [
-      { key: 'id', label: 'ID', type: 'number', width: 60 },
-      { key: 'message_id', label: 'Message', type: 'string', width: 200 },
+      { key: 'id', label: 'ID', type: 'number', width: 60, noFilter: true },
+      { key: 'message_id', label: 'Message', type: 'string', display: 'uuid-short' },
       { key: 'actor', label: 'Actor', type: 'enum' },
       { key: 'new_emojis', label: 'Emojis', type: 'json' },
       { key: 'timestamp', label: 'When', type: 'timestamp' },
@@ -143,7 +143,7 @@ export const STORE_CONFIG: Record<StoreName, StoreConfig> = {
   sessions: {
     name: 'sessions', table: 'sessions', primaryKey: ['id'],
     columns: [
-      { key: 'id', label: 'ID', type: 'number' },
+      { key: 'id', label: 'ID', type: 'number', noFilter: true },
       { key: 'session_id', label: 'Active session', type: 'string' },
       { key: 'updated_at', label: 'Updated', type: 'timestamp' },
     ],
@@ -156,7 +156,7 @@ export const STORE_CONFIG: Record<StoreName, StoreConfig> = {
   ledger: {
     name: 'ledger', table: 'ledger', primaryKey: ['id'],
     columns: [
-      { key: 'id', label: 'ID', type: 'string', width: 200 },
+      { key: 'id', label: 'ID', type: 'string', display: 'uuid-short', noFilter: true },
       { key: 'stream', label: 'Stream', type: 'string' },
       { key: 'tags', label: 'Tags', type: 'string', truncateAt: 100 },
       { key: 'payload', label: 'Payload', type: 'json' },
@@ -175,8 +175,8 @@ export const STORE_CONFIG: Record<StoreName, StoreConfig> = {
   query_costs: {
     name: 'query_costs', table: 'query_costs', primaryKey: ['id'],
     columns: [
-      { key: 'id', label: 'ID', type: 'number', width: 60 },
-      { key: 'session_id', label: 'Session', type: 'string', width: 200 },
+      { key: 'id', label: 'ID', type: 'number', width: 60, noFilter: true },
+      { key: 'session_id', label: 'Session', type: 'string', display: 'uuid-short' },
       { key: 'model', label: 'Model', type: 'string' },
       { key: 'input_tokens', label: 'Input', type: 'number' },
       { key: 'output_tokens', label: 'Output', type: 'number' },
