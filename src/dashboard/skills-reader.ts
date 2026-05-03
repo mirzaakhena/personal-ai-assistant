@@ -24,8 +24,8 @@ export class SkillNotFoundError extends Error {
 
 function scopeDir(baseDir: string, userId: string, scope: SkillScope): string {
   return scope === 'active'
-    ? join(baseDir, 'users', userId, '.claude', 'skills')
-    : join(baseDir, 'users', userId, '.archived-skills');
+    ? join(baseDir, userId, '.claude', 'skills')
+    : join(baseDir, userId, '.archived-skills');
 }
 
 type Frontmatter = {

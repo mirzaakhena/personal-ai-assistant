@@ -13,9 +13,13 @@ import { createSkillsReader } from '../skills-reader.js';
 import { mountSkillsRoutes } from './skills.js';
 import { errorMiddleware } from '../error-middleware.js';
 
-let baseDir: string;
-beforeEach(() => { baseDir = mkdtempSync(join(tmpdir(), 'skills-route-')); });
-afterEach(() => rmSync(baseDir, { recursive: true, force: true }));
+let baseDir: string;       // <tmp>/users  → matches gateway's `usersBaseDir`
+let dataDir: string;       // <tmp>        → matches what `writeSkill` expects
+beforeEach(() => {
+  dataDir = mkdtempSync(join(tmpdir(), 'skills-route-'));
+  baseDir = join(dataDir, 'users');
+});
+afterEach(() => rmSync(dataDir, { recursive: true, force: true }));
 
 function makeUser(uid: string) {
   const db = createUserDb(uid, baseDir);
@@ -40,7 +44,7 @@ describe('GET /api/users/:uid/skills', () => {
 
   it('returns active skills by default', async () => {
     makeUser('alice');
-    await writeSkill({ dataDir: baseDir, userId: 'alice', name: 'one',
+    await writeSkill({ dataDir, userId: 'alice', name: 'one',
       description: 'first', body: 'body one' });
 
     const r = await request(makeApp()).get('/api/users/alice/skills');
@@ -53,7 +57,7 @@ describe('GET /api/users/:uid/skills', () => {
   it('returns archived skills when scope=archived', async () => {
     makeUser('alice');
     const fs = await import('node:fs/promises');
-    const dir = join(baseDir, 'users', 'alice', '.archived-skills', 'old');
+    const dir = join(baseDir, 'alice', '.archived-skills', 'old');
     await fs.mkdir(dir, { recursive: true });
     await fs.writeFile(join(dir, 'SKILL.md'),
       `---\nname: old\ndescription: x\ncreated_at: 2026-01-01T00:00:00.000Z\nupdated_at: 2026-01-01T00:00:00.000Z\n---\n\n`,
@@ -67,9 +71,9 @@ describe('GET /api/users/:uid/skills', () => {
 
   it('filters by q (substring across name/description/body)', async () => {
     makeUser('alice');
-    await writeSkill({ dataDir: baseDir, userId: 'alice', name: 'one',
+    await writeSkill({ dataDir, userId: 'alice', name: 'one',
       description: 'first', body: 'mentions xyz' });
-    await writeSkill({ dataDir: baseDir, userId: 'alice', name: 'two',
+    await writeSkill({ dataDir, userId: 'alice', name: 'two',
       description: 'second', body: 'unrelated' });
 
     const r = await request(makeApp()).get('/api/users/alice/skills?q=xyz');
@@ -88,7 +92,7 @@ describe('GET /api/users/:uid/skills', () => {
 describe('GET /api/users/:uid/skills/:scope/:name', () => {
   it('returns the skill detail', async () => {
     makeUser('alice');
-    await writeSkill({ dataDir: baseDir, userId: 'alice', name: 'foo',
+    await writeSkill({ dataDir, userId: 'alice', name: 'foo',
       description: 'foo desc', body: '# Hi\n\nbody\n' });
 
     const r = await request(makeApp()).get('/api/users/alice/skills/active/foo');
@@ -131,12 +135,12 @@ describe('GET /api/users/:uid/skills/_count', () => {
 
   it('returns counts for both scopes', async () => {
     makeUser('alice');
-    await writeSkill({ dataDir: baseDir, userId: 'alice', name: 'one',
+    await writeSkill({ dataDir, userId: 'alice', name: 'one',
       description: 'x', body: '' });
-    await writeSkill({ dataDir: baseDir, userId: 'alice', name: 'two',
+    await writeSkill({ dataDir, userId: 'alice', name: 'two',
       description: 'x', body: '' });
     const fs = await import('node:fs/promises');
-    const arch = join(baseDir, 'users', 'alice', '.archived-skills', 'old');
+    const arch = join(baseDir, 'alice', '.archived-skills', 'old');
     await fs.mkdir(arch, { recursive: true });
     await fs.writeFile(join(arch, 'SKILL.md'),
       `---\nname: old\ndescription: x\ncreated_at: 2026-01-01T00:00:00.000Z\nupdated_at: 2026-01-01T00:00:00.000Z\n---\n\n`,
