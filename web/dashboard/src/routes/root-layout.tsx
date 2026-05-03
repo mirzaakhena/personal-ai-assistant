@@ -1,5 +1,3 @@
-// web/dashboard/src/routes/root-layout.tsx
-
 import { Outlet, Navigate } from 'react-router-dom';
 import { isLoggedIn, clearLoggedIn } from '../lib/auth-storage.js';
 import { Sidebar } from '../components/Sidebar.js';
@@ -16,12 +14,13 @@ export function RootLayout() {
   }
 
   return (
-    <div className="min-h-screen flex bg-white">
+    <div className="min-h-screen flex bg-bg text-text">
       <Sidebar />
-      <main className="flex-1 p-6">
-        <header className="flex items-center justify-between mb-6">
+      <main className="flex-1 px-8 py-6 overflow-x-hidden">
+        <header className="flex items-center justify-between mb-8 pb-4 border-b border-border">
           <UserPicker />
-          <button onClick={onLogout} className="text-sm border px-3 py-1 rounded">
+          <button onClick={onLogout}
+            className="text-sm border border-border hover:border-border-strong text-text-muted hover:text-text px-3 py-1.5 rounded transition">
             Log out
           </button>
         </header>

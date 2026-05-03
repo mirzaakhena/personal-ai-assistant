@@ -1,5 +1,3 @@
-// web/dashboard/src/components/RefreshButton.tsx
-
 import { useQueryClient } from '@tanstack/react-query';
 
 export function RefreshButton({ queryKey }: { queryKey: readonly unknown[] }) {
@@ -7,7 +5,7 @@ export function RefreshButton({ queryKey }: { queryKey: readonly unknown[] }) {
   return (
     <button
       onClick={() => qc.invalidateQueries({ queryKey })}
-      className="text-sm border px-3 py-1 rounded hover:bg-slate-50"
+      className="text-sm border border-border hover:border-border-strong text-text-muted hover:text-text px-3 py-1.5 rounded transition"
     >
       Refresh
     </button>
