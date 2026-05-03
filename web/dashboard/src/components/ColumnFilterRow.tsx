@@ -143,11 +143,16 @@ function RangeInput({ type, value, onApply }: {
     if (!from && !to) {
       onApply(null);
     } else if (type === 'date') {
-      const fromEpoch = from ? String(new Date(from + 'T00:00:00').getTime()) : '';
-      const toEpoch   = to   ? String(new Date(to   + 'T23:59:59.999').getTime()) : '';
+      // Open-ended bounds when one side is left empty: 0 (epoch start) for `from`,
+      // 8.64e15 (max valid JS Date) for `to`. Backend requires both to be finite numbers.
+      const fromEpoch = from ? String(new Date(from + 'T00:00:00').getTime()) : '0';
+      const toEpoch   = to   ? String(new Date(to   + 'T23:59:59.999').getTime()) : '8640000000000000';
       onApply([fromEpoch, toEpoch]);
     } else {
-      onApply([from, to]);
+      // number-range: same idea — 0 lower bound, MAX_SAFE_INTEGER upper bound when omitted.
+      const fromN = from || '0';
+      const toN   = to   || String(Number.MAX_SAFE_INTEGER);
+      onApply([fromN, toN]);
     }
   }
 

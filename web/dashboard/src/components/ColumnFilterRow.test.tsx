@@ -94,6 +94,35 @@ describe('ColumnFilterRow', () => {
     expect(cells[0].querySelector('input, select')).toBeNull();
   });
 
+  it('uses open-ended bounds when only one date input is filled', () => {
+    const onApplyRange = vi.fn();
+    const { container, getAllByText } = renderRow({ onApplyRange });
+    const dateInputs = container.querySelectorAll('input[type="date"]');
+    fireEvent.change(dateInputs[0], { target: { value: '2026-01-01' } });
+    // leave 'to' empty
+    const dateApply = getAllByText('Apply').find((el) => {
+      const cell = el.closest('td');
+      return cell?.querySelector('input[type="date"]') !== null;
+    });
+    fireEvent.click(dateApply!);
+    const fromEpoch = new Date('2026-01-01T00:00:00').getTime();
+    expect(onApplyRange).toHaveBeenCalledWith('when', [String(fromEpoch), '8640000000000000']);
+  });
+
+  it('uses open-ended bounds when only one number input is filled', () => {
+    const onApplyRange = vi.fn();
+    const { container, getAllByText } = renderRow({ onApplyRange });
+    const numInputs = container.querySelectorAll('input[type="number"]');
+    fireEvent.change(numInputs[0], { target: { value: '5' } });
+    // leave 'to' empty
+    const numApply = getAllByText('Apply').find((el) => {
+      const cell = el.closest('td');
+      return cell?.querySelector('input[type="number"]') !== null;
+    });
+    fireEvent.click(numApply!);
+    expect(onApplyRange).toHaveBeenCalledWith('count', ['5', String(Number.MAX_SAFE_INTEGER)]);
+  });
+
   it('fires onApplyRange with null when both number range inputs are cleared', () => {
     const onApplyRange = vi.fn();
     const { container, getAllByText } = renderRow({
