@@ -13,7 +13,7 @@ export default {
         'border-strong': '#3a4150',
         text:            '#e6e8eb',
         'text-muted':    '#9aa3b2',
-        'text-dim':      '#6b7280',
+        'text-dim':      '#7d8694',
         accent:          '#7aa2ff',
         'accent-soft':   '#1f2a44',
         success:         '#4ade80',
