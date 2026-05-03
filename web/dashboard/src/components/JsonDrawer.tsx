@@ -1,5 +1,3 @@
-// web/dashboard/src/components/JsonDrawer.tsx
-
 export function JsonDrawer({ value }: { value: unknown }) {
   let pretty: string;
   try {
@@ -8,7 +6,7 @@ export function JsonDrawer({ value }: { value: unknown }) {
     pretty = String(value);
   }
   return (
-    <pre className="bg-slate-900 text-slate-100 text-xs p-3 rounded overflow-x-auto">
+    <pre className="bg-bg border border-border text-text font-mono text-xs p-3 rounded overflow-x-auto">
       {pretty}
     </pre>
   );

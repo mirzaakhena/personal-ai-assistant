@@ -1,5 +1,3 @@
-// web/dashboard/src/routes/store/store-views/KnowledgeView.tsx
-
 import { useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { api } from '../../../api/stores.js';
@@ -9,53 +7,23 @@ import { RefreshButton } from '../../../components/RefreshButton.js';
 import { ErrorBanner } from '../../../components/ErrorBanner.js';
 import { ChartCard } from '../../../components/ChartCard.js';
 import { GenericStoreView } from '../$store.js';
+import { useDebouncedValue } from '../../../lib/use-debounced-value.js';
 
 export function KnowledgeView({ uid, cfg }: { uid: string; cfg: StoreConfig }) {
   const [q, setQ] = useState('');
-  const [page, setPage] = useState(1);
-
-  if (!q.trim()) return (
-    <div>
-      <SearchBox value={q} onChange={setQ} />
-      <GenericStoreView uid={uid} storeName="knowledge" cfg={cfg} />
-    </div>
-  );
-
-  const params = new URLSearchParams({ q, page: String(page), limit: '50' });
-  const key = ['knowledgeSearch', uid, q, page] as const;
-  const search = useQuery({ queryKey: key, queryFn: () => api.knowledgeSearch(uid, params) });
-  const stats = useQuery({
-    queryKey: ['storeStats', uid, 'knowledge'],
-    queryFn: () => api.storeStats(uid, 'knowledge'),
-    enabled: cfg.charts.length > 0,
-  });
+  const debouncedQ = useDebouncedValue(q, 2000);
+  const trimmed = debouncedQ.trim();
 
   return (
     <div>
       <div className="flex items-center justify-between mb-4">
-        <h1 className="text-2xl font-semibold">knowledge</h1>
-        <RefreshButton queryKey={['knowledgeSearch', uid, q]} />
+        <h1 className="text-2xl font-semibold tracking-tight">knowledge</h1>
+        <RefreshButton queryKey={['knowledgeSearch', uid, trimmed]} />
       </div>
-
-      <SearchBox value={q} onChange={(v) => { setQ(v); setPage(1); }} />
-
-      {stats.data && (
-        <div className="grid grid-cols-2 gap-4 mb-6">
-          {cfg.charts.map((c) => stats.data!.charts[c.id] && (
-            <ChartCard key={c.id} title={c.label} payload={stats.data!.charts[c.id]} />
-          ))}
-        </div>
-      )}
-
-      {search.isError && <ErrorBanner error={search.error} />}
-      {search.isLoading && <div>Searching…</div>}
-      {search.data && (
-        <>
-          <SnippetTable hits={search.data.hits} />
-          <Pagination page={search.data.page} limit={search.data.limit}
-                      total={search.data.total} onChange={setPage} />
-        </>
-      )}
+      <SearchBox value={q} onChange={setQ} />
+      {trimmed
+        ? <SearchMode uid={uid} q={trimmed} cfg={cfg} />
+        : <BrowseMode uid={uid} cfg={cfg} />}
     </div>
   );
 }
@@ -66,9 +34,48 @@ function SearchBox({ value, onChange }: { value: string; onChange: (v: string) =
       <input
         type="search" value={value} onChange={(e) => onChange(e.target.value)}
         placeholder="Search knowledge (FTS5; clear to browse)"
-        className="border rounded px-3 py-2 w-96"
+        className="bg-surface border border-border focus:border-accent rounded px-3 py-2 w-96 text-sm transition"
       />
     </div>
+  );
+}
+
+function BrowseMode({ uid, cfg }: { uid: string; cfg: StoreConfig }) {
+  return <GenericStoreView uid={uid} storeName="knowledge" cfg={cfg} />;
+}
+
+function SearchMode({ uid, q, cfg }: { uid: string; q: string; cfg: StoreConfig }) {
+  const [page, setPage] = useState(1);
+  const params = new URLSearchParams({ q, page: String(page), limit: '50' });
+  const search = useQuery({
+    queryKey: ['knowledgeSearch', uid, q, page],
+    queryFn: () => api.knowledgeSearch(uid, params),
+  });
+  const stats = useQuery({
+    queryKey: ['storeStats', uid, 'knowledge'],
+    queryFn: () => api.storeStats(uid, 'knowledge'),
+    enabled: cfg.charts.length > 0,
+  });
+
+  return (
+    <>
+      {stats.data && (
+        <div className="grid grid-cols-2 gap-4 mb-6">
+          {cfg.charts.map((c) => stats.data!.charts[c.id] && (
+            <ChartCard key={c.id} title={c.label} payload={stats.data!.charts[c.id]} />
+          ))}
+        </div>
+      )}
+      {search.isError && <ErrorBanner error={search.error} />}
+      {search.isLoading && <div className="text-text-muted">Searching…</div>}
+      {search.data && (
+        <>
+          <SnippetTable hits={search.data.hits} />
+          <Pagination page={search.data.page} limit={search.data.limit}
+                      total={search.data.total} onChange={setPage} />
+        </>
+      )}
+    </>
   );
 }
 
@@ -76,21 +83,21 @@ function SnippetTable({ hits }: {
   hits: Array<Record<string, unknown> & { snippet?: string }>;
 }) {
   return (
-    <div className="overflow-x-auto border rounded">
+    <div className="overflow-x-auto bg-surface border border-border rounded-lg">
       <table className="w-full text-sm">
-        <thead className="bg-slate-100 text-left">
+        <thead className="bg-surface-2 text-left border-b border-border">
           <tr>
-            <th className="px-3 py-2">Category</th>
-            <th className="px-3 py-2">Key</th>
-            <th className="px-3 py-2">Snippet</th>
+            <th className="px-3 py-2 text-xs uppercase tracking-wider text-text-muted">Category</th>
+            <th className="px-3 py-2 text-xs uppercase tracking-wider text-text-muted">Key</th>
+            <th className="px-3 py-2 text-xs uppercase tracking-wider text-text-muted">Snippet</th>
           </tr>
         </thead>
         <tbody>
           {hits.map((h, i) => (
-            <tr key={i} className="border-t">
+            <tr key={i} className="border-t border-border hover:bg-surface-2">
               <td className="px-3 py-2 align-top">{String(h.category ?? '')}</td>
-              <td className="px-3 py-2 align-top">{String(h.key ?? '')}</td>
-              <td className="px-3 py-2 align-top"
+              <td className="px-3 py-2 align-top font-mono text-xs">{String(h.key ?? '')}</td>
+              <td className="px-3 py-2 align-top text-text-muted"
                   dangerouslySetInnerHTML={{ __html: String(h.snippet ?? '') }} />
             </tr>
           ))}

@@ -1,5 +1,3 @@
-// web/dashboard/src/routes/skills/$scope.tsx
-
 import { useParams, useSearchParams, Navigate } from 'react-router-dom';
 import { useQueryClient } from '@tanstack/react-query';
 import { SkillsView } from '../../components/SkillsView.js';
@@ -22,17 +20,17 @@ export function SkillsRoute() {
   };
 
   return (
-    <div className="flex flex-col h-full">
-      <div className="flex items-center justify-between px-4 py-2 border-b">
-        <h1 className="text-lg font-semibold">
-          Skills — {uid} <span className="text-slate-400">({scope})</span>
+    <div className="flex flex-col" style={{ height: 'calc(100vh - 8rem)' }}>
+      <div className="flex items-center justify-between pb-3 border-b border-border mb-3">
+        <h1 className="text-lg font-semibold tracking-tight">
+          Skills <span className="text-text-muted font-normal">— {uid} ({scope})</span>
         </h1>
         <button
           onClick={() => {
             void qc.invalidateQueries({ queryKey: ['skills', uid, scope as SkillScope] });
             void qc.invalidateQueries({ queryKey: ['skill', uid, scope as SkillScope] });
           }}
-          className="text-sm border px-3 py-1 rounded hover:bg-slate-50"
+          className="text-sm border border-border hover:border-border-strong text-text-muted hover:text-text px-3 py-1.5 rounded transition"
         >
           Refresh
         </button>

@@ -7,9 +7,13 @@ import { join } from 'node:path';
 import { writeSkill } from '../skills/storage.js';
 import { createSkillsReader, SkillNotFoundError } from './skills-reader.js';
 
-let baseDir: string;
-beforeEach(() => { baseDir = mkdtempSync(join(tmpdir(), 'skills-reader-')); });
-afterEach(() => rmSync(baseDir, { recursive: true, force: true }));
+let baseDir: string;       // <tmp>/users  → matches gateway's `usersBaseDir`
+let dataDir: string;       // <tmp>        → matches what `writeSkill` expects
+beforeEach(() => {
+  dataDir = mkdtempSync(join(tmpdir(), 'skills-reader-'));
+  baseDir = join(dataDir, 'users');
+});
+afterEach(() => rmSync(dataDir, { recursive: true, force: true }));
 
 describe('SkillsReader.list', () => {
   it('returns empty array when user dir does not exist', async () => {
@@ -18,9 +22,9 @@ describe('SkillsReader.list', () => {
   });
 
   it('lists active skills with parsed frontmatter', async () => {
-    await writeSkill({ dataDir: baseDir, userId: 'alice', name: 'foo-skill',
+    await writeSkill({ dataDir, userId: 'alice', name: 'foo-skill',
       description: 'foo description', body: '# Foo\nbody here' });
-    await writeSkill({ dataDir: baseDir, userId: 'alice', name: 'bar-skill',
+    await writeSkill({ dataDir, userId: 'alice', name: 'bar-skill',
       description: 'bar description', body: 'bar body' });
 
     const reader = createSkillsReader({ baseDir });
@@ -36,11 +40,11 @@ describe('SkillsReader.list', () => {
   });
 
   it('skips folders with malformed frontmatter', async () => {
-    const dir = join(baseDir, 'users', 'alice', '.claude', 'skills', 'broken-one');
+    const dir = join(baseDir, 'alice', '.claude', 'skills', 'broken-one');
     await import('node:fs/promises').then((fs) => fs.mkdir(dir, { recursive: true }));
     await import('node:fs/promises').then((fs) =>
       fs.writeFile(join(dir, 'SKILL.md'), 'no frontmatter here', 'utf8'));
-    await writeSkill({ dataDir: baseDir, userId: 'alice', name: 'good-one',
+    await writeSkill({ dataDir, userId: 'alice', name: 'good-one',
       description: 'ok', body: 'ok body' });
 
     const reader = createSkillsReader({ baseDir });
@@ -50,10 +54,10 @@ describe('SkillsReader.list', () => {
 
   it('skips folders that do not match the skill name regex', async () => {
     const fs = await import('node:fs/promises');
-    const dir = join(baseDir, 'users', 'alice', '.claude', 'skills', 'BAD_NAME');
+    const dir = join(baseDir, 'alice', '.claude', 'skills', 'BAD_NAME');
     await fs.mkdir(dir, { recursive: true });
     await fs.writeFile(join(dir, 'SKILL.md'), 'whatever', 'utf8');
-    await writeSkill({ dataDir: baseDir, userId: 'alice', name: 'good-one',
+    await writeSkill({ dataDir, userId: 'alice', name: 'good-one',
       description: 'ok', body: 'ok body' });
 
     const reader = createSkillsReader({ baseDir });
@@ -63,7 +67,7 @@ describe('SkillsReader.list', () => {
 
   it('reads the archived directory when scope is archived', async () => {
     const fs = await import('node:fs/promises');
-    const dir = join(baseDir, 'users', 'alice', '.archived-skills', 'old-skill');
+    const dir = join(baseDir, 'alice', '.archived-skills', 'old-skill');
     await fs.mkdir(dir, { recursive: true });
     await fs.writeFile(join(dir, 'SKILL.md'),
       `---\nname: old-skill\ndescription: archived one\ncreated_at: 2026-01-01T00:00:00.000Z\nupdated_at: 2026-01-02T00:00:00.000Z\n---\n\nbody\n`,
@@ -80,7 +84,7 @@ describe('SkillsReader.list', () => {
   it('sorts by updated_at desc, name asc as tiebreaker', async () => {
     const fs = await import('node:fs/promises');
     const mk = async (name: string, updated: string) => {
-      const d = join(baseDir, 'users', 'alice', '.claude', 'skills', name);
+      const d = join(baseDir, 'alice', '.claude', 'skills', name);
       await fs.mkdir(d, { recursive: true });
       await fs.writeFile(join(d, 'SKILL.md'),
         `---\nname: ${name}\ndescription: x\ncreated_at: 2026-01-01T00:00:00.000Z\nupdated_at: ${updated}\n---\n\n`,
@@ -98,9 +102,9 @@ describe('SkillsReader.list', () => {
 
 describe('SkillsReader.search', () => {
   it('matches name substring case-insensitively', async () => {
-    await writeSkill({ dataDir: baseDir, userId: 'alice', name: 'expense-tracker',
+    await writeSkill({ dataDir, userId: 'alice', name: 'expense-tracker',
       description: 'log expenses', body: 'irrelevant' });
-    await writeSkill({ dataDir: baseDir, userId: 'alice', name: 'mood-log',
+    await writeSkill({ dataDir, userId: 'alice', name: 'mood-log',
       description: 'log moods', body: 'irrelevant' });
 
     const reader = createSkillsReader({ baseDir });
@@ -109,9 +113,9 @@ describe('SkillsReader.search', () => {
   });
 
   it('matches description substring case-insensitively', async () => {
-    await writeSkill({ dataDir: baseDir, userId: 'alice', name: 'a-one',
+    await writeSkill({ dataDir, userId: 'alice', name: 'a-one',
       description: 'tracks moods over time', body: 'body' });
-    await writeSkill({ dataDir: baseDir, userId: 'alice', name: 'b-one',
+    await writeSkill({ dataDir, userId: 'alice', name: 'b-one',
       description: 'unrelated', body: 'body' });
 
     const reader = createSkillsReader({ baseDir });
@@ -120,9 +124,9 @@ describe('SkillsReader.search', () => {
   });
 
   it('matches body substring when name+description do not match', async () => {
-    await writeSkill({ dataDir: baseDir, userId: 'alice', name: 'one',
+    await writeSkill({ dataDir, userId: 'alice', name: 'one',
       description: 'short', body: 'mentions kebab-case in detail' });
-    await writeSkill({ dataDir: baseDir, userId: 'alice', name: 'two',
+    await writeSkill({ dataDir, userId: 'alice', name: 'two',
       description: 'short', body: 'unrelated' });
 
     const reader = createSkillsReader({ baseDir });
@@ -131,9 +135,9 @@ describe('SkillsReader.search', () => {
   });
 
   it('does not match frontmatter keys leaking from raw file', async () => {
-    await writeSkill({ dataDir: baseDir, userId: 'alice', name: 'one',
+    await writeSkill({ dataDir, userId: 'alice', name: 'one',
       description: 'short', body: 'unrelated' });
-    await writeSkill({ dataDir: baseDir, userId: 'alice', name: 'two',
+    await writeSkill({ dataDir, userId: 'alice', name: 'two',
       description: 'short', body: 'unrelated' });
 
     const reader = createSkillsReader({ baseDir });
@@ -143,9 +147,9 @@ describe('SkillsReader.search', () => {
   });
 
   it('returns all entries when q is empty string', async () => {
-    await writeSkill({ dataDir: baseDir, userId: 'alice', name: 'one',
+    await writeSkill({ dataDir, userId: 'alice', name: 'one',
       description: 'x', body: '' });
-    await writeSkill({ dataDir: baseDir, userId: 'alice', name: 'two',
+    await writeSkill({ dataDir, userId: 'alice', name: 'two',
       description: 'y', body: '' });
 
     const reader = createSkillsReader({ baseDir });
@@ -156,7 +160,7 @@ describe('SkillsReader.search', () => {
 
 describe('SkillsReader.detail', () => {
   it('returns the full body for a known skill', async () => {
-    await writeSkill({ dataDir: baseDir, userId: 'alice', name: 'foo-skill',
+    await writeSkill({ dataDir, userId: 'alice', name: 'foo-skill',
       description: 'foo desc', body: '# Heading\n\nbody here\n' });
 
     const reader = createSkillsReader({ baseDir });
@@ -189,14 +193,14 @@ describe('SkillsReader.count', () => {
 
   it('counts both scopes, ignoring non-matching folder names', async () => {
     const fs = await import('node:fs/promises');
-    await writeSkill({ dataDir: baseDir, userId: 'alice', name: 'a-one',
+    await writeSkill({ dataDir, userId: 'alice', name: 'a-one',
       description: 'x', body: '' });
-    await writeSkill({ dataDir: baseDir, userId: 'alice', name: 'a-two',
+    await writeSkill({ dataDir, userId: 'alice', name: 'a-two',
       description: 'x', body: '' });
-    await fs.mkdir(join(baseDir, 'users', 'alice', '.claude', 'skills', 'BAD'),
+    await fs.mkdir(join(baseDir, 'alice', '.claude', 'skills', 'BAD'),
       { recursive: true });
 
-    const arch = join(baseDir, 'users', 'alice', '.archived-skills', 'old-one');
+    const arch = join(baseDir, 'alice', '.archived-skills', 'old-one');
     await fs.mkdir(arch, { recursive: true });
     await fs.writeFile(join(arch, 'SKILL.md'),
       `---\nname: old-one\ndescription: x\ncreated_at: 2026-01-01T00:00:00.000Z\nupdated_at: 2026-01-01T00:00:00.000Z\n---\n\n`,
@@ -210,7 +214,7 @@ describe('SkillsReader.count', () => {
 describe('SkillsReader cache', () => {
   it('serves listings from cache within TTL', async () => {
     const fs = await import('node:fs/promises');
-    await writeSkill({ dataDir: baseDir, userId: 'alice', name: 'first',
+    await writeSkill({ dataDir, userId: 'alice', name: 'first',
       description: 'one', body: '' });
 
     const reader = createSkillsReader({ baseDir });
@@ -218,7 +222,7 @@ describe('SkillsReader cache', () => {
     expect(before).toHaveLength(1);
 
     // Add a second skill straight to disk (bypassing cache invalidation).
-    const d = join(baseDir, 'users', 'alice', '.claude', 'skills', 'second');
+    const d = join(baseDir, 'alice', '.claude', 'skills', 'second');
     await fs.mkdir(d, { recursive: true });
     await fs.writeFile(join(d, 'SKILL.md'),
       `---\nname: second\ndescription: two\ncreated_at: 2026-01-01T00:00:00.000Z\nupdated_at: 2026-01-01T00:00:00.000Z\n---\n\n`,
@@ -232,13 +236,13 @@ describe('SkillsReader cache', () => {
     vi.useFakeTimers();
     try {
       const fs = await import('node:fs/promises');
-      await writeSkill({ dataDir: baseDir, userId: 'alice', name: 'first',
+      await writeSkill({ dataDir, userId: 'alice', name: 'first',
         description: 'one', body: '' });
 
       const reader = createSkillsReader({ baseDir });
       await reader.list('alice', 'active');
 
-      const d = join(baseDir, 'users', 'alice', '.claude', 'skills', 'second');
+      const d = join(baseDir, 'alice', '.claude', 'skills', 'second');
       await fs.mkdir(d, { recursive: true });
       await fs.writeFile(join(d, 'SKILL.md'),
         `---\nname: second\ndescription: two\ncreated_at: 2026-01-01T00:00:00.000Z\nupdated_at: 2026-01-01T00:00:00.000Z\n---\n\n`,

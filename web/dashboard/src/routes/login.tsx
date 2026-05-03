@@ -1,5 +1,3 @@
-// web/dashboard/src/routes/login.tsx
-
 import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { api } from '../api/stores.js';
@@ -28,21 +26,21 @@ export function LoginPage() {
   }
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-slate-50">
-      <form onSubmit={onSubmit} className="bg-white p-8 rounded shadow w-96">
-        <h1 className="text-xl font-semibold mb-4">PAI Dashboard</h1>
-        <label className="block text-sm font-medium mb-1">Token</label>
+    <div className="min-h-screen flex items-center justify-center bg-bg text-text">
+      <form onSubmit={onSubmit}
+        className="bg-surface border border-border p-8 rounded-lg shadow-lg w-96">
+        <h1 className="text-xl font-semibold mb-1">PAI Dashboard</h1>
+        <p className="text-sm text-text-muted mb-6">Sign in with your dashboard token.</p>
+        <label className="block text-xs uppercase tracking-wider text-text-muted mb-1.5">Token</label>
         <input
           type="password" value={token} onChange={(e) => setToken(e.target.value)}
-          className="w-full border rounded px-3 py-2 mb-4"
+          className="w-full bg-bg border border-border focus:border-accent rounded px-3 py-2 mb-4 text-sm font-mono transition"
           autoFocus required
         />
-        {error && (
-          <div className="text-red-600 text-sm mb-3">{error}</div>
-        )}
+        {error && <div className="text-danger text-sm mb-3">{error}</div>}
         <button
           type="submit" disabled={submitting}
-          className="w-full bg-slate-900 text-white py-2 rounded disabled:opacity-50"
+          className="w-full bg-accent hover:bg-accent/90 text-bg font-medium py-2 rounded disabled:opacity-50 transition"
         >
           {submitting ? 'Logging in…' : 'Log in'}
         </button>

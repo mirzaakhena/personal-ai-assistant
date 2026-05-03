@@ -16,3 +16,13 @@ export function fmtJson(v: unknown): string {
   if (typeof v === 'string') return v;
   try { return JSON.stringify(v); } catch { return String(v); }
 }
+
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+export function isUuid(s: string): boolean {
+  return UUID_RE.test(s);
+}
+
+export function truncateUuid(s: string): string {
+  return s.length >= 8 ? s.slice(0, 8) : s;
+}

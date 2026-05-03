@@ -11,7 +11,11 @@ export const STORE_CONFIG: Record<StoreName, StoreConfig> = {
       { key: 'value', label: 'Value', type: 'string', truncateAt: 200 },
       { key: 'updated_at', label: 'Updated', type: 'timestamp' },
     ],
-    filters: [],
+    filters: [
+      { key: 'key', type: 'substring' },
+      { key: 'value', type: 'substring' },
+      { key: 'updated_at', type: 'date-range' },
+    ],
     sortable: ['key', 'updated_at'],
     defaultSort: { key: 'key', dir: 'asc' },
     charts: [],
@@ -25,7 +29,12 @@ export const STORE_CONFIG: Record<StoreName, StoreConfig> = {
       { key: 'value', label: 'Value', type: 'string', truncateAt: 200 },
       { key: 'updated_at', label: 'Updated', type: 'timestamp' },
     ],
-    filters: [{ key: 'kind', type: 'enum', options: ['rule', 'style'] }],
+    filters: [
+      { key: 'kind', type: 'enum', options: ['rule', 'style'] },
+      { key: 'key', type: 'substring' },
+      { key: 'value', type: 'substring' },
+      { key: 'updated_at', type: 'date-range' },
+    ],
     sortable: ['kind', 'key', 'updated_at'],
     defaultSort: { key: 'updated_at', dir: 'desc' },
     charts: [],
@@ -39,10 +48,13 @@ export const STORE_CONFIG: Record<StoreName, StoreConfig> = {
       { key: 'value', label: 'Value', type: 'string', truncateAt: 200 },
       { key: 'updated_at', label: 'Updated', type: 'timestamp' },
     ],
-    filters: [{
-      key: 'category', type: 'enum',
-      options: ['identity', 'person', 'routine', 'context', 'insight'],
-    }],
+    filters: [
+      { key: 'category', type: 'enum',
+        options: ['identity', 'person', 'routine', 'context', 'insight'] },
+      { key: 'key', type: 'substring' },
+      { key: 'value', type: 'substring' },
+      { key: 'updated_at', type: 'date-range' },
+    ],
     sortable: ['category', 'key', 'updated_at'],
     defaultSort: { key: 'updated_at', dir: 'desc' },
     charts: [{ id: 'count_by_category', label: 'Entries per category', type: 'donut' }],
@@ -51,12 +63,13 @@ export const STORE_CONFIG: Record<StoreName, StoreConfig> = {
   journal: {
     name: 'journal', table: 'journal', primaryKey: ['id'],
     columns: [
-      { key: 'id', label: 'ID', type: 'string', width: 80 },
+      { key: 'id', label: 'ID', type: 'string', width: 80, display: 'uuid-short', noFilter: true },
       { key: 'content', label: 'Content', type: 'string', truncateAt: 300 },
       { key: 'event_date', label: 'Event date', type: 'string' },
       { key: 'created_at', label: 'Created', type: 'timestamp' },
     ],
     filters: [
+      { key: 'content', type: 'substring' },
       { key: 'event_date', type: 'date-range' },
       { key: 'created_at', type: 'date-range' },
     ],
@@ -68,7 +81,7 @@ export const STORE_CONFIG: Record<StoreName, StoreConfig> = {
   tasks: {
     name: 'tasks', table: 'tasks', primaryKey: ['id'],
     columns: [
-      { key: 'id', label: 'ID', type: 'string', width: 80 },
+      { key: 'id', label: 'ID', type: 'string', width: 80, display: 'uuid-short', noFilter: true },
       { key: 'title', label: 'Title', type: 'string', truncateAt: 200 },
       { key: 'status', label: 'Status', type: 'enum' },
       { key: 'trigger_type', label: 'Trigger', type: 'enum' },
@@ -76,9 +89,11 @@ export const STORE_CONFIG: Record<StoreName, StoreConfig> = {
       { key: 'updated_at', label: 'Updated', type: 'timestamp' },
     ],
     filters: [
+      { key: 'title', type: 'substring' },
       { key: 'status', type: 'enum', options: ['pending', 'done', 'cancelled'] },
       { key: 'trigger_type', type: 'enum', options: ['time', 'event', 'always'] },
       { key: 'due_date', type: 'date-range' },
+      { key: 'updated_at', type: 'date-range' },
     ],
     sortable: ['status', 'due_date', 'updated_at', 'created_at'],
     defaultSort: { key: 'updated_at', dir: 'desc' },
@@ -88,7 +103,7 @@ export const STORE_CONFIG: Record<StoreName, StoreConfig> = {
   cronjobs: {
     name: 'cronjobs', table: 'cronjobs', primaryKey: ['id'],
     columns: [
-      { key: 'id', label: 'ID', type: 'string', width: 80 },
+      { key: 'id', label: 'ID', type: 'string', width: 80, display: 'uuid-short', noFilter: true },
       { key: 'type', label: 'Type', type: 'enum' },
       { key: 'status', label: 'Status', type: 'enum' },
       { key: 'schedule_human', label: 'Schedule', type: 'string' },
@@ -98,6 +113,8 @@ export const STORE_CONFIG: Record<StoreName, StoreConfig> = {
       { key: 'type', type: 'enum', options: ['once', 'recurring'] },
       { key: 'status', type: 'enum',
         options: ['PENDING', 'EXECUTING', 'EXECUTED', 'FAILED', 'MISSED', 'ACTIVE', 'COMPLETED'] },
+      { key: 'schedule_human', type: 'substring' },
+      { key: 'scheduled_at', type: 'date-range' },
     ],
     sortable: ['scheduled_at', 'status'],
     defaultSort: { key: 'scheduled_at', dir: 'asc' },
@@ -107,17 +124,18 @@ export const STORE_CONFIG: Record<StoreName, StoreConfig> = {
   messages: {
     name: 'messages', table: 'messages', primaryKey: ['id'],
     columns: [
-      { key: 'id', label: 'ID', type: 'string', width: 200 },
+      { key: 'id', label: 'ID', type: 'string', display: 'uuid-short', noFilter: true },
       { key: 'gateway', label: 'Gateway', type: 'enum' },
       { key: 'sender', label: 'Sender', type: 'enum' },
-      { key: 'session_id', label: 'Session', type: 'string', width: 200 },
+      { key: 'session_id', label: 'Session', type: 'string', display: 'uuid-short' },
       { key: 'body', label: 'Body', type: 'string', truncateAt: 300 },
       { key: 'timestamp', label: 'When', type: 'timestamp' },
     ],
     filters: [
       { key: 'gateway', type: 'enum', options: ['console', 'telegram'] },
       { key: 'sender', type: 'enum', options: ['user', 'assistant', 'system'] },
-      { key: 'session_id', type: 'string' },
+      { key: 'session_id', type: 'substring' },
+      { key: 'body', type: 'substring' },
       { key: 'timestamp', type: 'date-range' },
     ],
     sortable: ['timestamp'],
@@ -128,13 +146,17 @@ export const STORE_CONFIG: Record<StoreName, StoreConfig> = {
   reactions: {
     name: 'reactions', table: 'reactions', primaryKey: ['id'],
     columns: [
-      { key: 'id', label: 'ID', type: 'number', width: 60 },
-      { key: 'message_id', label: 'Message', type: 'string', width: 200 },
+      { key: 'id', label: 'ID', type: 'number', width: 60, noFilter: true },
+      { key: 'message_id', label: 'Message', type: 'string', display: 'uuid-short' },
       { key: 'actor', label: 'Actor', type: 'enum' },
       { key: 'new_emojis', label: 'Emojis', type: 'json' },
       { key: 'timestamp', label: 'When', type: 'timestamp' },
     ],
-    filters: [{ key: 'actor', type: 'enum', options: ['user', 'assistant'] }],
+    filters: [
+      { key: 'message_id', type: 'substring' },
+      { key: 'actor', type: 'enum', options: ['user', 'assistant'] },
+      { key: 'timestamp', type: 'date-range' },
+    ],
     sortable: ['timestamp'],
     defaultSort: { key: 'timestamp', dir: 'desc' },
     charts: [],
@@ -143,11 +165,14 @@ export const STORE_CONFIG: Record<StoreName, StoreConfig> = {
   sessions: {
     name: 'sessions', table: 'sessions', primaryKey: ['id'],
     columns: [
-      { key: 'id', label: 'ID', type: 'number' },
+      { key: 'id', label: 'ID', type: 'number', noFilter: true },
       { key: 'session_id', label: 'Active session', type: 'string' },
       { key: 'updated_at', label: 'Updated', type: 'timestamp' },
     ],
-    filters: [],
+    filters: [
+      { key: 'session_id', type: 'substring' },
+      { key: 'updated_at', type: 'date-range' },
+    ],
     sortable: ['updated_at'],
     defaultSort: { key: 'updated_at', dir: 'desc' },
     charts: [],
@@ -156,14 +181,14 @@ export const STORE_CONFIG: Record<StoreName, StoreConfig> = {
   ledger: {
     name: 'ledger', table: 'ledger', primaryKey: ['id'],
     columns: [
-      { key: 'id', label: 'ID', type: 'string', width: 200 },
+      { key: 'id', label: 'ID', type: 'string', display: 'uuid-short', noFilter: true },
       { key: 'stream', label: 'Stream', type: 'string' },
       { key: 'tags', label: 'Tags', type: 'string', truncateAt: 100 },
-      { key: 'payload', label: 'Payload', type: 'json' },
       { key: 'ts', label: 'When', type: 'timestamp' },
+      { key: 'payload', label: 'Payload', type: 'json' },
     ],
     filters: [
-      { key: 'stream', type: 'string' },
+      { key: 'stream', type: 'substring' },
       { key: 'tags', type: 'substring' },
       { key: 'ts', type: 'date-range' },
     ],
@@ -175,8 +200,8 @@ export const STORE_CONFIG: Record<StoreName, StoreConfig> = {
   query_costs: {
     name: 'query_costs', table: 'query_costs', primaryKey: ['id'],
     columns: [
-      { key: 'id', label: 'ID', type: 'number', width: 60 },
-      { key: 'session_id', label: 'Session', type: 'string', width: 200 },
+      { key: 'id', label: 'ID', type: 'number', width: 60, noFilter: true },
+      { key: 'session_id', label: 'Session', type: 'string', display: 'uuid-short' },
       { key: 'model', label: 'Model', type: 'string' },
       { key: 'input_tokens', label: 'Input', type: 'number' },
       { key: 'output_tokens', label: 'Output', type: 'number' },
@@ -184,8 +209,11 @@ export const STORE_CONFIG: Record<StoreName, StoreConfig> = {
       { key: 'timestamp', label: 'When', type: 'timestamp' },
     ],
     filters: [
-      { key: 'session_id', type: 'string' },
-      { key: 'model', type: 'string' },
+      { key: 'session_id', type: 'substring' },
+      { key: 'model', type: 'substring' },
+      { key: 'input_tokens', type: 'number-range' },
+      { key: 'output_tokens', type: 'number-range' },
+      { key: 'actual_cost_usd', type: 'number-range' },
       { key: 'timestamp', type: 'date-range' },
     ],
     sortable: ['timestamp', 'actual_cost_usd'],

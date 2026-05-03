@@ -1,19 +1,17 @@
-// web/dashboard/src/components/ErrorBanner.tsx
-
 import { ApiError } from '../api/client.js';
 
 export function ErrorBanner({ error }: { error: unknown }) {
   if (error instanceof ApiError) {
     if (error.code === 'DB_BUSY') {
-      return <div className="bg-yellow-100 text-yellow-900 border border-yellow-400 p-3 rounded mb-4">
+      return <div className="bg-warning/10 text-warning border border-warning/30 p-3 rounded mb-4 text-sm">
         Bot is writing — click Refresh to retry.
       </div>;
     }
-    return <div className="bg-red-100 text-red-900 border border-red-400 p-3 rounded mb-4">
+    return <div className="bg-danger/10 text-danger border border-danger/30 p-3 rounded mb-4 text-sm">
       <strong>{error.code}</strong>: {error.message}
     </div>;
   }
-  return <div className="bg-red-100 text-red-900 border border-red-400 p-3 rounded mb-4">
+  return <div className="bg-danger/10 text-danger border border-danger/30 p-3 rounded mb-4 text-sm">
     Unexpected error: {String(error)}
   </div>;
 }
