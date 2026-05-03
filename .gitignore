@@ -25,3 +25,6 @@ data/dashboard-tls/
 
 # tsc -b incremental build cache
 *.tsbuildinfo
+
+# Playwright MCP screenshots and snapshots
+.playwright-mcp/
