@@ -11,7 +11,12 @@ const cols: ColumnDef[] = [
   { key: 'when',   label: 'When',   type: 'timestamp' },
 ];
 
-const filters: FilterDef[] = [];
+const filters: FilterDef[] = [
+  { key: 'name', type: 'string' },
+  { key: 'count', type: 'number-range' },
+  { key: 'when', type: 'date-range' },
+  // status enum — exempt; enumOptions directly on ColumnDef is enough
+];
 
 function renderRow(props: Partial<React.ComponentProps<typeof ColumnFilterRow>> = {}) {
   // Wrap in <table><thead> so the <tr> is valid HTML
@@ -69,7 +74,24 @@ describe('ColumnFilterRow', () => {
       return cell?.querySelector('input[type="date"]') !== null;
     });
     fireEvent.click(dateApply!);
-    expect(onApplyRange).toHaveBeenCalledWith('when', ['2026-01-01', '2026-01-31']);
+    const fromEpoch = new Date('2026-01-01T00:00:00').getTime();
+    const toEpoch   = new Date('2026-01-31T23:59:59.999').getTime();
+    expect(onApplyRange).toHaveBeenCalledWith('when', [String(fromEpoch), String(toEpoch)]);
+  });
+
+  it('does not render filter input for columns without a matching FilterDef', () => {
+    const colsLocal: ColumnDef[] = [
+      { key: 'free', label: 'Free', type: 'string' }, // no filter def
+    ];
+    const { container } = render(
+      <table><thead>
+        <ColumnFilterRow columns={colsLocal} filters={[]} value={{}}
+          onChange={() => {}} onApplyRange={() => {}} />
+      </thead></table>
+    );
+    const cells = container.querySelectorAll('td');
+    expect(cells).toHaveLength(1);
+    expect(cells[0].querySelector('input, select')).toBeNull();
   });
 
   it('fires onApplyRange with null when both number range inputs are cleared', () => {

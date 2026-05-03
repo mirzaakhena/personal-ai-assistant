@@ -52,6 +52,11 @@ function FilterCell({
 }) {
   if (col.noFilter) return null;
 
+  // Don't render inputs for columns without a backing FilterDef.
+  // Enum is exempt because enumOptions can be defined directly on ColumnDef.
+  const hasDef = filters.some((f) => f.key === col.key);
+  if (!hasDef && col.type !== 'enum') return null;
+
   if (col.type === 'enum') {
     const opts = enumOptionsFor(col, filters);
     if (!opts) return null;
@@ -91,22 +96,59 @@ function FilterCell({
   return null;
 }
 
+/** Convert epoch-ms string → YYYY-MM-DD for display in a date input. */
+function epochToDateStr(epochStr: string): string {
+  const n = Number(epochStr);
+  if (!epochStr || !Number.isFinite(n)) return '';
+  const d = new Date(n);
+  const yyyy = d.getFullYear();
+  const mm   = String(d.getMonth() + 1).padStart(2, '0');
+  const dd   = String(d.getDate()).padStart(2, '0');
+  return `${yyyy}-${mm}-${dd}`;
+}
+
 function RangeInput({ type, value, onApply }: {
   type: 'date' | 'number';
   value: [string, string] | undefined;
   onApply: (range: [string, string] | null) => void;
 }) {
+  // For date type: parent stores epoch-ms strings; local state holds YYYY-MM-DD for display.
+  // For number type: no conversion needed; pass values through as-is.
+  function toDisplay(v: string): string {
+    if (type === 'date') return epochToDateStr(v);
+    return v;
+  }
+
   const applied = value ?? ['', ''];
-  const [from, setFrom] = useState(applied[0]);
-  const [to,   setTo]   = useState(applied[1]);
+  const [from, setFrom] = useState(() => toDisplay(applied[0]));
+  const [to,   setTo]   = useState(() => toDisplay(applied[1]));
 
-  useEffect(() => { setFrom(applied[0]); setTo(applied[1]); }, [applied[0], applied[1]]);
+  // Re-sync local display state when the applied (parent) value changes.
+  useEffect(() => {
+    setFrom(toDisplay(applied[0]));
+    setTo(toDisplay(applied[1]));
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [applied[0], applied[1]]);
 
-  const dirty = from !== applied[0] || to !== applied[1];
+  // For dirty comparison, convert current display values back to the wire format.
+  function toWire(displayVal: string): string {
+    if (type !== 'date' || !displayVal) return displayVal;
+    return String(new Date(displayVal + 'T00:00:00').getTime());
+  }
+  const fromWire = toWire(from);
+  const toWire_  = toWire(to);
+  const dirty = fromWire !== applied[0] || toWire_ !== applied[1];
 
   function apply() {
-    if (!from && !to) onApply(null);
-    else onApply([from, to]);
+    if (!from && !to) {
+      onApply(null);
+    } else if (type === 'date') {
+      const fromEpoch = from ? String(new Date(from + 'T00:00:00').getTime()) : '';
+      const toEpoch   = to   ? String(new Date(to   + 'T23:59:59.999').getTime()) : '';
+      onApply([fromEpoch, toEpoch]);
+    } else {
+      onApply([from, to]);
+    }
   }
 
   return (

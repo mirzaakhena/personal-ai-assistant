@@ -159,8 +159,8 @@ export const STORE_CONFIG: Record<StoreName, StoreConfig> = {
       { key: 'id', label: 'ID', type: 'string', display: 'uuid-short', noFilter: true },
       { key: 'stream', label: 'Stream', type: 'string' },
       { key: 'tags', label: 'Tags', type: 'string', truncateAt: 100 },
-      { key: 'payload', label: 'Payload', type: 'json' },
       { key: 'ts', label: 'When', type: 'timestamp' },
+      { key: 'payload', label: 'Payload', type: 'json' },
     ],
     filters: [
       { key: 'stream', type: 'string' },
